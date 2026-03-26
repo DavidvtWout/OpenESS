@@ -70,10 +70,7 @@ class Database:
                 end_time = excluded.end_time,
                 price = excluded.price
             """,
-            [
-                (area, start.isoformat(), end.isoformat(), price)
-                for start, end, price in prices
-            ],
+            [(area, start.isoformat(), end.isoformat(), price) for start, end, price in prices],
         )
         self._conn.commit()
         logger.debug(f"Inserted {len(prices)} price records")

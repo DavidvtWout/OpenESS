@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from entsoe.Market import EnergyPrices
 from entsoe.utils import add_timestamps, extract_records
 from pandas import DataFrame
+from pydantic import BaseModel
 
 # EIC codes and timezones for European bidding zones
 # source: https://github.com/EnergieID/entsoe-py/blob/master/entsoe/mappings.py
@@ -61,46 +62,48 @@ AREAS = {
 }
 
 
+class EntsoeConfig(BaseModel):
+    api_key: str = os.environ.get("ENTSOE_API")
+    area: str
+
+
 class EntsoeClient:
-    def __init__(self, api_key: str):
-        self._api_key = api_key
-        os.environ["ENTSOE_API"] = api_key
+    def __init__(self, config: EntsoeConfig):
+        if config.area not in AREAS:
+            raise ValueError(f"Unknown area code: '{config.area}'")
+
+        self._eic_code, tz_name = AREAS[config.area]
+        self._tz = ZoneInfo(tz_name)
+
+        self._api_key = config.api_key
+        os.environ["ENTSOE_API"] = config.api_key
 
     def fetch_day_ahead_prices(
-        self,
-        area: str,
-        start: datetime,
-        end: datetime,
+            self,
+            start: datetime,
+            end: datetime,
     ) -> list[tuple[datetime, datetime, float]]:
         """
         Fetch day-ahead prices from ENTSO-E for a given area and time range.
 
         Args:
-            area: Area code (e.g., "NL", "DE") or full EIC code
             start: Start datetime (UTC)
             end: End datetime (UTC)
 
         Returns:
             List of (start_time, end_time, price) tuples with prices in EUR/MWh
         """
-        if area in AREAS:
-            eic_code, tz_name = AREAS[area]
-        else:
-            # Assume full EIC code with CET timezone as fallback
-            eic_code = area
-            tz_name = "Europe/Amsterdam"
 
-        # Format timestamps as YYYYMMDDhhmm in the area's local timezone
-        tz = ZoneInfo(tz_name)
-        start_local = start.astimezone(tz)
-        end_local = end.astimezone(tz)
+        # ENTSO-E expects timestamps formatted as YYYYMMDDhhmm in the area's local timezone
+        start_local = start.astimezone(self._tz)
+        end_local = end.astimezone(self._tz)
 
         period_start = int(start_local.strftime("%Y%m%d%H%M"))
         period_end = int(end_local.strftime("%Y%m%d%H%M"))
 
         result = EnergyPrices(
-            in_domain=eic_code,
-            out_domain=eic_code,
+            in_domain=self._eic_code,
+            out_domain=self._eic_code,
             period_start=period_start,
             period_end=period_end,
         ).query_api()

@@ -1,85 +1,65 @@
 import argparse
 import logging
-import os
 import signal
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from .config import Config
 from .db import Database
 from .entsoe import EntsoeClient
+from .victron import VictronClient
 
 logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 
 def fetch_missing_prices(db: Database, entsoe: EntsoeClient, area: str):
     now = datetime.now(timezone.utc)
-    end_of_tomorrow = (now + timedelta(days=2)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    end_of_tomorrow = (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     latest = db.get_latest_price_time(area)
     if latest is None:
         fetch_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        fetch_start -= timedelta(days=70)
+        fetch_start -= timedelta(days=14)
     elif latest >= end_of_tomorrow:
         return
     else:
         fetch_start = latest
 
     logger.info(f"Fetching prices for {area} from {fetch_start} to {end_of_tomorrow}")
-    prices = entsoe.fetch_day_ahead_prices(area, fetch_start, end_of_tomorrow)
+    prices = entsoe.fetch_day_ahead_prices(fetch_start, end_of_tomorrow)
     if prices:
         db.insert_prices(area, prices)
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-
     parser = argparse.ArgumentParser(
         description="Victron dynamic ESS controller - optimize charging based on day-ahead prices"
     )
     parser.add_argument(
-        "--db-path",
+        "--config",
         type=Path,
-        default=Path("dynamic_ess.db"),
-        help="Path to SQLite database file (default: ./dynamic_ess.db)",
-    )
-    parser.add_argument(
-        "--entsoe-api-key",
-        type=str,
-        default=os.environ.get("ENTSOE_API"),
-        help="ENTSO-E API key (or set ENTSOE_API env var)",
-    )
-    parser.add_argument(
-        "--area",
-        type=str,
-        default="NL",
-        help="Bidding zone area code (default: NL)",
-    )
-    parser.add_argument(
-        "--poll-interval",
-        type=int,
-        default=3600,
-        help="Seconds between price fetches (default: 3600)",
+        required=True,
+        help="Path to config file (YAML)",
     )
     args = parser.parse_args()
 
-    if not args.entsoe_api_key:
-        logger.error(
-            "ENTSO-E API key required. Use --entsoe-api-key or set ENTSOE_API env var.\n"
-            "See https://github.com/BerriJ/entsoe-apy for instructions on how to aquire an API key."
-        )
+    config = Config.from_file(args.config)
+
+    db = Database(config.db_path)
+    entsoe = EntsoeClient(config.entsoe)
+    victron = VictronClient(config.victron_gx)
+
+    if not victron.connect():
+        logger.error(f"Could not connect to Victron GX at {victron.host}:{victron.port}")
         sys.exit(1)
-
-    db = Database(args.db_path)
-    entsoe = EntsoeClient(args.entsoe_api_key)
-
-    logger.info(f"Database initialized at {args.db_path}")
+    logger.info(f"Connected to Victron GX at {victron.host}:{victron.port}")
 
     running = True
 
@@ -94,16 +74,27 @@ def main():
     # Main loop
     while running:
         try:
-            fetch_missing_prices(db, entsoe, args.area)
+            fetch_missing_prices(db, entsoe, config.entsoe.area)
         except Exception as e:
             logger.exception(f"Could not fetch prices: {e}")
 
+        try:
+            state = victron.get_state()
+            if state:
+                logger.info(
+                    f"Victron state: SOC={state.battery_soc}%, "
+                    f"battery={state.battery_power}W, grid={state.grid_power}W"
+                )
+        except Exception as e:
+            logger.exception(f"Could not read Victron state: {e}")
+
         # Sleep in small intervals to allow clean shutdown
-        for _ in range(args.poll_interval):
+        for _ in range(config.poll_interval):
             if not running:
                 break
             time.sleep(1)
 
+    victron.close()
     db.close()
 
 
