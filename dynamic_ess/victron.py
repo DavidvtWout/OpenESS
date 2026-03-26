@@ -1,11 +1,23 @@
 import logging
 from dataclasses import dataclass
+from enum import Enum
 
 from pydantic import BaseModel
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
 logger = logging.getLogger(__name__)
+
+
+class DataType(Enum):
+    UINT16 = (1, False)
+    INT16 = (1, True)
+    UINT32 = (2, False)
+    INT32 = (2, True)
+
+    def __init__(self, register_count: int, signed: bool):
+        self.register_count = register_count
+        self.signed = signed
 
 # Victron GX Modbus registers (Unit ID 100 = com.victronenergy.system)
 # Verify these against your setup: Settings → Services → Modbus TCP → Available services
@@ -55,27 +67,43 @@ class VictronClient:
     def close(self):
         self._client.close()
 
-    def _read_register(self, unit_id: int, address: int, signed: bool = False) -> int | None:
-        """Read a single holding register."""
+    def read(self, unit_id: int, address: int, dtype: DataType) -> int | None:
         try:
-            result = self._client.read_holding_registers(address, count=1, device_id=unit_id)
+            result = self._client.read_holding_registers(address, count=dtype.register_count, device_id=unit_id)
             if result.isError():
                 logger.error(f"Modbus error reading register {address}: {result}")
                 return None
-            value = result.registers[0]
-            if signed and value >= 0x8000:
-                value -= 0x10000
+
+            if dtype.register_count == 1:
+                value = result.registers[0]
+                max_val = 0x8000
+                subtract = 0x10000
+            else:
+                high, low = result.registers
+                value = (high << 16) | low
+                max_val = 0x80000000
+                subtract = 0x100000000
+
+            if dtype.signed and value >= max_val:
+                value -= subtract
             return value
         except ModbusException as e:
             logger.error(f"Modbus exception reading register {address}: {e}")
             return None
 
-    def _write_register(self, unit_id: int, address: int, value: int) -> bool:
-        """Write a single holding register."""
+    def write(self, unit_id: int, address: int, dtype: DataType, value: int) -> bool:
+        """Write register(s) as the specified data type."""
         try:
-            if value < 0:
-                value += 0x10000
-            result = self._client.write_register(address, value, device_id=unit_id)
+            if dtype.signed and value < 0:
+                value += 0x10000 if dtype.register_count == 1 else 0x100000000
+
+            if dtype.register_count == 2:
+                high = (value >> 16) & 0xFFFF
+                low = value & 0xFFFF
+                result = self._client.write_registers(address, [high, low], device_id=unit_id)
+            else:
+                result = self._client.write_register(address, value & 0xFFFF, device_id=unit_id)
+
             if result.isError():
                 logger.error(f"Modbus error writing register {address}: {result}")
                 return False
@@ -84,24 +112,14 @@ class VictronClient:
             logger.error(f"Modbus exception writing register {address}: {e}")
             return False
 
-    def scan_registers(self, unit_id: int):
-        logger.info(f"Readable registers for unit {unit_id}:")
-
-        for register in range(1, 10000):
-            try:
-                result = self._client.read_holding_registers(register, device_id=unit_id)
-                if not result.isError():
-                    logger.info(f"unit {unit_id} - register {register}: Readable ({result.registers})")
-            except ModbusException as e:
-                logger.info(f"unit {unit_id} - register {register}: Error - {e}")
-
     def get_state(self) -> SystemState | None:
         """Read current system state."""
-        battery_soc = self._read_register(REGISTERS["battery_soc"])
-        battery_power = self._read_register(REGISTERS["battery_power"], signed=True)
-        grid_power = self._read_register(REGISTERS["grid_power"], signed=True)
-        consumption = self._read_register(REGISTERS["consumption"])
-        pv_power = self._read_register(REGISTERS["pv_power"])
+        unit_id = self._config.system_id
+        battery_soc = self.read(unit_id, REGISTERS["battery_soc"], DataType.INT16)
+        battery_power = self.read(unit_id, REGISTERS["battery_power"], DataType.INT16)
+        grid_power = self.read(unit_id, REGISTERS["grid_power"], DataType.INT16)
+        consumption = self.read(unit_id, REGISTERS["consumption"], DataType.UINT16)
+        pv_power = self.read(unit_id, REGISTERS["pv_power"], DataType.UINT16)
 
         if any(v is None for v in [battery_soc, battery_power, grid_power, consumption, pv_power]):
             return None
@@ -120,7 +138,7 @@ class VictronClient:
         Positive = charge from grid, Negative = discharge to grid/loads.
         Requires ESS Assistant installed on MultiPlus.
         """
-        return self._write_register(REGISTERS["ess_setpoint"], power)
+        return self.write(self._config.system_id, REGISTERS["ess_setpoint"], DataType.INT16, power)
 
     @property
     def host(self) -> str:

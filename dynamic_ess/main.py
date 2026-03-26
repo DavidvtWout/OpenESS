@@ -73,10 +73,10 @@ def main():
 
     # Main loop
     while running:
-        try:
-            fetch_missing_prices(db, entsoe, config.entsoe.area)
-        except Exception as e:
-            logger.exception(f"Could not fetch prices: {e}")
+        # try:
+        #     fetch_missing_prices(db, entsoe, config.entsoe.area)
+        # except Exception as e:
+        #     logger.exception(f"Could not fetch prices: {e}")
 
         try:
             state = victron.get_state()
@@ -88,11 +88,7 @@ def main():
         except Exception as e:
             logger.exception(f"Could not read Victron state: {e}")
 
-        # Sleep in small intervals to allow clean shutdown
-        for _ in range(config.poll_interval):
-            if not running:
-                break
-            time.sleep(1)
+        time.sleep(1)
 
     victron.close()
     db.close()
