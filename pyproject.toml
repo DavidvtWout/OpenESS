@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["dynamic_ess"]
+
+
+[project]
+name = "dynamic-ess"
+description = "Victron dynamic ESS charge/discharge schedule optimizer for day-ahead prices."
+version = "0.0.0"
+authors = [{ name = "David van 't Wout", email = "david@vtwout.com" }]
+dependencies = [ "entsoe-apy", "pandas", "pydantic" ]
+
+[project.scripts]
+dynamic-ess = "dynamic_ess.main:main"
