@@ -13,5 +13,11 @@ version = "0.0.0"
 authors = [{ name = "David van 't Wout", email = "david@vtwout.com" }]
 dependencies = [ "entsoe-apy", "pandas", "pydantic" ]
 
+[project.optional-dependencies]
+dev = ["black", "pre-commit"]
+
 [project.scripts]
 dynamic-ess = "dynamic_ess.main:main"
+
+[tool.black]
+line-length = 120
