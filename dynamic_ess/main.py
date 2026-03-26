@@ -8,12 +8,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .db import Database
-from .entsoe import fetch_day_ahead_prices, set_api_key
+from .entsoe import EntsoeClient
 
 logger = logging.getLogger(__name__)
 
 
-def fetch_missing_prices(db: Database, area: str):
+def fetch_missing_prices(db: Database, entsoe: EntsoeClient, area: str):
     now = datetime.now(timezone.utc)
     end_of_tomorrow = (now + timedelta(days=2)).replace(
         hour=0, minute=0, second=0, microsecond=0
@@ -29,7 +29,7 @@ def fetch_missing_prices(db: Database, area: str):
         fetch_start = latest
 
     logger.info(f"Fetching prices for {area} from {fetch_start} to {end_of_tomorrow}")
-    prices = fetch_day_ahead_prices(area, fetch_start, end_of_tomorrow)
+    prices = entsoe.fetch_day_ahead_prices(area, fetch_start, end_of_tomorrow)
     if prices:
         db.insert_prices(area, prices)
 
@@ -76,9 +76,8 @@ def main():
         )
         sys.exit(1)
 
-    set_api_key(args.entsoe_api_key)
-
     db = Database(args.db_path)
+    entsoe = EntsoeClient(args.entsoe_api_key)
 
     logger.info(f"Database initialized at {args.db_path}")
 
@@ -95,7 +94,7 @@ def main():
     # Main loop
     while running:
         try:
-            fetch_missing_prices(db, args.area)
+            fetch_missing_prices(db, entsoe, args.area)
         except Exception as e:
             logger.exception(f"Could not fetch prices: {e}")
 
