@@ -79,12 +79,7 @@ def main():
         #     logger.exception(f"Could not fetch prices: {e}")
 
         try:
-            state = victron.get_state()
-            if state:
-                logger.info(
-                    f"Victron state: SOC={state.battery_soc}%, "
-                    f"battery={state.battery_power}W, grid={state.grid_power}W"
-                )
+            victron.get_state()
         except Exception as e:
             logger.exception(f"Could not read Victron state: {e}")
 

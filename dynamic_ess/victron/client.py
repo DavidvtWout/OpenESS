@@ -1,11 +1,12 @@
 import logging
+import pprint
 from dataclasses import dataclass
 
 from pydantic import BaseModel
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
-from .registers import Register, System
+from .registers import Register, System, VEBus
 
 logger = logging.getLogger(__name__)
 
@@ -116,51 +117,130 @@ class VictronClient:
             logger.error(f"Modbus exception writing register {register.address}: {e}")
             return False
 
-    def read_raw(self, unit_id: int, register: Register) -> int | None:
-        """Read a register without applying scale factor."""
-        try:
-            result = self._client.read_holding_registers(
-                register.address, count=register.dtype.register_count, device_id=unit_id
-            )
-            if result.isError():
-                logger.error(f"Modbus error reading register {register.address}: {result}")
-                return None
+    def read_many(
+            self, unit_id: int, registers: list[Register], max_gap: int = 20
+    ) -> dict[Register, float | None]:
+        """
+        Read multiple registers efficiently by batching consecutive addresses.
 
-            if register.dtype.register_count == 1:
-                value = result.registers[0]
-                max_val = 0x8000
-                subtract = 0x10000
+        Args:
+            unit_id: Modbus unit ID
+            registers: List of registers to read
+            max_gap: Maximum gap between registers to still batch together (default 10)
+
+        Returns:
+            Dict mapping each register to its scaled value (or None if read failed)
+        """
+        if not registers:
+            return {}
+
+        # Sort by address and track end address (for 32-bit registers)
+        sorted_regs = sorted(registers, key=lambda r: r.address)
+
+        # Group registers into batches
+        batches: list[list[Register]] = []
+        current_batch: list[Register] = [sorted_regs[0]]
+
+        for reg in sorted_regs[1:]:
+            prev = current_batch[-1]
+            prev_end = prev.address + prev.dtype.register_count
+            gap = reg.address - prev_end
+
+            if gap <= max_gap:
+                current_batch.append(reg)
             else:
-                high, low = result.registers
-                value = (high << 16) | low
-                max_val = 0x80000000
-                subtract = 0x100000000
+                batches.append(current_batch)
+                current_batch = [reg]
 
-            if register.dtype.signed and value >= max_val:
-                value -= subtract
+        batches.append(current_batch)
 
-            return value
+        # Read each batch
+        results: dict[Register, float | None] = {}
 
-        except ModbusException as e:
-            logger.error(f"Modbus exception reading register {register.address}: {e}")
-            return None
+        for batch in batches:
+            start_addr = batch[0].address
+            last_reg = batch[-1]
+            end_addr = last_reg.address + last_reg.dtype.register_count
+            count = end_addr - start_addr
 
-    def get_state(self) -> SystemState | None:
-        """Read current system state from com.victronenergy.system registers."""
-        unit_id = self._config.system_id
-        battery_soc = self.read(unit_id, System.BATTERY_SOC)
-        battery_power = self.read(unit_id, System.BATTERY_POWER)
-        grid_power = self.read(unit_id, System.GRID_L1)
-        consumption = self.read(unit_id, System.AC_CONSUMPTION_L1)
-        pv_power = self.read(unit_id, System.PV_DC_COUPLED)
+            try:
+                response = self._client.read_holding_registers(start_addr, count=count, device_id=unit_id)
+                if response.isError():
+                    logger.error(f"Modbus error reading registers {start_addr}-{end_addr}: {response}")
+                    for reg in batch:
+                        results[reg] = None
+                    continue
 
-        if any(v is None for v in [battery_soc, battery_power, grid_power, consumption, pv_power]):
-            return None
+                # Extract values for each register in this batch
+                for reg in batch:
+                    offset = reg.address - start_addr
+                    results[reg] = self._extract_value(reg, response.registers, offset)
 
-        return SystemState(
-            battery_soc=battery_soc,
-            battery_power=battery_power,
-            grid_power=grid_power,
-            consumption=consumption,
-            pv_power=pv_power,
-        )
+            except ModbusException as e:
+                logger.error(f"Modbus exception reading registers {start_addr}-{end_addr}: {e}")
+                for reg in batch:
+                    results[reg] = None
+
+        return results
+
+    def _extract_value(self, register: Register, raw_registers: list[int], offset: int) -> float:
+        """Extract and scale a register value from raw register data."""
+        if register.dtype.register_count == 1:
+            value = raw_registers[offset]
+            max_val = 0x8000
+            subtract = 0x10000
+        else:
+            high = raw_registers[offset]
+            low = raw_registers[offset + 1]
+            value = (high << 16) | low
+            max_val = 0x80000000
+            subtract = 0x100000000
+
+        if register.dtype.signed and value >= max_val:
+            value -= subtract
+
+        return value / register.scale
+
+    def get_state(self):
+        regs = [
+            System.AC_CONSUMPTION_L1,
+            System.AC_CONSUMPTION_L2,
+            System.AC_CONSUMPTION_L3,
+            System.GRID_L1,
+            System.GRID_L2,
+            System.GRID_L3,
+            System.GENSET_L1,
+            System.GENSET_L2,
+            System.GENSET_L3,
+            System.BATTERY_POWER,
+            System.CHARGER_POWER,
+            System.DC_SYSTEM_POWER,
+            System.INVERTER_CHARGER_POWER,
+            System.GRID_TO_MULTIPLUS_POWER_L1,
+            System.GRID_TO_MULTIPLUS_POWER_L2,
+            System.GRID_TO_MULTIPLUS_POWER_L3,
+            System.MULTIPLUS_OUTPUT_POWER_L1,
+            System.MULTIPLUS_OUTPUT_POWER_L2,
+            System.MULTIPLUS_OUTPUT_POWER_L3,
+        ]
+        values = self.read_many(self._config.system_id, regs)
+
+        logger.info("")
+        logger.info(pprint.pformat(values, indent=2))
+
+        regs = [
+            VEBus.AC_INPUT_POWER_L1,
+            VEBus.AC_INPUT_POWER_L2,
+            VEBus.AC_INPUT_POWER_L3,
+            VEBus.AC_OUTPUT_POWER_L1,
+            VEBus.AC_OUTPUT_POWER_L2,
+            VEBus.AC_OUTPUT_POWER_L3,
+            VEBus.DC_VOLTAGE,
+            VEBus.DC_CURRENT,
+        ]
+        values = self.read_many(self._config.vebus_id, regs)
+        logger.info(pprint.pformat(values, indent=2))
+
+        # logger.info(
+        #     f"vebus: SOC={values[System.BATTERY_SOC]}%, battery={System.BATTERY_POWER}W, grid={values[System.GRID_L1]}W"
+        # )

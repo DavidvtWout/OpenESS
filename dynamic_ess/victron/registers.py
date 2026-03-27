@@ -19,16 +19,27 @@ class Register:
     Victron Modbus register definition.
 
     Attributes:
+        name: Human-readable name for the register
         address: Modbus register address
         dtype: Data type (UINT16, INT16, UINT32, INT32)
         scale: Divisor to convert raw value to actual value (default 1)
         writable: Whether the register can be written to
     """
 
+    name: str
     address: int
     dtype: DataType
-    scale: int = 1
+    scale: float = 1
     writable: bool = False
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.address})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def __lt__(self, other: "Register") -> bool:
+        return self.address < other.address
 
 
 # =============================================================================
@@ -37,35 +48,52 @@ class Register:
 # =============================================================================
 class System:
     # AC consumption
-    AC_CONSUMPTION_L1 = Register(817, DataType.UINT16)
-    AC_CONSUMPTION_L2 = Register(818, DataType.UINT16)
-    AC_CONSUMPTION_L3 = Register(819, DataType.UINT16)
+    AC_CONSUMPTION_L1 = Register("AC Consumption L1", 817, DataType.UINT16)
+    AC_CONSUMPTION_L2 = Register("AC Consumption L2", 818, DataType.UINT16)
+    AC_CONSUMPTION_L3 = Register("AC Consumption L3", 819, DataType.UINT16)
 
     # Grid power
-    GRID_L1 = Register(820, DataType.INT16)
-    GRID_L2 = Register(821, DataType.INT16)
-    GRID_L3 = Register(822, DataType.INT16)
+    GRID_L1 = Register("Grid L1", 820, DataType.INT16)
+    GRID_L2 = Register("Grid L2", 821, DataType.INT16)
+    GRID_L3 = Register("Grid L3", 822, DataType.INT16)
+
+    # Genset power
+    GENSET_L1 = Register("Genset L1", 823, DataType.INT16)
+    GENSET_L2 = Register("Genset L2", 824, DataType.INT16)
+    GENSET_L3 = Register("Genset L3", 825, DataType.INT16)
 
     # Battery
-    BATTERY_VOLTAGE = Register(840, DataType.UINT16, scale=10)
-    BATTERY_CURRENT = Register(841, DataType.INT16, scale=10)
-    BATTERY_POWER = Register(842, DataType.INT16)
-    BATTERY_SOC = Register(843, DataType.UINT16)
-    BATTERY_STATE = Register(844, DataType.UINT16)  # 0=idle, 1=charging, 2=discharging
+    BATTERY_VOLTAGE = Register("Battery Voltage", 840, DataType.UINT16, scale=10)
+    BATTERY_CURRENT = Register("Battery Current", 841, DataType.INT16, scale=10)
+    BATTERY_POWER = Register("Battery Power", 842, DataType.INT16)
+    BATTERY_SOC = Register("Battery SOC", 843, DataType.UINT16)
+    BATTERY_STATE = Register("Battery State", 844, DataType.UINT16)  # 0=idle, 1=charging, 2=discharging
+    BATTERY_CONSUMED_AH = Register("Battery Consumed Amp-hours", 845, DataType.UINT16, scale=-10)
+
+    # Charger/Inverter power
+    CHARGER_POWER = Register("Charger Power", 855, DataType.UINT16)
+    DC_SYSTEM_POWER = Register("DC System Power", 860, DataType.INT16)
+    INVERTER_CHARGER_POWER = Register("Inverter/Charger Power", 870, DataType.INT32)
+    GRID_TO_MULTIPLUS_POWER_L1 = Register("Grid to MultiPlus Power L1", 872, DataType.INT32)
+    GRID_TO_MULTIPLUS_POWER_L2 = Register("Grid to MultiPlus Power L2", 874, DataType.INT32)
+    GRID_TO_MULTIPLUS_POWER_L3 = Register("Grid to MultiPlus Power L3", 876, DataType.INT32)
+    MULTIPLUS_OUTPUT_POWER_L1 = Register("MultiPlus to Output Power L1", 878, DataType.INT32)
+    MULTIPLUS_OUTPUT_POWER_L2 = Register("MultiPlus to Output Power L2", 880, DataType.INT32)
+    MULTIPLUS_OUTPUT_POWER_L3 = Register("MultiPlus to Output Power L3", 882, DataType.INT32)
 
     # PV power
-    PV_AC_COUPLED_OUTPUT_L1 = Register(850, DataType.UINT16)
-    PV_AC_COUPLED_OUTPUT_L2 = Register(851, DataType.UINT16)
-    PV_AC_COUPLED_OUTPUT_L3 = Register(852, DataType.UINT16)
-    PV_DC_COUPLED = Register(855, DataType.UINT16)
+    PV_DC_COUPLED_POWER = Register("PV DC Coupled Power", 850, DataType.UINT16)
+    PV_AC_COUPLED_OUTPUT_L1 = Register("PV AC Output L1", 884, DataType.UINT16)
+    PV_AC_COUPLED_OUTPUT_L2 = Register("PV AC Output L2", 885, DataType.UINT16)
+    PV_AC_COUPLED_OUTPUT_L3 = Register("PV AC Output L3", 886, DataType.UINT16)
 
     # ESS control (requires ESS Assistant)
-    ESS_SETPOINT_L1 = Register(2700, DataType.INT16, writable=True)
-    ESS_SETPOINT_L2 = Register(2701, DataType.INT16, writable=True)
-    ESS_SETPOINT_L3 = Register(2702, DataType.INT16, writable=True)
-    ESS_DISABLE_CHARGE = Register(2703, DataType.UINT16, writable=True)  # 0=charge allowed, 1=disabled
-    ESS_DISABLE_FEEDBACK = Register(2704, DataType.UINT16, writable=True)  # 0=feedback allowed, 1=disabled
-    ESS_MIN_SOC = Register(2901, DataType.UINT16, scale=10, writable=True)
+    ESS_SETPOINT_L1 = Register("ESS Setpoint L1", 2700, DataType.INT16, writable=True)
+    ESS_SETPOINT_L2 = Register("ESS Setpoint L2", 2701, DataType.INT16, writable=True)
+    ESS_SETPOINT_L3 = Register("ESS Setpoint L3", 2702, DataType.INT16, writable=True)
+    ESS_DISABLE_CHARGE = Register("ESS Disable Charge", 2703, DataType.UINT16, writable=True)
+    ESS_DISABLE_FEEDBACK = Register("ESS Disable Feedback", 2704, DataType.UINT16, writable=True)
+    ESS_MIN_SOC = Register("ESS Min SOC", 2901, DataType.UINT16, scale=10, writable=True)
 
 
 # =============================================================================
@@ -74,41 +102,41 @@ class System:
 # =============================================================================
 class VEBus:
     # AC input
-    AC_INPUT_VOLTAGE_L1 = Register(3, DataType.UINT16, scale=10)
-    AC_INPUT_VOLTAGE_L2 = Register(4, DataType.UINT16, scale=10)
-    AC_INPUT_VOLTAGE_L3 = Register(5, DataType.UINT16, scale=10)
-    AC_INPUT_CURRENT_L1 = Register(6, DataType.INT16, scale=10)
-    AC_INPUT_CURRENT_L2 = Register(7, DataType.INT16, scale=10)
-    AC_INPUT_CURRENT_L3 = Register(8, DataType.INT16, scale=10)
-    AC_INPUT_FREQUENCY = Register(9, DataType.INT16, scale=100)
-    AC_INPUT_POWER_L1 = Register(12, DataType.INT16, scale=0.1)  # note: multiply by 10
-    AC_INPUT_POWER_L2 = Register(13, DataType.INT16, scale=0.1)
-    AC_INPUT_POWER_L3 = Register(14, DataType.INT16, scale=0.1)
+    AC_INPUT_VOLTAGE_L1 = Register("AC Input Voltage L1", 3, DataType.UINT16, scale=10)
+    AC_INPUT_VOLTAGE_L2 = Register("AC Input Voltage L2", 4, DataType.UINT16, scale=10)
+    AC_INPUT_VOLTAGE_L3 = Register("AC Input Voltage L3", 5, DataType.UINT16, scale=10)
+    AC_INPUT_CURRENT_L1 = Register("AC Input Current L1", 6, DataType.INT16, scale=10)
+    AC_INPUT_CURRENT_L2 = Register("AC Input Current L2", 7, DataType.INT16, scale=10)
+    AC_INPUT_CURRENT_L3 = Register("AC Input Current L3", 8, DataType.INT16, scale=10)
+    AC_INPUT_FREQUENCY = Register("AC Input Frequency", 9, DataType.INT16, scale=100)
+    AC_INPUT_POWER_L1 = Register("AC Input Power L1", 12, DataType.INT16, scale=0.1)
+    AC_INPUT_POWER_L2 = Register("AC Input Power L2", 13, DataType.INT16, scale=0.1)
+    AC_INPUT_POWER_L3 = Register("AC Input Power L3", 14, DataType.INT16, scale=0.1)
 
     # AC output
-    AC_OUTPUT_VOLTAGE_L1 = Register(15, DataType.UINT16, scale=10)
-    AC_OUTPUT_VOLTAGE_L2 = Register(16, DataType.UINT16, scale=10)
-    AC_OUTPUT_VOLTAGE_L3 = Register(17, DataType.UINT16, scale=10)
-    AC_OUTPUT_CURRENT_L1 = Register(18, DataType.INT16, scale=10)
-    AC_OUTPUT_CURRENT_L2 = Register(19, DataType.INT16, scale=10)
-    AC_OUTPUT_CURRENT_L3 = Register(20, DataType.INT16, scale=10)
-    AC_OUTPUT_FREQUENCY = Register(21, DataType.INT16, scale=100)
-    AC_OUTPUT_POWER_L1 = Register(23, DataType.INT16, scale=0.1)
-    AC_OUTPUT_POWER_L2 = Register(24, DataType.INT16, scale=0.1)
-    AC_OUTPUT_POWER_L3 = Register(25, DataType.INT16, scale=0.1)
+    AC_OUTPUT_VOLTAGE_L1 = Register("AC Output Voltage L1", 15, DataType.UINT16, scale=10)
+    AC_OUTPUT_VOLTAGE_L2 = Register("AC Output Voltage L2", 16, DataType.UINT16, scale=10)
+    AC_OUTPUT_VOLTAGE_L3 = Register("AC Output Voltage L3", 17, DataType.UINT16, scale=10)
+    AC_OUTPUT_CURRENT_L1 = Register("AC Output Current L1", 18, DataType.INT16, scale=10)
+    AC_OUTPUT_CURRENT_L2 = Register("AC Output Current L2", 19, DataType.INT16, scale=10)
+    AC_OUTPUT_CURRENT_L3 = Register("AC Output Current L3", 20, DataType.INT16, scale=10)
+    AC_OUTPUT_FREQUENCY = Register("AC Output Frequency", 21, DataType.INT16, scale=100)
+    AC_OUTPUT_POWER_L1 = Register("AC Output Power L1", 23, DataType.INT16, scale=0.1)
+    AC_OUTPUT_POWER_L2 = Register("AC Output Power L2", 24, DataType.INT16, scale=0.1)
+    AC_OUTPUT_POWER_L3 = Register("AC Output Power L3", 25, DataType.INT16, scale=0.1)
 
     # DC (battery side)
-    DC_VOLTAGE = Register(26, DataType.UINT16, scale=100)
-    DC_CURRENT = Register(27, DataType.INT16, scale=10)
+    DC_VOLTAGE = Register("DC Voltage", 26, DataType.UINT16, scale=100)
+    DC_CURRENT = Register("DC Current", 27, DataType.INT16, scale=10)
 
     # State
-    SOC = Register(30, DataType.UINT16, scale=10, writable=True)
-    STATE = Register(31, DataType.UINT16)  # See VEBusState enum
-    ERROR = Register(32, DataType.UINT16)
+    SOC = Register("SOC", 30, DataType.UINT16, scale=10, writable=True)
+    STATE = Register("State", 31, DataType.UINT16)
+    ERROR = Register("Error", 32, DataType.UINT16)
 
     # Control
-    SWITCH_POSITION = Register(33, DataType.UINT16, writable=True)  # 1=charger only, 2=inverter only, 3=on, 4=off
-    AC_INPUT_CURRENT_LIMIT = Register(22, DataType.INT16, scale=10, writable=True)
+    SWITCH_POSITION = Register("Switch Position", 33, DataType.UINT16, writable=True)
+    AC_INPUT_CURRENT_LIMIT = Register("AC Input Current Limit", 22, DataType.INT16, scale=10, writable=True)
 
 
 # =============================================================================
@@ -116,28 +144,28 @@ class VEBus:
 # Battery Management System (BMS)
 # =============================================================================
 class Battery:
-    DC_VOLTAGE = Register(259, DataType.UINT16, scale=100)
-    DC_CURRENT = Register(261, DataType.INT16, scale=10)
-    DC_POWER = Register(258, DataType.INT16)
-    SOC = Register(266, DataType.UINT16, scale=10)
-    TEMPERATURE = Register(262, DataType.INT16, scale=10)
-    STATE_OF_HEALTH = Register(304, DataType.UINT16, scale=10)
+    DC_VOLTAGE = Register("DC Voltage", 259, DataType.UINT16, scale=100)
+    DC_CURRENT = Register("DC Current", 261, DataType.INT16, scale=10)
+    DC_POWER = Register("DC Power", 258, DataType.INT16)
+    SOC = Register("SOC", 266, DataType.UINT16, scale=10)
+    TEMPERATURE = Register("Temperature", 262, DataType.INT16, scale=10)
+    STATE_OF_HEALTH = Register("State of Health", 304, DataType.UINT16, scale=10)
 
     # Cell voltages (if supported by BMS)
-    MIN_CELL_VOLTAGE = Register(1290, DataType.UINT16, scale=100)
-    MAX_CELL_VOLTAGE = Register(1291, DataType.UINT16, scale=100)
+    MIN_CELL_VOLTAGE = Register("Min Cell Voltage", 1290, DataType.UINT16, scale=100)
+    MAX_CELL_VOLTAGE = Register("Max Cell Voltage", 1291, DataType.UINT16, scale=100)
 
     # Limits
-    MAX_CHARGE_CURRENT = Register(305, DataType.UINT16, scale=10)
-    MAX_DISCHARGE_CURRENT = Register(306, DataType.UINT16, scale=10)
-    MAX_CHARGE_VOLTAGE = Register(303, DataType.UINT16, scale=10)
+    MAX_CHARGE_CURRENT = Register("Max Charge Current", 305, DataType.UINT16, scale=10)
+    MAX_DISCHARGE_CURRENT = Register("Max Discharge Current", 306, DataType.UINT16, scale=10)
+    MAX_CHARGE_VOLTAGE = Register("Max Charge Voltage", 303, DataType.UINT16, scale=10)
 
     # Alarms
-    ALARM_LOW_VOLTAGE = Register(267, DataType.UINT16)
-    ALARM_HIGH_VOLTAGE = Register(268, DataType.UINT16)
-    ALARM_LOW_SOC = Register(269, DataType.UINT16)
-    ALARM_HIGH_TEMPERATURE = Register(270, DataType.UINT16)
-    ALARM_LOW_TEMPERATURE = Register(271, DataType.UINT16)
+    ALARM_LOW_VOLTAGE = Register("Alarm Low Voltage", 267, DataType.UINT16)
+    ALARM_HIGH_VOLTAGE = Register("Alarm High Voltage", 268, DataType.UINT16)
+    ALARM_LOW_SOC = Register("Alarm Low SOC", 269, DataType.UINT16)
+    ALARM_HIGH_TEMPERATURE = Register("Alarm High Temperature", 270, DataType.UINT16)
+    ALARM_LOW_TEMPERATURE = Register("Alarm Low Temperature", 271, DataType.UINT16)
 
 
 # =============================================================================
@@ -145,20 +173,20 @@ class Battery:
 # MPPT Solar Charger
 # =============================================================================
 class SolarCharger:
-    PV_VOLTAGE = Register(3700, DataType.UINT16, scale=100)
-    PV_CURRENT = Register(3701, DataType.INT16, scale=10)
-    PV_POWER = Register(3702, DataType.UINT32)
+    PV_VOLTAGE = Register("PV Voltage", 3700, DataType.UINT16, scale=100)
+    PV_CURRENT = Register("PV Current", 3701, DataType.INT16, scale=10)
+    PV_POWER = Register("PV Power", 3702, DataType.UINT32)
 
-    BATTERY_VOLTAGE = Register(3704, DataType.UINT16, scale=100)
-    BATTERY_CURRENT = Register(3705, DataType.INT16, scale=10)
+    BATTERY_VOLTAGE = Register("Battery Voltage", 3704, DataType.UINT16, scale=100)
+    BATTERY_CURRENT = Register("Battery Current", 3705, DataType.INT16, scale=10)
 
-    YIELD_TODAY = Register(3708, DataType.UINT16, scale=10)  # kWh
-    MAX_POWER_TODAY = Register(3709, DataType.UINT16)  # W
-    YIELD_YESTERDAY = Register(3710, DataType.UINT16, scale=10)  # kWh
-    MAX_POWER_YESTERDAY = Register(3711, DataType.UINT16)  # W
+    YIELD_TODAY = Register("Yield Today", 3708, DataType.UINT16, scale=10)
+    MAX_POWER_TODAY = Register("Max Power Today", 3709, DataType.UINT16)
+    YIELD_YESTERDAY = Register("Yield Yesterday", 3710, DataType.UINT16, scale=10)
+    MAX_POWER_YESTERDAY = Register("Max Power Yesterday", 3711, DataType.UINT16)
 
-    STATE = Register(3706, DataType.UINT16)  # 0=off, 2=fault, 3=bulk, 4=absorption, 5=float
-    ERROR = Register(3707, DataType.UINT16)
+    STATE = Register("State", 3706, DataType.UINT16)
+    ERROR = Register("Error", 3707, DataType.UINT16)
 
 
 # =============================================================================
@@ -166,18 +194,18 @@ class SolarCharger:
 # Energy Meter (grid)
 # =============================================================================
 class GridMeter:
-    POWER_L1 = Register(2600, DataType.INT16)
-    POWER_L2 = Register(2601, DataType.INT16)
-    POWER_L3 = Register(2602, DataType.INT16)
-    POWER_TOTAL = Register(2603, DataType.INT16)
+    POWER_L1 = Register("Power L1", 2600, DataType.INT16)
+    POWER_L2 = Register("Power L2", 2601, DataType.INT16)
+    POWER_L3 = Register("Power L3", 2602, DataType.INT16)
+    POWER_TOTAL = Register("Power Total", 2603, DataType.INT16)
 
-    VOLTAGE_L1 = Register(2616, DataType.UINT16, scale=10)
-    VOLTAGE_L2 = Register(2617, DataType.UINT16, scale=10)
-    VOLTAGE_L3 = Register(2618, DataType.UINT16, scale=10)
+    VOLTAGE_L1 = Register("Voltage L1", 2616, DataType.UINT16, scale=10)
+    VOLTAGE_L2 = Register("Voltage L2", 2617, DataType.UINT16, scale=10)
+    VOLTAGE_L3 = Register("Voltage L3", 2618, DataType.UINT16, scale=10)
 
-    CURRENT_L1 = Register(2619, DataType.INT16, scale=10)
-    CURRENT_L2 = Register(2620, DataType.INT16, scale=10)
-    CURRENT_L3 = Register(2621, DataType.INT16, scale=10)
+    CURRENT_L1 = Register("Current L1", 2619, DataType.INT16, scale=10)
+    CURRENT_L2 = Register("Current L2", 2620, DataType.INT16, scale=10)
+    CURRENT_L3 = Register("Current L3", 2621, DataType.INT16, scale=10)
 
-    ENERGY_FORWARD = Register(2634, DataType.UINT32, scale=100)  # kWh imported
-    ENERGY_REVERSE = Register(2636, DataType.UINT32, scale=100)  # kWh exported
+    ENERGY_FORWARD = Register("Energy Forward", 2634, DataType.UINT32, scale=100)
+    ENERGY_REVERSE = Register("Energy Reverse", 2636, DataType.UINT32, scale=100)
