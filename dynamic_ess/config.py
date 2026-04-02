@@ -4,7 +4,7 @@ import yaml
 from pydantic import BaseModel
 
 from dynamic_ess.entsoe_api import EntsoeConfig
-from dynamic_ess.victron import VictronConfig
+from dynamic_ess.victron_modbus import VictronConfig
 
 
 class Config(BaseModel):

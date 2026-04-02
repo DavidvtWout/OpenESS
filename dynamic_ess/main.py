@@ -10,7 +10,7 @@ from dynamic_ess.config import Config
 from dynamic_ess.db import Database
 from dynamic_ess.entsoe_api import EntsoeClient
 from dynamic_ess.util import plot_energy_prices
-from dynamic_ess.victron import VictronClient
+from dynamic_ess.victron_modbus import VictronClient
 
 logger = logging.getLogger(__name__)
 
