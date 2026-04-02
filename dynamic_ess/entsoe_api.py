@@ -75,8 +75,8 @@ class EntsoeClient:
         self._eic_code, tz_name = AREAS[config.area]
         self._tz = ZoneInfo(tz_name)
 
-        self._api_key = config.api_key
-        os.environ["ENTSOE_API"] = config.api_key
+        if config.api_key:
+            os.environ["ENTSOE_API"] = config.api_key
 
     def fetch_day_ahead_prices(
             self,

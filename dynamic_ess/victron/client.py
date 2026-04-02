@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
-from .registers import Register, System, VEBus
+from .registers import Register, System, VEBus, Battery
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class VictronConfig(BaseModel):
     # Modbus unit IDs, check Settings → Services → Modbus TCP → Available services
     system_id: int = 100
     vebus_id: int | None = None
-    battery_id: int | None = None
+    bms_id: int | None = None
     solarcharger_id: int | None = None
     grid_id: int | None = None
 
@@ -118,7 +118,7 @@ class VictronClient:
             return False
 
     def read_many(
-            self, unit_id: int, registers: list[Register], max_gap: int = 20
+            self, unit_id: int, registers: list[Register]
     ) -> dict[Register, float | None]:
         """
         Read multiple registers efficiently by batching consecutive addresses.
@@ -126,7 +126,6 @@ class VictronClient:
         Args:
             unit_id: Modbus unit ID
             registers: List of registers to read
-            max_gap: Maximum gap between registers to still batch together (default 10)
 
         Returns:
             Dict mapping each register to its scaled value (or None if read failed)
@@ -144,9 +143,7 @@ class VictronClient:
         for reg in sorted_regs[1:]:
             prev = current_batch[-1]
             prev_end = prev.address + prev.dtype.register_count
-            gap = reg.address - prev_end
-
-            if gap <= max_gap:
+            if reg.address == prev_end:
                 current_batch.append(reg)
             else:
                 batches.append(current_batch)
@@ -166,9 +163,10 @@ class VictronClient:
             try:
                 response = self._client.read_holding_registers(start_addr, count=count, device_id=unit_id)
                 if response.isError():
-                    logger.error(f"Modbus error reading registers {start_addr}-{end_addr}: {response}")
+                    # Batch read failed - fall back to individual reads
+                    logger.debug(f"Batch read {start_addr}-{end_addr} failed, falling back to individual reads")
                     for reg in batch:
-                        results[reg] = None
+                        results[reg] = self.read(unit_id, reg)
                     continue
 
                 # Extract values for each register in this batch
@@ -177,13 +175,14 @@ class VictronClient:
                     results[reg] = self._extract_value(reg, response.registers, offset)
 
             except ModbusException as e:
-                logger.error(f"Modbus exception reading registers {start_addr}-{end_addr}: {e}")
+                logger.debug(f"Batch read {start_addr}-{end_addr} failed: {e}, falling back to individual reads")
                 for reg in batch:
-                    results[reg] = None
+                    results[reg] = self.read(unit_id, reg)
 
         return results
 
-    def _extract_value(self, register: Register, raw_registers: list[int], offset: int) -> float:
+    @staticmethod
+    def _extract_value(register: Register, raw_registers: list[int], offset: int) -> float:
         """Extract and scale a register value from raw register data."""
         if register.dtype.register_count == 1:
             value = raw_registers[offset]
@@ -202,6 +201,8 @@ class VictronClient:
         return value / register.scale
 
     def get_state(self):
+        print()
+
         regs = [
             System.AC_CONSUMPTION_L1,
             System.AC_CONSUMPTION_L2,
@@ -223,10 +224,8 @@ class VictronClient:
             System.MULTIPLUS_OUTPUT_POWER_L2,
             System.MULTIPLUS_OUTPUT_POWER_L3,
         ]
-        values = self.read_many(self._config.system_id, regs)
-
-        logger.info("")
-        logger.info(pprint.pformat(values, indent=2))
+        system_values = self.read_many(self._config.system_id, regs)
+        logger.info(f"\n{pprint.pformat(system_values, indent=2)}")
 
         regs = [
             VEBus.AC_INPUT_POWER_L1,
@@ -238,9 +237,11 @@ class VictronClient:
             VEBus.DC_VOLTAGE,
             VEBus.DC_CURRENT,
         ]
-        values = self.read_many(self._config.vebus_id, regs)
-        logger.info(pprint.pformat(values, indent=2))
+        multiplus_values = self.read_many(self._config.vebus_id, regs)
+        logger.info(f"\n{pprint.pformat(multiplus_values, indent=2)}")
 
-        # logger.info(
-        #     f"vebus: SOC={values[System.BATTERY_SOC]}%, battery={System.BATTERY_POWER}W, grid={values[System.GRID_L1]}W"
-        # )
+        regs = [
+            Battery.DC_POWER,
+        ]
+        bms_values = self.read_many(self._config.bms_id, regs)
+        logger.info(f"\n{pprint.pformat(bms_values, indent=2)}")

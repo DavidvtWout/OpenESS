@@ -1,9 +1,12 @@
 [build-system]
-requires = ["setuptools"]
+requires = [
+    "setuptools>=60",
+    "setuptools-scm>=8.0"
+]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["dynamic_ess"]
+[tool.setuptools.packages.find]
+include = ["dynamic_ess*"]
 
 
 [project]

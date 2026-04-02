@@ -6,10 +6,11 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .config import Config
-from .db import Database
-from .entsoe import EntsoeClient
-from .victron import VictronClient
+from dynamic_ess.config import Config
+from dynamic_ess.db import Database
+from dynamic_ess.entsoe_api import EntsoeClient
+from dynamic_ess.util import plot_energy_prices
+from dynamic_ess.victron import VictronClient
 
 logger = logging.getLogger(__name__)
 
@@ -71,19 +72,22 @@ def main():
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
+    # try:
+    #     fetch_missing_prices(db, entsoe, config.entsoe.area)
+    # except Exception as e:
+    #     logger.exception(f"Could not fetch prices: {e}")
+
+    plot_energy_prices(db, config.entsoe.area)
+
     # Main loop
     while running:
-        # try:
-        #     fetch_missing_prices(db, entsoe, config.entsoe.area)
-        # except Exception as e:
-        #     logger.exception(f"Could not fetch prices: {e}")
-
         try:
             victron.get_state()
         except Exception as e:
             logger.exception(f"Could not read Victron state: {e}")
 
         time.sleep(1)
+        running = False
 
     victron.close()
     db.close()

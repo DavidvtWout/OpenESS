@@ -3,8 +3,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
-from .entsoe import EntsoeConfig
-from .victron import VictronConfig
+from dynamic_ess.entsoe_api import EntsoeConfig
+from dynamic_ess.victron import VictronConfig
 
 
 class Config(BaseModel):
