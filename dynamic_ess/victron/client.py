@@ -236,12 +236,25 @@ class VictronClient:
             VEBus.AC_OUTPUT_POWER_L3,
             VEBus.DC_VOLTAGE,
             VEBus.DC_CURRENT,
+            # Energy counters (kWh)
+            VEBus.ENERGY_AC_IN1_TO_AC_OUT,
+            VEBus.ENERGY_AC_IN1_TO_INVERTER,
+            VEBus.ENERGY_AC_IN2_TO_AC_OUT,
+            VEBus.ENERGY_AC_IN2_TO_INVERTER,
+            VEBus.ENERGY_AC_OUT_TO_AC_IN1,
+            VEBus.ENERGY_AC_OUT_TO_AC_IN2,
+            VEBus.ENERGY_INVERTER_TO_AC_IN1,
+            VEBus.ENERGY_INVERTER_TO_AC_IN2,
+            VEBus.ENERGY_INVERTER_TO_AC_OUT,
+            VEBus.ENERGY_AC_OUT_TO_INVERTER,
         ]
         multiplus_values = self.read_many(self._config.vebus_id, regs)
         logger.info(f"\n{pprint.pformat(multiplus_values, indent=2)}")
 
         regs = [
             Battery.DC_POWER,
+            Battery.DISCHARGED_ENERGY,
+            Battery.CHARGED_ENERGY,
         ]
         bms_values = self.read_many(self._config.bms_id, regs)
         logger.info(f"\n{pprint.pformat(bms_values, indent=2)}")

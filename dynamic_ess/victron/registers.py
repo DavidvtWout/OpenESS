@@ -138,6 +138,18 @@ class VEBus:
     SWITCH_POSITION = Register("Switch Position", 33, DataType.UINT16, writable=True)
     AC_INPUT_CURRENT_LIMIT = Register("AC Input Current Limit", 22, DataType.INT16, scale=10, writable=True)
 
+    # Energy counters (kWh) - NOTE: These are volatile and reset on Multi/GX reboot
+    ENERGY_AC_IN1_TO_AC_OUT = Register("Energy AC-In 1 to AC-Out", 74, DataType.UINT32, scale=100)
+    ENERGY_AC_IN1_TO_INVERTER = Register("Energy AC-In 1 to Battery", 76, DataType.UINT32, scale=100)
+    ENERGY_AC_IN2_TO_AC_OUT = Register("Energy AC-In 2 to AC-Out", 78, DataType.UINT32, scale=100)
+    ENERGY_AC_IN2_TO_INVERTER = Register("Energy AC-In 2 to Battery", 80, DataType.UINT32, scale=100)
+    ENERGY_AC_OUT_TO_AC_IN1 = Register("Energy AC-Out to AC-In 1", 82, DataType.UINT32, scale=100)
+    ENERGY_AC_OUT_TO_AC_IN2 = Register("Energy AC-Out to AC-In 2", 84, DataType.UINT32, scale=100)
+    ENERGY_INVERTER_TO_AC_IN1 = Register("Energy Battery to AC-In 1", 86, DataType.UINT32, scale=100)
+    ENERGY_INVERTER_TO_AC_IN2 = Register("Energy Battery to AC-In 2", 88, DataType.UINT32, scale=100)
+    ENERGY_INVERTER_TO_AC_OUT = Register("Energy Battery to AC-Out", 90, DataType.UINT32, scale=100)
+    ENERGY_AC_OUT_TO_INVERTER = Register("Energy AC-Out to Battery", 92, DataType.UINT32, scale=100)
+
 
 # =============================================================================
 # com.victronenergy.battery (Unit ID varies)
@@ -154,6 +166,10 @@ class Battery:
     # Cell voltages (if supported by BMS)
     MIN_CELL_VOLTAGE = Register("Min Cell Voltage", 1290, DataType.UINT16, scale=100)
     MAX_CELL_VOLTAGE = Register("Max Cell Voltage", 1291, DataType.UINT16, scale=100)
+
+    # Charge/discharge energy in kWh
+    DISCHARGED_ENERGY = Register("Discharged Energy", 301, DataType.UINT16, scale=10)
+    CHARGED_ENERGY = Register("Charged Energy", 302, DataType.UINT16, scale=10)
 
     # Limits
     MAX_CHARGE_CURRENT = Register("Max Charge Current", 305, DataType.UINT16, scale=10)
