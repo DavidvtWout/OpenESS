@@ -1,4 +1,5 @@
 from .client import SystemState, VictronClient, VictronConfig
+from .config import VictronConfig
 from .registers import Battery, DataType, GridMeter, Register, SolarCharger, System, VEBus
 
 __all__ = [
