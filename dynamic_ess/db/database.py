@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
 
-from .migrations import get_migrations, run_migration
+from .runner import get_migrations, run_migration
 
 logger = logging.getLogger(__name__)
 

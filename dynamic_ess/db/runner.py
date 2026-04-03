@@ -1,9 +1,9 @@
-"""Database migrations for dynamic-ess."""
+"""Migration runner for dynamic-ess."""
 
 from importlib import import_module
 from pathlib import Path
 
-MIGRATIONS_DIR = Path(__file__).parent
+MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 def get_migrations() -> list[tuple[int, str]]:
@@ -21,7 +21,7 @@ def get_migrations() -> list[tuple[int, str]]:
         parts = file.stem.split("_", 1)
         if len(parts) >= 1 and parts[0].isdigit():
             version = int(parts[0])
-            module_name = f"dynamic_ess.migrations.{file.stem}"
+            module_name = f"dynamic_ess.db.migrations.{file.stem}"
             migrations.append((version, module_name))
     return sorted(migrations)
 
