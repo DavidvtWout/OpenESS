@@ -305,14 +305,32 @@ async function loadCycles() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Restore saved preferences
+    document.getElementById('scatter-aggregate-select').value = loadPagePref('cycles', 'aggregate', '10');
+    document.getElementById('scatter-limit-select').value = loadPagePref('cycles', 'limit', '2000');
+    document.getElementById('days-select').value = loadPagePref('cycles', 'days', '30');
+    document.getElementById('swing-select').value = loadPagePref('cycles', 'swing', '10');
+
     // Scatter chart controls
-    document.getElementById('scatter-aggregate-select').addEventListener('change', loadScatterChart);
-    document.getElementById('scatter-limit-select').addEventListener('change', loadScatterChart);
+    document.getElementById('scatter-aggregate-select').addEventListener('change', (e) => {
+        savePagePref('cycles', 'aggregate', e.target.value);
+        loadScatterChart();
+    });
+    document.getElementById('scatter-limit-select').addEventListener('change', (e) => {
+        savePagePref('cycles', 'limit', e.target.value);
+        loadScatterChart();
+    });
     loadScatterChart();
 
     // Cycles table controls
-    document.getElementById('days-select').addEventListener('change', loadCycles);
-    document.getElementById('swing-select').addEventListener('change', loadCycles);
+    document.getElementById('days-select').addEventListener('change', (e) => {
+        savePagePref('cycles', 'days', e.target.value);
+        loadCycles();
+    });
+    document.getElementById('swing-select').addEventListener('change', (e) => {
+        savePagePref('cycles', 'swing', e.target.value);
+        loadCycles();
+    });
     loadCycles();
 });
 </script>

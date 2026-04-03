@@ -15,6 +15,11 @@
             <option value="720">Last 30 days</option>
         </select>
     </label>
+    <div class="range-nav">
+        <button id="range-prev" class="btn-nav" title="Previous period">&lt;</button>
+        <span id="range-label"></span>
+        <button id="range-next" class="btn-nav" title="Next period" disabled>&gt;</button>
+    </div>
 </div>
 
 <div class="chart-container">
@@ -60,23 +65,94 @@
     let dashboardEnd = null;
     let currentFoR = 'multiplus';
     let cachedEnergyData = null;
+    let rangeOffset = 0; // Number of periods to shift back from current
+    let isRelayoutInProgress = false; // Flag to prevent infinite zoom sync loops
 
-    function getTimeRange(hours) {
+    // Chart IDs for synchronized zooming
+    const chartIds = ['power-chart', 'energy-chart', 'prices-chart'];
+
+    function getTimeRange(hours, offset = 0) {
         const now = new Date();
 
         if (hours === 24) {
-            // Today: 0:00 today to 0:00 tomorrow
+            // Today: 0:00 today to 0:00 tomorrow, shifted by offset days
             const start = new Date(now);
             start.setHours(0, 0, 0, 0);
+            start.setDate(start.getDate() - offset);
             const end = new Date(start);
             end.setDate(end.getDate() + 1);
             return { start, end };
         } else {
-            // Other ranges: aligned to midnight, ending now
-            const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
+            // Other ranges: aligned to midnight, shifted by offset periods
+            const periodMs = hours * 60 * 60 * 1000;
+            const end = new Date(now.getTime() - offset * periodMs);
+            const start = new Date(end.getTime() - periodMs);
             start.setHours(0, 0, 0, 0);
-            return { start, end: now };
+            if (offset === 0) {
+                return { start, end: now };
+            }
+            return { start, end };
         }
+    }
+
+    function updateRangeLabel() {
+        const hours = parseInt(document.getElementById('range-select').value);
+        const labelEl = document.getElementById('range-label');
+        const nextBtn = document.getElementById('range-next');
+
+        // Enable/disable next button
+        nextBtn.disabled = rangeOffset === 0;
+
+        // Build label showing the date range
+        if (dashboardStart && dashboardEnd) {
+            const opts = { month: 'short', day: 'numeric' };
+            const startStr = dashboardStart.toLocaleDateString(undefined, opts);
+            const endStr = dashboardEnd.toLocaleDateString(undefined, opts);
+            if (startStr === endStr || hours === 24) {
+                labelEl.textContent = startStr;
+            } else {
+                labelEl.textContent = `${startStr} - ${endStr}`;
+            }
+        }
+    }
+
+    function setupZoomSync() {
+        chartIds.forEach(chartId => {
+            const chartEl = document.getElementById(chartId);
+            if (!chartEl) return;
+
+            chartEl.on('plotly_relayout', (eventData) => {
+                // Ignore if we're already processing a relayout
+                if (isRelayoutInProgress) return;
+
+                // Check if this is a zoom/pan event (has xaxis.range)
+                const xRange = eventData['xaxis.range[0]'] !== undefined
+                    ? [eventData['xaxis.range[0]'], eventData['xaxis.range[1]']]
+                    : eventData['xaxis.range'];
+
+                if (!xRange) return;
+
+                isRelayoutInProgress = true;
+
+                // Apply the same range to all other charts
+                chartIds.forEach(otherId => {
+                    if (otherId !== chartId) {
+                        const otherEl = document.getElementById(otherId);
+                        if (otherEl && otherEl.data) {
+                            Plotly.relayout(otherEl, {
+                                'xaxis.range[0]': xRange[0],
+                                'xaxis.range[1]': xRange[1]
+                            });
+                        }
+                    }
+                });
+
+                // Reset flag after a short delay
+                setTimeout(() => {
+                    isRelayoutInProgress = false;
+                }, 100);
+            });
+        });
     }
 
     async function loadDashboard() {
@@ -84,18 +160,27 @@
         const aggregateMinutes = getAggregateMinutes(hours);
         const bucketMinutes = getBucketMinutes(hours);
 
-        // Calculate time range
-        const range = getTimeRange(hours);
+        // Calculate time range with offset
+        const range = getTimeRange(hours, rangeOffset);
         dashboardStart = range.start;
         dashboardEnd = range.end;
+
+        // Update the range label
+        updateRangeLabel();
 
         // Clear cache when time range changes
         cachedEnergyData = null;
 
-        loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes);
-        await loadAndCacheEnergyData(dashboardStart, dashboardEnd, bucketMinutes);
+        await Promise.all([
+            loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes),
+            loadAndCacheEnergyData(dashboardStart, dashboardEnd, bucketMinutes),
+            loadPricesChartRange('prices-chart', dashboardStart, dashboardEnd)
+        ]);
+
         renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR);
-        loadPricesChartRange('prices-chart', dashboardStart, dashboardEnd);
+
+        // Setup zoom sync after charts are loaded (needs to be re-attached after each newPlot)
+        setupZoomSync();
     }
 
     async function loadAndCacheEnergyData(start, end, bucketMinutes) {
@@ -120,7 +205,36 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('range-select').addEventListener('change', loadDashboard);
+        // Restore saved preferences
+        const savedRange = loadPagePref('dashboard', 'range', '24');
+        const savedFoR = loadPagePref('dashboard', 'for', 'multiplus');
+
+        document.getElementById('range-select').value = savedRange;
+        currentFoR = savedFoR;
+
+        // Update FoR button active state
+        document.querySelectorAll('#for-buttons .btn-toggle').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.value === savedFoR);
+        });
+
+        document.getElementById('range-select').addEventListener('change', (e) => {
+            savePagePref('dashboard', 'range', e.target.value);
+            rangeOffset = 0; // Reset offset when range changes
+            loadDashboard();
+        });
+
+        // Range navigation buttons
+        document.getElementById('range-prev').addEventListener('click', () => {
+            rangeOffset++;
+            loadDashboard();
+        });
+
+        document.getElementById('range-next').addEventListener('click', () => {
+            if (rangeOffset > 0) {
+                rangeOffset--;
+                loadDashboard();
+            }
+        });
 
         // Frame of Reference button handlers
         document.querySelectorAll('#for-buttons .btn-toggle').forEach(btn => {
@@ -128,6 +242,7 @@
                 document.querySelectorAll('#for-buttons .btn-toggle').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentFoR = btn.dataset.value;
+                savePagePref('dashboard', 'for', currentFoR);
                 renderEnergyOnly();
             });
         });

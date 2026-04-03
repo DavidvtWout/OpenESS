@@ -63,6 +63,16 @@ function getPriceUnitLabel() {
     return settings.priceUnit === 'cent' ? 'ct/kWh' : 'EUR/kWh';
 }
 
+// Page-specific preferences
+function savePagePref(page, key, value) {
+    setCookie(`${page}_${key}`, value);
+}
+
+function loadPagePref(page, key, defaultValue) {
+    const value = getCookie(`${page}_${key}`);
+    return value !== null ? value : defaultValue;
+}
+
 // Initialize settings on page load
 function initSettings() {
     const settings = loadSettings();
