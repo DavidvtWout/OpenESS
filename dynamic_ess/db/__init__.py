@@ -4,6 +4,8 @@ from .database import (
     SystemMeasurement,
     VEBusEnergy,
     VEBusMeasurement,
+    dt_to_ms,
+    ms_to_dt,
 )
 
 __all__ = [
@@ -12,4 +14,6 @@ __all__ = [
     "BatteryMeasurement",
     "VEBusMeasurement",
     "VEBusEnergy",
+    "dt_to_ms",
+    "ms_to_dt",
 ]

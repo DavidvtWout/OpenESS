@@ -1,5 +1,5 @@
-data.db
-data.db-journal
+*.db
+*.db-journal
 config.yaml
 entsoe-api-key
 
