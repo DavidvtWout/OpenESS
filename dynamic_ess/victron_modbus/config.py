@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 
 class VictronConfig(BaseModel):
@@ -13,5 +13,3 @@ class VictronConfig(BaseModel):
     system_id: int = 100
     vebus_ids: list[int] = []
     bms_id: int | None = None
-    solarcharger_id: int | None = None
-    grid_id: int | None = None

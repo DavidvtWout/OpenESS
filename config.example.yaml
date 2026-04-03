@@ -1,0 +1,16 @@
+db_path: /var/lib/dynamic-ess/data.db
+
+entsoe:
+  api_key_file: /var/lib/dynamic-ess/entsoe_api_key
+  area: NL
+
+victron_gx:
+  host: 192.168.1.100  # IP of your Victron GX device
+  port: 502
+  poll_interval: 2     # seconds between measurements
+  min_soc: 10          # Lowest allowed battery state-of-charge
+
+  # Modbus unit IDs - check Settings → Services → Modbus TCP → Available services
+  system_id: 100
+  vebus_ids: [ 228 ]     # list of MultiPlus/Quattro unit IDs
+  bms_id: 225          # optional, for BMS direct access

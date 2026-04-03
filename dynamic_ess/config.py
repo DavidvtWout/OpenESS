@@ -8,8 +8,7 @@ from dynamic_ess.victron_modbus import VictronConfig
 
 
 class Config(BaseModel):
-    db_path: Path = Path("dynamic_ess.db")
-    poll_interval: int = 3600
+    db_path: Path
 
     entsoe: EntsoeConfig
     victron_gx: VictronConfig
