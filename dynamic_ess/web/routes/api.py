@@ -11,6 +11,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["api"])
 
 
+def parse_utc_timestamp(ts: str) -> datetime:
+    """Parse an ISO timestamp string as UTC."""
+    return datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+
+
 def get_db() -> Database:
     """Dependency to get database connection."""
     from dynamic_ess.web.dependencies import get_database
@@ -128,7 +133,7 @@ async def get_prices(
         """
         cursor = db._conn.execute(query, [area, start.isoformat(), end.isoformat()])
         return [
-            PricePoint(time=datetime.fromisoformat(row["hour"]), price=row["price"])
+            PricePoint(time=parse_utc_timestamp(row["hour"]), price=row["price"])
             for row in cursor.fetchall()
         ]
     except Exception as e:
@@ -175,7 +180,7 @@ async def get_system_measurements(
             cursor = db._conn.execute(query, params)
             return [
                 SystemMeasurementPoint(
-                    time=datetime.fromisoformat(row["bucket"]),
+                    time=parse_utc_timestamp(row["bucket"]),
                     phase=row["phase"],
                     ac_consumption=row["ac_consumption"],
                     grid_power=row["grid_power"],
@@ -197,7 +202,7 @@ async def get_system_measurements(
             cursor = db._conn.execute(query, params)
             return [
                 SystemMeasurementPoint(
-                    time=datetime.fromisoformat(row["timestamp"]),
+                    time=parse_utc_timestamp(row["timestamp"]),
                     phase=row["phase"],
                     ac_consumption=row["ac_consumption"],
                     grid_power=row["grid_power"],
@@ -240,7 +245,7 @@ async def get_battery_measurements(
             cursor = db._conn.execute(query, [start.isoformat(), end.isoformat()])
             return [
                 BatteryMeasurementPoint(
-                    time=datetime.fromisoformat(row["bucket"]),
+                    time=parse_utc_timestamp(row["bucket"]),
                     battery_power=row["battery_power"],
                     battery_soc=row["battery_soc"],
                 )
@@ -258,7 +263,7 @@ async def get_battery_measurements(
             )
             return [
                 BatteryMeasurementPoint(
-                    time=datetime.fromisoformat(row["timestamp"]),
+                    time=parse_utc_timestamp(row["timestamp"]),
                     battery_power=row["battery_power"],
                     battery_soc=row["battery_soc"],
                 )
@@ -312,7 +317,7 @@ async def get_battery_cycles(
         prev_soc = None
 
         for row in rows:
-            time = datetime.fromisoformat(row["timestamp"])
+            time = parse_utc_timestamp(row["timestamp"])
             power = row["battery_power"]  # W, positive = charging, negative = discharging
             soc = row["battery_soc"]
 
@@ -434,7 +439,7 @@ async def get_energy_flow(
 
         prev_ts = None
         for ts_str in all_timestamps:
-            ts = datetime.fromisoformat(ts_str)
+            ts = parse_utc_timestamp(ts_str)
 
             if prev_ts is not None:
                 dt_hours = (ts - prev_ts).total_seconds() / 3600.0
@@ -490,7 +495,7 @@ async def get_energy_flow(
 
         return [
             EnergyFlowPoint(
-                time=datetime.fromisoformat(bucket_key),
+                time=parse_utc_timestamp(bucket_key),
                 grid_import_wh=round(data["grid_import_wh"], 1),
                 grid_export_wh=round(data["grid_export_wh"], 1),
                 battery_charge_wh=round(data["battery_charge_wh"], 1),
@@ -570,7 +575,7 @@ async def get_power(
             all_buckets = sorted(set(grid_data.keys()) | set(battery_data.keys()))
             return [
                 PowerPoint(
-                    time=datetime.fromisoformat(bucket),
+                    time=parse_utc_timestamp(bucket),
                     grid_power=grid_data.get(bucket),
                     battery_power=battery_data.get(bucket, {}).get("battery_power"),
                     charger_power=battery_data.get(bucket, {}).get("charger_power"),
@@ -642,7 +647,7 @@ async def get_power(
             )
             return [
                 PowerPoint(
-                    time=datetime.fromisoformat(row["timestamp"]),
+                    time=parse_utc_timestamp(row["timestamp"]),
                     grid_power=row["grid_power"],
                     battery_power=row["battery_power"],
                     charger_power=row["charger_power"],
@@ -727,7 +732,7 @@ async def get_efficiency_scatter(
 
             points.append(
                 EfficiencyScatterPoint(
-                    time=datetime.fromisoformat(bucket),
+                    time=parse_utc_timestamp(bucket),
                     battery_power=round(abs(battery_power), 1),  # Always positive
                     inverter_charger_power=round(inverter_charger_power, 1),
                     losses=round(losses, 1),
