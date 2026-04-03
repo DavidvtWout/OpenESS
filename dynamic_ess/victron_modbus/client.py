@@ -1,12 +1,13 @@
 import logging
-import pprint
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
+from dynamic_ess.db import Database
 from .config import VictronConfig
-from .registers import Battery, Register, System, VEBus
+from .registers import Register, System, VEBus
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,10 @@ class SystemState:
 
 
 class VictronClient:
-    def __init__(self, config: VictronConfig):
+    def __init__(self, config: VictronConfig, database: Database):
         self._config = config
+        self._database = database
+
         self._client = ModbusTcpClient(config.host, port=config.port)
         self._phases_cache: dict[int, int] = {}  # vebus_id -> num_phases
 
@@ -35,8 +38,12 @@ class VictronClient:
         return self._config.port
 
     @property
-    def config(self) -> VictronConfig:
-        return self._config
+    def address(self) -> str:
+        return f"{self.host}:{self.port}"
+
+    @property
+    def system_id(self) -> int:
+        return self._config.system_id
 
     def connect(self) -> bool:
         return self._client.connect()
@@ -215,33 +222,75 @@ class VictronClient:
 
         return value / register.scale
 
-    def get_state(self):
-        print()
+    def collect_and_store_measurements(self) -> None:
+        """Collect all measurements from Victron and store in database."""
+        timestamp = datetime.now(timezone.utc)
 
-        regs = [
+        # Determine active phases from first VEBus device (or default to 3)
+        if self._config.vebus_ids:
+            active_phases = self.get_active_phases(self._config.vebus_ids[0])
+        else:
+            active_phases = [1, 2, 3]
+
+        # Read System registers
+        system_regs = [
+            # Per-phase
             System.AC_CONSUMPTION_L1,
             System.AC_CONSUMPTION_L2,
             System.AC_CONSUMPTION_L3,
             System.GRID_L1,
             System.GRID_L2,
             System.GRID_L3,
-            System.GENSET_L1,
-            System.GENSET_L2,
-            System.GENSET_L3,
-            System.BATTERY_POWER,
-            System.CHARGER_POWER,
-            System.DC_SYSTEM_POWER,
-            System.INVERTER_CHARGER_POWER,
             System.GRID_TO_MULTIPLUS_POWER_L1,
             System.GRID_TO_MULTIPLUS_POWER_L2,
             System.GRID_TO_MULTIPLUS_POWER_L3,
             System.MULTIPLUS_OUTPUT_POWER_L1,
             System.MULTIPLUS_OUTPUT_POWER_L2,
             System.MULTIPLUS_OUTPUT_POWER_L3,
+            # Non-phase (battery/system)
+            System.BATTERY_POWER,
+            System.BATTERY_SOC,
+            System.CHARGER_POWER,
+            System.DC_SYSTEM_POWER,
+            System.INVERTER_CHARGER_POWER,
         ]
-        system_values = self.read_many(self._config.system_id, regs)
-        logger.info(f"\n{pprint.pformat(system_values, indent=2)}")
+        system_values = self.read_many(self.system_id, system_regs)
 
+        # Build per-phase system measurements
+        phase_data = {
+            1: {
+                "ac_consumption": _to_int(system_values.get(System.AC_CONSUMPTION_L1)),
+                "grid_power": _to_int(system_values.get(System.GRID_L1)),
+                "grid_to_multiplus": _to_int(system_values.get(System.GRID_TO_MULTIPLUS_POWER_L1)),
+                "multiplus_output": _to_int(system_values.get(System.MULTIPLUS_OUTPUT_POWER_L1)),
+            },
+            2: {
+                "ac_consumption": _to_int(system_values.get(System.AC_CONSUMPTION_L2)),
+                "grid_power": _to_int(system_values.get(System.GRID_L2)),
+                "grid_to_multiplus": _to_int(system_values.get(System.GRID_TO_MULTIPLUS_POWER_L2)),
+                "multiplus_output": _to_int(system_values.get(System.MULTIPLUS_OUTPUT_POWER_L2)),
+            },
+            3: {
+                "ac_consumption": _to_int(system_values.get(System.AC_CONSUMPTION_L3)),
+                "grid_power": _to_int(system_values.get(System.GRID_L3)),
+                "grid_to_multiplus": _to_int(system_values.get(System.GRID_TO_MULTIPLUS_POWER_L3)),
+                "multiplus_output": _to_int(system_values.get(System.MULTIPLUS_OUTPUT_POWER_L3)),
+            },
+        }
+        filtered_phases = {p: phase_data[p] for p in active_phases}
+        self._database.insert_system_measurements(timestamp, filtered_phases)
+
+        # Battery measurements
+        battery_data = {
+            "battery_power": _to_int(system_values.get(System.BATTERY_POWER)),
+            "battery_soc": _to_int(system_values.get(System.BATTERY_SOC)),
+            "charger_power": _to_int(system_values.get(System.CHARGER_POWER)),
+            "dc_system_power": _to_int(system_values.get(System.DC_SYSTEM_POWER)),
+            "inverter_charger_power": _to_int(system_values.get(System.INVERTER_CHARGER_POWER)),
+        }
+        self._database.insert_battery_measurement(timestamp, battery_data)
+
+        # VEBus registers for each device
         vebus_regs = [
             VEBus.AC_INPUT_POWER_L1,
             VEBus.AC_INPUT_POWER_L2,
@@ -249,9 +298,7 @@ class VictronClient:
             VEBus.AC_OUTPUT_POWER_L1,
             VEBus.AC_OUTPUT_POWER_L2,
             VEBus.AC_OUTPUT_POWER_L3,
-            VEBus.DC_VOLTAGE,
-            VEBus.DC_CURRENT,
-            # Energy counters (kWh)
+            # Energy counters
             VEBus.ENERGY_AC_IN1_TO_AC_OUT,
             VEBus.ENERGY_AC_IN1_TO_INVERTER,
             VEBus.ENERGY_AC_IN2_TO_AC_OUT,
@@ -263,15 +310,47 @@ class VictronClient:
             VEBus.ENERGY_INVERTER_TO_AC_OUT,
             VEBus.ENERGY_AC_OUT_TO_INVERTER,
         ]
-        for vebus_id in self._config.vebus_ids:
-            multiplus_values = self.read_many(vebus_id, vebus_regs)
-            logger.info(f"\nVEBus {vebus_id}:\n{pprint.pformat(multiplus_values, indent=2)}")
 
-        if self._config.bms_id:
-            regs = [
-                Battery.DC_POWER,
-                Battery.DISCHARGED_ENERGY,
-                Battery.CHARGED_ENERGY,
-            ]
-            bms_values = self.read_many(self._config.bms_id, regs)
-            logger.info(f"\n{pprint.pformat(bms_values, indent=2)}")
+        for vebus_id in self._config.vebus_ids:
+            vebus_values = self.read_many(vebus_id, vebus_regs)
+            device_phases = self.get_active_phases(vebus_id)
+
+            # Per-phase power measurements
+            vebus_phase_data = {
+                1: {
+                    "ac_input_power": vebus_values.get(VEBus.AC_INPUT_POWER_L1),
+                    "ac_output_power": vebus_values.get(VEBus.AC_OUTPUT_POWER_L1),
+                },
+                2: {
+                    "ac_input_power": vebus_values.get(VEBus.AC_INPUT_POWER_L2),
+                    "ac_output_power": vebus_values.get(VEBus.AC_OUTPUT_POWER_L2),
+                },
+                3: {
+                    "ac_input_power": vebus_values.get(VEBus.AC_INPUT_POWER_L3),
+                    "ac_output_power": vebus_values.get(VEBus.AC_OUTPUT_POWER_L3),
+                },
+            }
+            filtered_vebus = {p: vebus_phase_data[p] for p in device_phases}
+            self._database.insert_vebus_measurements(timestamp, vebus_id, filtered_vebus)
+
+            # Energy counters
+            energy_data = {
+                "energy_ac_in1_to_ac_out": vebus_values.get(VEBus.ENERGY_AC_IN1_TO_AC_OUT),
+                "energy_ac_in1_to_battery": vebus_values.get(VEBus.ENERGY_AC_IN1_TO_INVERTER),
+                "energy_ac_in2_to_ac_out": vebus_values.get(VEBus.ENERGY_AC_IN2_TO_AC_OUT),
+                "energy_ac_in2_to_battery": vebus_values.get(VEBus.ENERGY_AC_IN2_TO_INVERTER),
+                "energy_ac_out_to_ac_in1": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN1),
+                "energy_ac_out_to_ac_in2": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN2),
+                "energy_battery_to_ac_in1": vebus_values.get(VEBus.ENERGY_INVERTER_TO_AC_IN1),
+                "energy_battery_to_ac_in2": vebus_values.get(VEBus.ENERGY_INVERTER_TO_AC_IN2),
+                "energy_battery_to_ac_out": vebus_values.get(VEBus.ENERGY_INVERTER_TO_AC_OUT),
+                "energy_ac_out_to_battery": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_INVERTER),
+            }
+            self._database.insert_vebus_energy(timestamp, vebus_id, energy_data)
+
+        logger.info(f"Stored measurements at {timestamp.isoformat()}")
+
+
+def _to_int(value: float | None) -> int | None:
+    """Convert float to int, preserving None."""
+    return int(value) if value is not None else None

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from entsoe import set_config
@@ -7,22 +7,28 @@ from entsoe.Market import EnergyPrices
 from entsoe.utils import add_timestamps, extract_records
 from pandas import DataFrame
 
+from dynamic_ess.db import Database
 from .areas import AREAS
 from .config import EntsoeConfig
+
+from xml.etree import ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
 
 class EntsoeClient:
-    def __init__(self, config: EntsoeConfig):
+    def __init__(self, config: EntsoeConfig, db: Database):
         if config.area not in AREAS:
             raise ValueError(f"Unknown area code: '{config.area}'")
+
+        self._config = config
+        self._db = db
 
         self._eic_code, tz_name = AREAS[config.area]
         self._tz = ZoneInfo(tz_name)
 
         if config.api_key:
-            set_config(config.api_key)
+            set_config(security_token=config.api_key)
 
     def fetch_day_ahead_prices(
             self,
@@ -47,12 +53,17 @@ class EntsoeClient:
         period_start = int(start_local.strftime("%Y%m%d%H%M"))
         period_end = int(end_local.strftime("%Y%m%d%H%M"))
 
-        result = EnergyPrices(
-            in_domain=self._eic_code,
-            out_domain=self._eic_code,
-            period_start=period_start,
-            period_end=period_end,
-        ).query_api()
+        try:
+            result = EnergyPrices(
+                in_domain=self._eic_code,
+                out_domain=self._eic_code,
+                period_start=period_start,
+                period_end=period_end,
+            ).query_api()
+        except ET.ParseError:
+            # On a 404, entsoe-apy still tries to parse the result which fails. Other errors such as 503 and timeouts are retried
+            return []
+
 
         records = extract_records(result)
         records = add_timestamps(records)
@@ -68,6 +79,24 @@ class EntsoeClient:
             price = float(row["time_series.period.point.price_amount"])
             prices.append((row_start, row_end, price))
         return prices
+
+    def fetch_missing_prices(self):
+        now = datetime.now(timezone.utc)
+        end_of_tomorrow = (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        latest = self._db.get_latest_price_time(self._config.area)
+        if latest is None:
+            fetch_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            fetch_start -= timedelta(days=14)
+        elif latest >= end_of_tomorrow:
+            return
+        else:
+            fetch_start = latest
+
+        logger.info(f"Fetching prices for {self._config.area} from {fetch_start} to {end_of_tomorrow}")
+        prices = self.fetch_day_ahead_prices(fetch_start, end_of_tomorrow)
+        if prices:
+            self._db.insert_prices(self._config.area, prices)
 
 
 def _parse_resolution(resolution: str) -> int:
