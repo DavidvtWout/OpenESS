@@ -327,3 +327,192 @@ async function loadGridChart(elementId, hours = 24) {
         showError(elementId, 'Failed to load system data');
     }
 }
+
+// Load and display combined power chart (grid, battery, charger, inverter)
+async function loadPowerChart(elementId, hours = 24, aggregateMinutes = 5) {
+    showLoading(elementId);
+
+    const now = new Date();
+    const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
+
+    const url = `/api/power?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=${aggregateMinutes}`;
+    console.log('Fetching power:', url);
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch power data: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('Power data:', data.length, 'points');
+
+        if (data.length === 0) {
+            showError(elementId, 'No power data available');
+            return;
+        }
+
+        const times = data.map(d => new Date(d.time));
+
+        const traces = [
+            {
+                x: times,
+                y: data.map(d => d.grid_power),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Grid',
+                line: { color: '#e74c3c', width: 2 },
+            },
+            {
+                x: times,
+                y: data.map(d => d.battery_power),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Battery',
+                line: { color: '#3498db', width: 2 },
+            },
+            {
+                x: times,
+                y: data.map(d => d.charger_power),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Charger',
+                line: { color: '#2ecc71', width: 1.5, dash: 'dot' },
+                visible: 'legendonly',
+            },
+            {
+                x: times,
+                y: data.map(d => d.inverter_charger_power),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Inverter/Charger',
+                line: { color: '#9b59b6', width: 1.5, dash: 'dot' },
+                visible: 'legendonly',
+            },
+        ];
+
+        const defaultLayout = getPlotlyLayout();
+        const settings = loadSettings();
+        const isDark = settings.theme === 'dark';
+
+        const layout = {
+            ...defaultLayout,
+            xaxis: { ...defaultLayout.xaxis },
+            yaxis: {
+                ...defaultLayout.yaxis,
+                title: 'Power (W)',
+                zeroline: true,
+                zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
+            },
+            legend: {
+                orientation: 'h',
+                y: -0.15,
+                font: { color: isDark ? '#e4e4e4' : '#333333' },
+            },
+            shapes: [{
+                type: 'line',
+                x0: now,
+                x1: now,
+                y0: 0,
+                y1: 1,
+                yref: 'paper',
+                line: { color: '#e74c3c', width: 1, dash: 'dash' },
+            }],
+        };
+
+        document.getElementById(elementId).innerHTML = '';
+        Plotly.newPlot(elementId, traces, layout, defaultConfig);
+    } catch (error) {
+        console.error('Error loading power data:', error);
+        showError(elementId, 'Failed to load power data');
+    }
+}
+
+// Load and display energy flow stacked bar chart
+async function loadEnergyFlowChart(elementId, hours = 24, bucketMinutes = 60) {
+    showLoading(elementId);
+
+    const now = new Date();
+    const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
+
+    const url = `/api/energy-flow?start=${formatDate(start)}&end=${formatDate(now)}&bucket_minutes=${bucketMinutes}`;
+    console.log('Fetching energy flow:', url);
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch energy flow: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('Energy flow data:', data.length, 'buckets');
+
+        if (data.length === 0) {
+            showError(elementId, 'No energy flow data available');
+            return;
+        }
+
+        const times = data.map(d => new Date(d.time));
+
+        // Convert Wh to kWh for display
+        const toKwh = (wh) => wh / 1000;
+
+        const traces = [
+            {
+                x: times,
+                y: data.map(d => toKwh(d.grid_import_wh)),
+                type: 'bar',
+                name: 'Grid Import',
+                marker: { color: '#e74c3c' },
+            },
+            {
+                x: times,
+                y: data.map(d => -toKwh(d.grid_export_wh)),
+                type: 'bar',
+                name: 'Grid Export',
+                marker: { color: '#27ae60' },
+            },
+            {
+                x: times,
+                y: data.map(d => toKwh(d.battery_charge_wh)),
+                type: 'bar',
+                name: 'Battery Charge',
+                marker: { color: '#3498db' },
+            },
+            {
+                x: times,
+                y: data.map(d => -toKwh(d.battery_discharge_wh)),
+                type: 'bar',
+                name: 'Battery Discharge',
+                marker: { color: '#f39c12' },
+            },
+        ];
+
+        const defaultLayout = getPlotlyLayout();
+        const settings = loadSettings();
+        const isDark = settings.theme === 'dark';
+
+        const layout = {
+            ...defaultLayout,
+            barmode: 'relative',
+            xaxis: { ...defaultLayout.xaxis },
+            yaxis: {
+                ...defaultLayout.yaxis,
+                title: 'Energy (kWh)',
+                zeroline: true,
+                zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
+            },
+            legend: {
+                orientation: 'h',
+                y: -0.15,
+                font: { color: isDark ? '#e4e4e4' : '#333333' },
+            },
+        };
+
+        document.getElementById(elementId).innerHTML = '';
+        Plotly.newPlot(elementId, traces, layout, defaultConfig);
+    } catch (error) {
+        console.error('Error loading energy flow:', error);
+        showError(elementId, 'Failed to load energy flow');
+    }
+}

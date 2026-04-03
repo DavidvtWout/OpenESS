@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+
+{% block title %}Battery Cycles - Dynamic ESS{% endblock %}
+
+{% block content %}
+<h1>Battery Efficiency</h1>
+
+<div class="chart-container">
+    <h2>Power vs Losses</h2>
+    <div class="controls" style="margin-bottom: 1rem; padding: 0; background: transparent; box-shadow: none;">
+        <label>
+            Aggregation:
+            <select id="scatter-aggregate-select">
+                <option value="5">5 minutes</option>
+                <option value="10" selected>10 minutes</option>
+                <option value="15">15 minutes</option>
+            </select>
+        </label>
+        <label>
+            Data points:
+            <select id="scatter-limit-select">
+                <option value="500">500</option>
+                <option value="1000">1000</option>
+                <option value="2000" selected>2000</option>
+                <option value="5000">5000</option>
+            </select>
+        </label>
+    </div>
+    <div id="scatter-chart" class="chart chart-large"></div>
+</div>
+
+<h2 style="margin-top: 2rem;">Charge Cycles</h2>
+
+<div class="controls">
+    <label>
+        Time range:
+        <select id="days-select">
+            <option value="7">Last 7 days</option>
+            <option value="14">Last 14 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+        </select>
+    </label>
+    <label>
+        Min SOC swing:
+        <select id="swing-select">
+            <option value="5">5%</option>
+            <option value="10" selected>10%</option>
+            <option value="20">20%</option>
+            <option value="30">30%</option>
+        </select>
+    </label>
+</div>
+
+<div class="stats" id="cycle-stats">
+    <!-- Filled by JS -->
+</div>
+
+<div class="table-container">
+    <table class="data-table" id="cycles-table">
+        <thead>
+            <tr>
+                <th>Start</th>
+                <th>End</th>
+                <th>Duration</th>
+                <th>Min SOC</th>
+                <th>Discharged</th>
+                <th>Charged</th>
+                <th>Efficiency</th>
+            </tr>
+        </thead>
+        <tbody id="cycles-body">
+            <tr><td colspan="7" class="loading">Loading...</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/app.js"></script>
+<script>
+function formatDateTime(isoString) {
+    const date = new Date(isoString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+
+function formatDuration(hours) {
+    if (hours < 1) {
+        return Math.round(hours * 60) + ' min';
+    } else if (hours < 24) {
+        const h = Math.floor(hours);
+        const m = Math.round((hours - h) * 60);
+        return h + 'h ' + m + 'm';
+    } else {
+        const d = Math.floor(hours / 24);
+        const h = Math.round(hours % 24);
+        return d + 'd ' + h + 'h';
+    }
+}
+
+function formatEnergy(wh) {
+    if (wh >= 1000) {
+        return (wh / 1000).toFixed(2) + ' kWh';
+    }
+    return Math.round(wh) + ' Wh';
+}
+
+function getEfficiencyClass(efficiency) {
+    if (efficiency >= 90) return 'efficiency-good';
+    if (efficiency >= 80) return 'efficiency-ok';
+    return 'efficiency-poor';
+}
+
+function formatScatterTime(isoString) {
+    const date = new Date(isoString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+
+async function loadScatterChart() {
+    const elementId = 'scatter-chart';
+    const aggregate = document.getElementById('scatter-aggregate-select').value;
+    const limit = document.getElementById('scatter-limit-select').value;
+
+    document.getElementById(elementId).innerHTML = '<div class="loading">Loading...</div>';
+
+    const url = `/api/efficiency-scatter?aggregate_minutes=${aggregate}&limit=${limit}`;
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.length === 0) {
+            document.getElementById(elementId).innerHTML = '<div class="no-data">No data available</div>';
+            return;
+        }
+
+        // Separate charging and discharging points
+        const charging = data.filter(d => d.is_charging);
+        const discharging = data.filter(d => !d.is_charging);
+
+        // Build hover text
+        const chargingHover = charging.map(d => {
+            const eff = d.efficiency !== null ? `${d.efficiency.toFixed(1)}%` : 'N/A';
+            return `Time: ${formatScatterTime(d.time)}<br>Power: ${d.battery_power} W<br>Losses: ${d.losses} W<br>Efficiency: ${eff}`;
+        });
+        const dischargingHover = discharging.map(d => {
+            const eff = d.efficiency !== null ? `${d.efficiency.toFixed(1)}%` : 'N/A';
+            return `Time: ${formatScatterTime(d.time)}<br>Power: ${d.battery_power} W<br>Losses: ${d.losses} W<br>Efficiency: ${eff}`;
+        });
+
+        const traces = [
+            {
+                x: charging.map(d => d.battery_power),
+                y: charging.map(d => d.losses),
+                type: 'scatter',
+                mode: 'markers',
+                name: 'Charging',
+                marker: {
+                    color: 'rgba(52, 152, 219, 0.5)',
+                    size: 8,
+                },
+                text: chargingHover,
+                hoverinfo: 'text',
+            },
+            {
+                x: discharging.map(d => d.battery_power),
+                y: discharging.map(d => d.losses),
+                type: 'scatter',
+                mode: 'markers',
+                name: 'Discharging',
+                marker: {
+                    color: 'rgba(231, 76, 60, 0.5)',
+                    size: 8,
+                },
+                text: dischargingHover,
+                hoverinfo: 'text',
+            },
+        ];
+
+        const settings = loadSettings();
+        const isDark = settings.theme === 'dark';
+
+        const layout = {
+            margin: { t: 30, r: 30, b: 60, l: 60 },
+            paper_bgcolor: 'transparent',
+            plot_bgcolor: 'transparent',
+            font: {
+                family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                color: isDark ? '#e4e4e4' : '#333333',
+            },
+            xaxis: {
+                title: 'Battery Power (W)',
+                gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
+                linecolor: isDark ? '#3a3a5a' : '#dddddd',
+                zeroline: true,
+                zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
+            },
+            yaxis: {
+                title: 'Losses (W)',
+                gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
+                linecolor: isDark ? '#3a3a5a' : '#dddddd',
+                zeroline: true,
+                zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
+            },
+            legend: {
+                orientation: 'h',
+                y: -0.15,
+                font: { color: isDark ? '#e4e4e4' : '#333333' },
+            },
+            hovermode: 'closest',
+        };
+
+        document.getElementById(elementId).innerHTML = '';
+        Plotly.newPlot(elementId, traces, layout, { responsive: true, displayModeBar: false });
+
+    } catch (error) {
+        console.error('Error loading scatter chart:', error);
+        document.getElementById(elementId).innerHTML = '<div class="error">Failed to load scatter chart</div>';
+    }
+}
+
+async function loadCycles() {
+    const days = parseInt(document.getElementById('days-select').value);
+    const minSwing = parseInt(document.getElementById('swing-select').value);
+
+    const now = new Date();
+    const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    const url = `/api/cycles?start=${start.toISOString()}&end=${now.toISOString()}&min_soc_swing=${minSwing}`;
+
+    const tbody = document.getElementById('cycles-body');
+    tbody.innerHTML = '<tr><td colspan="7" class="loading">Loading...</td></tr>';
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const cycles = await response.json();
+
+        if (cycles.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="no-data">No cycles found in the selected time range</td></tr>';
+            document.getElementById('cycle-stats').innerHTML = '';
+            return;
+        }
+
+        // Build table rows
+        tbody.innerHTML = cycles.map(cycle => `
+            <tr>
+                <td>${formatDateTime(cycle.start_time)}</td>
+                <td>${formatDateTime(cycle.end_time)}</td>
+                <td>${formatDuration(cycle.duration_hours)}</td>
+                <td>${cycle.min_soc}%</td>
+                <td>${formatEnergy(cycle.energy_discharged_wh)}</td>
+                <td>${formatEnergy(cycle.energy_charged_wh)}</td>
+                <td class="${getEfficiencyClass(cycle.efficiency)}">${cycle.efficiency.toFixed(1)}%</td>
+            </tr>
+        `).join('');
+
+        // Calculate and show stats
+        const totalDischarged = cycles.reduce((sum, c) => sum + c.energy_discharged_wh, 0);
+        const totalCharged = cycles.reduce((sum, c) => sum + c.energy_charged_wh, 0);
+        const avgEfficiency = totalCharged > 0 ? (totalDischarged / totalCharged) * 100 : 0;
+        const avgCycleEfficiency = cycles.reduce((sum, c) => sum + c.efficiency, 0) / cycles.length;
+
+        document.getElementById('cycle-stats').innerHTML = `
+            <div class="stat-card">
+                <div class="stat-value">${cycles.length}</div>
+                <div class="stat-label">Total Cycles</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${formatEnergy(totalDischarged)}</div>
+                <div class="stat-label">Total Discharged</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${formatEnergy(totalCharged)}</div>
+                <div class="stat-label">Total Charged</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${avgCycleEfficiency.toFixed(1)}%</div>
+                <div class="stat-label">Avg Efficiency</div>
+            </div>
+        `;
+
+    } catch (error) {
+        console.error('Error loading cycles:', error);
+        tbody.innerHTML = '<tr><td colspan="7" class="error">Failed to load cycles</td></tr>';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Scatter chart controls
+    document.getElementById('scatter-aggregate-select').addEventListener('change', loadScatterChart);
+    document.getElementById('scatter-limit-select').addEventListener('change', loadScatterChart);
+    loadScatterChart();
+
+    // Cycles table controls
+    document.getElementById('days-select').addEventListener('change', loadCycles);
+    document.getElementById('swing-select').addEventListener('change', loadCycles);
+    loadCycles();
+});
+</script>
+{% endblock %}
