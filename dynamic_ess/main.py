@@ -1,14 +1,11 @@
 import argparse
 import logging
 import signal
-import sys
-import time
 from pathlib import Path
 
+from dynamic_ess.components import ChargePlanner, EntsoeCollector, VictronCollector
 from dynamic_ess.config import Config
 from dynamic_ess.db import Database
-from dynamic_ess.entsoe_api import EntsoeClient
-from dynamic_ess.victron_modbus import VictronClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,51 +30,36 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-
     config = Config.from_file(args.config)
 
-    database = Database(config.db_path)
-    entsoe_client = EntsoeClient(config.entsoe, database)
-    victron_client = VictronClient(config.victron_gx, database)
+    # Run migrations on startup (main thread)
+    Database(config.db_path, run_migrations=True).close()
 
-    if not victron_client.initialize():
-        logger.error(f"Could not connect to Victron GX at {victron_client.address}")
-        sys.exit(1)
-    logger.info(f"Connected to Victron GX at {victron_client.address}")
+    # Components create their own connections in their threads
+    components = [
+        VictronCollector(config.victron_gx, config.db_path),
+        EntsoeCollector(config.entsoe, config.db_path, check_interval_hours=1.0),
+        ChargePlanner(config.db_path, area=config.entsoe.area, run_at_minute=58),
+    ]
 
-    running = True
-
+    # Shutdown handler
     def shutdown(signum, frame):
-        nonlocal running
         logger.info("Shutting down...")
-        running = False
+        for c in components:
+            c.stop()
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    try:
-        entsoe_client.fetch_missing_prices()
-    except Exception as e:
-        logger.exception(f"Could not fetch prices: {e}")
+    # Start all components
+    for c in components:
+        c.start()
 
-    # Main polling loop
-    poll_interval = config.victron_gx.poll_interval
-    last_poll = 0.0
+    # Wait for all components to finish
+    for c in components:
+        c.join()
 
-    while running:
-        now = time.monotonic()
-
-        if now - last_poll >= poll_interval:
-            try:
-                victron_client.collect_and_store_measurements()
-                last_poll = now
-            except Exception as e:
-                logger.exception(f"Error collecting measurements: {e}")
-
-        time.sleep(0.1)
-
-    victron_client.close()
-    database.close()
+    logger.info("Shutdown complete")
 
 
 if __name__ == "__main__":

@@ -53,11 +53,17 @@ class VEBusEnergy(TypedDict, total=False):
 
 
 class Database:
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, run_migrations: bool = True):
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._db_path = db_path
         self._conn = sqlite3.connect(db_path)
         self._conn.row_factory = sqlite3.Row
-        self._run_migrations()
+        if run_migrations:
+            self._run_migrations()
+
+    def new_connection(self) -> "Database":
+        """Create a new Database instance with its own connection (for use in other threads)."""
+        return Database(self._db_path, run_migrations=False)
 
     def _run_migrations(self):
         """Run all pending migrations."""
