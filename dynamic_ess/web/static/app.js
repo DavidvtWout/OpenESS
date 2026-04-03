@@ -77,6 +77,14 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
         const times = data.map(d => new Date(d.time));
         const prices = data.map(d => d.price * priceMultiplier);
 
+        // Extend the last price by 1 hour so the step chart shows the full last hour
+        if (times.length > 0) {
+            const lastTime = times[times.length - 1];
+            const extendedTime = new Date(lastTime.getTime() + 60 * 60 * 1000);
+            times.push(extendedTime);
+            prices.push(prices[prices.length - 1]);
+        }
+
         // Find current price
         const currentTime = now.getTime();
         let currentPriceIdx = times.findIndex((t, i) =>

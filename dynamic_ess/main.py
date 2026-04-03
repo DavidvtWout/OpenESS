@@ -9,7 +9,6 @@ from pathlib import Path
 from dynamic_ess.config import Config
 from dynamic_ess.db import Database
 from dynamic_ess.entsoe_api import EntsoeClient
-from dynamic_ess.util import plot_energy_prices
 from dynamic_ess.victron_modbus import VictronClient
 from dynamic_ess.victron_modbus.registers import System, VEBus
 
@@ -211,8 +210,6 @@ def main():
         fetch_missing_prices(db, entsoe, config.entsoe.area)
     except Exception as e:
         logger.exception(f"Could not fetch prices: {e}")
-
-    # plot_energy_prices(db, config.entsoe.area)
 
     # Main polling loop
     poll_interval = config.victron_gx.poll_interval
