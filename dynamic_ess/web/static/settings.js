@@ -3,6 +3,7 @@
 const defaultSettings = {
     theme: 'dark',
     priceUnit: 'eur',  // 'eur' or 'cent'
+    powerUnit: 'w',    // 'w' for W/Wh, 'kw' for kW/kWh
     weekStartDay: 1,   // 0 = Sunday, 1 = Monday
 };
 
@@ -30,6 +31,9 @@ function loadSettings() {
 
     const priceUnit = getCookie('priceUnit');
     if (priceUnit) settings.priceUnit = priceUnit;
+
+    const powerUnit = getCookie('powerUnit');
+    if (powerUnit) settings.powerUnit = powerUnit;
 
     const weekStartDay = getCookie('weekStartDay');
     if (weekStartDay !== null) settings.weekStartDay = parseInt(weekStartDay, 10);

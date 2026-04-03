@@ -9,9 +9,7 @@
     <label>
         Time range:
         <select id="range-select">
-            <option value="6">Last 6 hours</option>
-            <option value="12">Last 12 hours</option>
-            <option value="24" selected>Last 24 hours</option>
+            <option value="24" selected>Today</option>
             <option value="48">Last 2 days</option>
             <option value="168">Last 7 days</option>
             <option value="720">Last 30 days</option>
@@ -46,7 +44,6 @@
 <script src="/static/app.js"></script>
 <script>
     function getAggregateMinutes(hours) {
-        if (hours <= 12) return 1;
         if (hours <= 48) return 5;
         if (hours <= 168) return 15;
         return 60;
@@ -62,38 +59,63 @@
     let dashboardStart = null;
     let dashboardEnd = null;
     let currentFoR = 'multiplus';
+    let cachedEnergyData = null;
 
-    function getAlignedStartTime(hours) {
+    function getTimeRange(hours) {
         const now = new Date();
-        const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
 
-        // Align to midnight for ranges >= 24 hours
-        if (hours >= 24) {
+        if (hours === 24) {
+            // Today: 0:00 today to 0:00 tomorrow
+            const start = new Date(now);
             start.setHours(0, 0, 0, 0);
+            const end = new Date(start);
+            end.setDate(end.getDate() + 1);
+            return { start, end };
+        } else {
+            // Other ranges: aligned to midnight, ending now
+            const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
+            start.setHours(0, 0, 0, 0);
+            return { start, end: now };
         }
-        return start;
     }
 
-    function loadDashboard() {
+    async function loadDashboard() {
         const hours = parseInt(document.getElementById('range-select').value);
         const aggregateMinutes = getAggregateMinutes(hours);
         const bucketMinutes = getBucketMinutes(hours);
 
-        // Calculate aligned timestamps
-        dashboardEnd = new Date();
-        dashboardStart = getAlignedStartTime(hours);
+        // Calculate time range
+        const range = getTimeRange(hours);
+        dashboardStart = range.start;
+        dashboardEnd = range.end;
+
+        // Clear cache when time range changes
+        cachedEnergyData = null;
 
         loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes);
-        loadEnergyFlowChart('energy-chart', dashboardStart, dashboardEnd, bucketMinutes, currentFoR);
+        await loadAndCacheEnergyData(dashboardStart, dashboardEnd, bucketMinutes);
+        renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR);
         loadPricesChartRange('prices-chart', dashboardStart, dashboardEnd);
     }
 
-    function loadEnergyOnly() {
-        const hours = parseInt(document.getElementById('range-select').value);
-        const bucketMinutes = getBucketMinutes(hours);
+    async function loadAndCacheEnergyData(start, end, bucketMinutes) {
+        const url = `/api/energy-flow?start=${start.toISOString()}&end=${end.toISOString()}&bucket_minutes=${bucketMinutes}`;
 
-        if (dashboardStart && dashboardEnd) {
-            loadEnergyFlowChart('energy-chart', dashboardStart, dashboardEnd, bucketMinutes, currentFoR);
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch energy flow: ${response.status}`);
+            }
+            cachedEnergyData = await response.json();
+        } catch (error) {
+            console.error('Error fetching energy data:', error);
+            cachedEnergyData = null;
+        }
+    }
+
+    function renderEnergyOnly() {
+        if (cachedEnergyData && dashboardStart && dashboardEnd) {
+            renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR);
         }
     }
 
@@ -106,7 +128,7 @@
                 document.querySelectorAll('#for-buttons .btn-toggle').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentFoR = btn.dataset.value;
-                loadEnergyOnly();
+                renderEnergyOnly();
             });
         });
 

@@ -349,12 +349,18 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
             return;
         }
 
+        const settings = loadSettings();
+        const isDark = settings.theme === 'dark';
+        const useKw = settings.powerUnit === 'kw';
+        const divisor = useKw ? 1000 : 1;
+        const powerLabel = useKw ? 'Power (kW)' : 'Power (W)';
+
         const times = data.map(d => new Date(d.time));
 
         const traces = [
             {
                 x: times,
-                y: data.map(d => d.grid_power),
+                y: data.map(d => d.grid_power / divisor),
                 type: 'scatter',
                 mode: 'lines',
                 name: 'Grid',
@@ -362,7 +368,7 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
             },
             {
                 x: times,
-                y: data.map(d => d.battery_power),
+                y: data.map(d => d.battery_power / divisor),
                 type: 'scatter',
                 mode: 'lines',
                 name: 'Battery',
@@ -370,7 +376,7 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
             },
             {
                 x: times,
-                y: data.map(d => d.inverter_charger_power),
+                y: data.map(d => d.inverter_charger_power / divisor),
                 type: 'scatter',
                 mode: 'lines',
                 name: 'Inverter/Charger',
@@ -379,8 +385,6 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         ];
 
         const defaultLayout = getPlotlyLayout();
-        const settings = loadSettings();
-        const isDark = settings.theme === 'dark';
 
         // Only show "now" line if within visible range
         const now = new Date();
@@ -402,7 +406,7 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
             },
             yaxis: {
                 ...defaultLayout.yaxis,
-                title: 'Power (W)',
+                title: powerLabel,
                 zeroline: true,
                 zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
             },
@@ -422,6 +426,179 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
     }
 }
 
+// Render energy flow chart from pre-fetched data (for caching)
+function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = 'multiplus') {
+    if (!data || data.length === 0) {
+        showError(elementId, 'No energy flow data available');
+        return;
+    }
+
+    const settings = loadSettings();
+    const useKw = settings.powerUnit === 'kw';
+    const times = data.map(d => new Date(d.time));
+
+    // Convert Wh based on unit preference
+    const toDisplay = useKw ? (wh) => wh / 1000 : (wh) => wh;
+    const fmtEnergy = useKw ? (wh) => (wh / 1000).toFixed(2) : (wh) => Math.round(wh);
+    const energyUnit = useKw ? 'kWh' : 'Wh';
+
+    // Build FoR-specific hover text
+    function buildHoverText(d, forType) {
+        const time = new Date(d.time).toLocaleString();
+        if (forType === 'multiplus') {
+            return `<b>${time}</b><br>` +
+                `Inverter Output: ${fmtEnergy(d.inverter_output_wh)} ${energyUnit}<br>` +
+                `Inverter Losses: ${fmtEnergy(d.inverter_losses_wh)} ${energyUnit}<br>` +
+                `Charger Input: ${fmtEnergy(d.charger_input_wh)} ${energyUnit}<br>` +
+                `Charger Losses: ${fmtEnergy(d.charger_losses_wh)} ${energyUnit}`;
+        } else if (forType === 'grid') {
+            return `<b>${time}</b><br>` +
+                `Grid Export: ${fmtEnergy(d.grid_export_wh)} ${energyUnit}<br>` +
+                `Grid Import: ${fmtEnergy(d.grid_import_wh)} ${energyUnit}<br>` +
+                `Conversion Losses: ${fmtEnergy(d.charger_losses_wh + d.inverter_losses_wh)} ${energyUnit}`;
+        } else {
+            return `<b>${time}</b><br>` +
+                `Consumption: ${fmtEnergy(d.consumption_wh)} ${energyUnit}<br>` +
+                `MultiPlus Losses: ${fmtEnergy(d.charger_losses_wh + d.inverter_losses_wh)} ${energyUnit}`;
+        }
+    }
+
+    const hoverTexts = data.map(d => buildHoverText(d, frameOfReference));
+
+    let traces = [];
+
+    if (frameOfReference === 'multiplus') {
+        // MultiPlus FoR: Top = Inverter output, Bottom = Inverter losses, Charger input, Charger losses
+        traces = [
+            {
+                x: times,
+                y: data.map(d => toDisplay(d.inverter_output_wh)),
+                type: 'bar',
+                name: 'Inverter Output',
+                marker: { color: '#f39c12' },
+                text: hoverTexts,
+                hoverinfo: 'text',
+                textposition: 'none',
+            },
+            {
+                x: times,
+                y: data.map(d => -toDisplay(d.inverter_losses_wh)),
+                type: 'bar',
+                name: 'Inverter Losses',
+                marker: { color: '#e67e22' },
+                text: hoverTexts,
+                hoverinfo: 'text',
+                textposition: 'none',
+            },
+            {
+                x: times,
+                y: data.map(d => -toDisplay(d.charger_input_wh)),
+                type: 'bar',
+                name: 'Charger Input',
+                marker: { color: '#3498db' },
+                text: hoverTexts,
+                hoverinfo: 'text',
+                textposition: 'none',
+            },
+            {
+                x: times,
+                y: data.map(d => -toDisplay(d.charger_losses_wh)),
+                type: 'bar',
+                name: 'Charger Losses',
+                marker: { color: '#2980b9' },
+                text: hoverTexts,
+                hoverinfo: 'text',
+                textposition: 'none',
+            },
+        ];
+    } else if (frameOfReference === 'grid') {
+        // Grid FoR: Top = Battery-to-grid (export), Bottom = Grid-to-battery, Losses
+        traces = [
+            {
+                x: times,
+                y: data.map(d => toDisplay(d.grid_export_wh)),
+                type: 'bar',
+                name: 'Grid Export',
+                marker: { color: '#27ae60' },
+                text: hoverTexts,
+                hoverinfo: 'text',
+                textposition: 'none',
+            },
+            {
+                x: times,
+                y: data.map(d => -toDisplay(d.grid_import_wh)),
+                type: 'bar',
+                name: 'Grid Import',
+                marker: { color: '#3498db' },
+                text: hoverTexts,
+                hoverinfo: 'text',
+                textposition: 'none',
+            },
+            {
+                x: times,
+                y: data.map(d => -toDisplay(d.charger_losses_wh + d.inverter_losses_wh)),
+                type: 'bar',
+                name: 'Conversion Losses',
+                marker: { color: '#e74c3c' },
+                text: hoverTexts,
+                hoverinfo: 'text',
+                textposition: 'none',
+            },
+        ];
+    } else if (frameOfReference === 'consumption') {
+        // Consumption FoR: Consumption + Losses
+        traces = [
+            {
+                x: times,
+                y: data.map(d => -toDisplay(d.consumption_wh)),
+                type: 'bar',
+                name: 'Consumption',
+                marker: { color: '#9b59b6' },
+                text: hoverTexts,
+                hoverinfo: 'text',
+                textposition: 'none',
+            },
+            {
+                x: times,
+                y: data.map(d => -toDisplay(d.charger_losses_wh + d.inverter_losses_wh)),
+                type: 'bar',
+                name: 'MultiPlus Losses',
+                marker: { color: '#e74c3c' },
+                text: hoverTexts,
+                hoverinfo: 'text',
+                textposition: 'none',
+            },
+        ];
+    }
+
+    const defaultLayout = getPlotlyLayout();
+    const isDark = settings.theme === 'dark';
+
+    const layout = {
+        ...defaultLayout,
+        barmode: 'relative',
+        bargap: 0.02,
+        xaxis: {
+            ...defaultLayout.xaxis,
+            range: [start, end],
+        },
+        yaxis: {
+            ...defaultLayout.yaxis,
+            title: `Energy (${energyUnit})`,
+            zeroline: true,
+            zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
+        },
+        legend: {
+            orientation: 'h',
+            y: -0.15,
+            font: { color: isDark ? '#e4e4e4' : '#333333' },
+        },
+    };
+
+    document.getElementById(elementId).innerHTML = '';
+    Plotly.newPlot(elementId, traces, layout, defaultConfig);
+}
+
 // Load and display energy flow stacked bar chart with frame of reference
 async function loadEnergyFlowChart(elementId, start, end, bucketMinutes = 60, frameOfReference = 'multiplus') {
     showLoading(elementId);
@@ -438,173 +615,7 @@ async function loadEnergyFlowChart(elementId, start, end, bucketMinutes = 60, fr
         const data = await response.json();
         console.log('Energy flow data:', data.length, 'buckets');
 
-        if (data.length === 0) {
-            showError(elementId, 'No energy flow data available');
-            return;
-        }
-
-        const times = data.map(d => new Date(d.time));
-
-        // Convert Wh to kWh for display
-        const toKwh = (wh) => wh / 1000;
-        const fmtKwh = (wh) => (wh / 1000).toFixed(2);
-
-        // Build FoR-specific hover text
-        function buildHoverText(d, forType) {
-            const time = new Date(d.time).toLocaleString();
-            if (forType === 'multiplus') {
-                return `<b>${time}</b><br>` +
-                    `Inverter Output: ${fmtKwh(d.inverter_output_wh)} kWh<br>` +
-                    `Inverter Losses: ${fmtKwh(d.inverter_losses_wh)} kWh<br>` +
-                    `Charger Input: ${fmtKwh(d.charger_input_wh)} kWh<br>` +
-                    `Charger Losses: ${fmtKwh(d.charger_losses_wh)} kWh`;
-            } else if (forType === 'grid') {
-                return `<b>${time}</b><br>` +
-                    `Grid Export: ${fmtKwh(d.grid_export_wh)} kWh<br>` +
-                    `Grid Import: ${fmtKwh(d.grid_import_wh)} kWh<br>` +
-                    `Conversion Losses: ${fmtKwh(d.charger_losses_wh + d.inverter_losses_wh)} kWh`;
-            } else {
-                return `<b>${time}</b><br>` +
-                    `Consumption: ${fmtKwh(d.consumption_wh)} kWh<br>` +
-                    `MultiPlus Losses: ${fmtKwh(d.charger_losses_wh + d.inverter_losses_wh)} kWh`;
-            }
-        }
-
-        const hoverTexts = data.map(d => buildHoverText(d, frameOfReference));
-
-        let traces = [];
-
-        if (frameOfReference === 'multiplus') {
-            // MultiPlus FoR: Top = Inverter output, Bottom = Inverter losses, Charger input, Charger losses
-            traces = [
-                {
-                    x: times,
-                    y: data.map(d => toKwh(d.inverter_output_wh)),
-                    type: 'bar',
-                    name: 'Inverter Output',
-                    marker: { color: '#f39c12' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: times,
-                    y: data.map(d => -toKwh(d.inverter_losses_wh)),
-                    type: 'bar',
-                    name: 'Inverter Losses',
-                    marker: { color: '#e67e22' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: times,
-                    y: data.map(d => -toKwh(d.charger_input_wh)),
-                    type: 'bar',
-                    name: 'Charger Input',
-                    marker: { color: '#3498db' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: times,
-                    y: data.map(d => -toKwh(d.charger_losses_wh)),
-                    type: 'bar',
-                    name: 'Charger Losses',
-                    marker: { color: '#2980b9' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-            ];
-        } else if (frameOfReference === 'grid') {
-            // Grid FoR: Top = Battery-to-grid (export), Bottom = Grid-to-battery, Losses
-            traces = [
-                {
-                    x: times,
-                    y: data.map(d => toKwh(d.grid_export_wh)),
-                    type: 'bar',
-                    name: 'Grid Export',
-                    marker: { color: '#27ae60' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: times,
-                    y: data.map(d => -toKwh(d.grid_import_wh)),
-                    type: 'bar',
-                    name: 'Grid Import',
-                    marker: { color: '#3498db' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: times,
-                    y: data.map(d => -toKwh(d.charger_losses_wh + d.inverter_losses_wh)),
-                    type: 'bar',
-                    name: 'Conversion Losses',
-                    marker: { color: '#e74c3c' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-            ];
-        } else if (frameOfReference === 'consumption') {
-            // Consumption FoR: Consumption + Losses
-            traces = [
-                {
-                    x: times,
-                    y: data.map(d => -toKwh(d.consumption_wh)),
-                    type: 'bar',
-                    name: 'Consumption',
-                    marker: { color: '#9b59b6' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: times,
-                    y: data.map(d => -toKwh(d.charger_losses_wh + d.inverter_losses_wh)),
-                    type: 'bar',
-                    name: 'MultiPlus Losses',
-                    marker: { color: '#e74c3c' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-            ];
-        }
-
-        const defaultLayout = getPlotlyLayout();
-        const settings = loadSettings();
-        const isDark = settings.theme === 'dark';
-
-        const layout = {
-            ...defaultLayout,
-            barmode: 'relative',
-            bargap: 0.02,
-            xaxis: {
-                ...defaultLayout.xaxis,
-                range: [start, end],
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: 'Energy (kWh)',
-                zeroline: true,
-                zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
-            },
-            legend: {
-                orientation: 'h',
-                y: -0.15,
-                font: { color: isDark ? '#e4e4e4' : '#333333' },
-            },
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, traces, layout, defaultConfig);
+        renderEnergyFlowChart(elementId, data, start, end, frameOfReference);
     } catch (error) {
         console.error('Error loading energy flow:', error);
         showError(elementId, 'Failed to load energy flow');

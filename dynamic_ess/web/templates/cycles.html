@@ -138,6 +138,12 @@ async function loadScatterChart() {
             return;
         }
 
+        const settings = loadSettings();
+        const isDark = settings.theme === 'dark';
+        const useKw = settings.powerUnit === 'kw';
+        const divisor = useKw ? 1000 : 1;
+        const powerUnit = useKw ? 'kW' : 'W';
+
         // Separate points by category
         const categories = {
             charging: { data: [], color: 'rgba(52, 152, 219, 0.5)', name: 'Charging' },
@@ -152,6 +158,9 @@ async function loadScatterChart() {
             }
         }
 
+        // Format power value based on unit
+        const fmtPower = (w) => useKw ? (w / 1000).toFixed(2) : Math.round(w);
+
         // Build hover text based on category
         function buildHoverText(d) {
             const eff = d.efficiency !== null ? `${d.efficiency.toFixed(1)}%` : 'N/A';
@@ -160,21 +169,21 @@ async function loadScatterChart() {
 
             switch (d.category) {
                 case 'charging':
-                    return `Time: ${time}<br>SOC: ${soc}<br>Battery: ${d.battery_power} W<br>Charger: ${d.inverter_charger_power} W<br>Losses: ${d.losses} W<br>Efficiency: ${eff}`;
+                    return `Time: ${time}<br>SOC: ${soc}<br>Battery: ${fmtPower(d.battery_power)} ${powerUnit}<br>Charger: ${fmtPower(d.inverter_charger_power)} ${powerUnit}<br>Losses: ${fmtPower(d.losses)} ${powerUnit}<br>Efficiency: ${eff}`;
                 case 'discharging':
-                    return `Time: ${time}<br>SOC: ${soc}<br>Battery: ${d.battery_power} W<br>Inverter: ${Math.abs(d.inverter_charger_power)} W<br>Losses: ${d.losses} W<br>Efficiency: ${eff}`;
+                    return `Time: ${time}<br>SOC: ${soc}<br>Battery: ${fmtPower(d.battery_power)} ${powerUnit}<br>Inverter: ${fmtPower(Math.abs(d.inverter_charger_power))} ${powerUnit}<br>Losses: ${fmtPower(d.losses)} ${powerUnit}<br>Efficiency: ${eff}`;
                 case 'balancing':
-                    return `Time: ${time}<br>SOC: ${soc}<br>Battery: ${d.battery_power} W<br>Balancing power`;
+                    return `Time: ${time}<br>SOC: ${soc}<br>Battery: ${fmtPower(d.battery_power)} ${powerUnit}<br>Balancing power`;
                 case 'idling':
-                    return `Time: ${time}<br>SOC: ${soc}<br>Idle consumption: ${d.losses} W`;
+                    return `Time: ${time}<br>SOC: ${soc}<br>Idle consumption: ${fmtPower(d.losses)} ${powerUnit}`;
                 default:
                     return `Time: ${time}`;
             }
         }
 
         const traces = Object.entries(categories).map(([key, cat]) => ({
-            x: cat.data.map(d => d.battery_power),
-            y: cat.data.map(d => d.losses),
+            x: cat.data.map(d => d.battery_power / divisor),
+            y: cat.data.map(d => d.losses / divisor),
             type: 'scatter',
             mode: 'markers',
             name: cat.name,
@@ -186,9 +195,6 @@ async function loadScatterChart() {
             hoverinfo: 'text',
         }));
 
-        const settings = loadSettings();
-        const isDark = settings.theme === 'dark';
-
         const layout = {
             margin: { t: 30, r: 30, b: 60, l: 60 },
             paper_bgcolor: 'transparent',
@@ -198,14 +204,14 @@ async function loadScatterChart() {
                 color: isDark ? '#e4e4e4' : '#333333',
             },
             xaxis: {
-                title: 'Battery Power (W)',
+                title: `Battery Power (${powerUnit})`,
                 gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
                 linecolor: isDark ? '#3a3a5a' : '#dddddd',
                 zeroline: true,
                 zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
             },
             yaxis: {
-                title: 'Losses (W)',
+                title: `Losses (${powerUnit})`,
                 gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
                 linecolor: isDark ? '#3a3a5a' : '#dddddd',
                 zeroline: true,

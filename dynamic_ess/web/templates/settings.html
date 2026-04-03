@@ -37,6 +37,18 @@
     </div>
     <div class="setting-row">
         <div class="setting-label">
+            <span>Power/Energy unit</span>
+            <span>Display power in W/Wh or kW/kWh</span>
+        </div>
+        <div class="setting-control">
+            <select id="power-unit-select">
+                <option value="w">W / Wh</option>
+                <option value="kw">kW / kWh</option>
+            </select>
+        </div>
+    </div>
+    <div class="setting-row">
+        <div class="setting-label">
             <span>Week starts on</span>
             <span>First day of the week for calendar views</span>
         </div>
@@ -68,6 +80,13 @@ document.addEventListener('DOMContentLoaded', function() {
     priceUnitSelect.value = settings.priceUnit;
     priceUnitSelect.addEventListener('change', function() {
         saveSetting('priceUnit', this.value);
+    });
+
+    // Power unit
+    const powerUnitSelect = document.getElementById('power-unit-select');
+    powerUnitSelect.value = settings.powerUnit;
+    powerUnitSelect.addEventListener('change', function() {
+        saveSetting('powerUnit', this.value);
     });
 
     // Week start day
