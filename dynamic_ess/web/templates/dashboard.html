@@ -25,7 +25,14 @@
 </div>
 
 <div class="chart-container">
-    <h2>Energy Flow</h2>
+    <div class="chart-header">
+        <h2>Energy Flow</h2>
+        <div class="button-group" id="for-buttons">
+            <button class="btn-toggle active" data-value="multiplus">MultiPlus</button>
+            <button class="btn-toggle" data-value="grid">Grid</button>
+            <button class="btn-toggle" data-value="consumption">Consumption</button>
+        </div>
+    </div>
     <div id="energy-chart" class="chart"></div>
 </div>
 
@@ -51,18 +58,58 @@
         return 1440;                      // daily
     }
 
+    // Store timestamps for alignment
+    let dashboardStart = null;
+    let dashboardEnd = null;
+    let currentFoR = 'multiplus';
+
+    function getAlignedStartTime(hours) {
+        const now = new Date();
+        const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
+
+        // Align to midnight for ranges >= 24 hours
+        if (hours >= 24) {
+            start.setHours(0, 0, 0, 0);
+        }
+        return start;
+    }
+
     function loadDashboard() {
         const hours = parseInt(document.getElementById('range-select').value);
         const aggregateMinutes = getAggregateMinutes(hours);
         const bucketMinutes = getBucketMinutes(hours);
 
-        loadPowerChart('power-chart', hours, aggregateMinutes);
-        loadEnergyFlowChart('energy-chart', hours, bucketMinutes);
-        loadPricesChart('prices-chart', Math.ceil(hours / 24) + 1);
+        // Calculate aligned timestamps
+        dashboardEnd = new Date();
+        dashboardStart = getAlignedStartTime(hours);
+
+        loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes);
+        loadEnergyFlowChart('energy-chart', dashboardStart, dashboardEnd, bucketMinutes, currentFoR);
+        loadPricesChartRange('prices-chart', dashboardStart, dashboardEnd);
+    }
+
+    function loadEnergyOnly() {
+        const hours = parseInt(document.getElementById('range-select').value);
+        const bucketMinutes = getBucketMinutes(hours);
+
+        if (dashboardStart && dashboardEnd) {
+            loadEnergyFlowChart('energy-chart', dashboardStart, dashboardEnd, bucketMinutes, currentFoR);
+        }
     }
 
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('range-select').addEventListener('change', loadDashboard);
+
+        // Frame of Reference button handlers
+        document.querySelectorAll('#for-buttons .btn-toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#for-buttons .btn-toggle').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentFoR = btn.dataset.value;
+                loadEnergyOnly();
+            });
+        });
+
         loadDashboard();
     });
 </script>

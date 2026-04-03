@@ -54,10 +54,20 @@ class BatteryCycle(BaseModel):
 
 class EnergyFlowPoint(BaseModel):
     time: datetime
+    # Grid
     grid_import_wh: float
     grid_export_wh: float
+    # Battery (DC side)
     battery_charge_wh: float
     battery_discharge_wh: float
+    # Inverter/Charger (AC side)
+    charger_input_wh: float  # AC power consumed when charging
+    inverter_output_wh: float  # AC power produced when discharging
+    # Losses
+    charger_losses_wh: float  # charger_input - battery_charge
+    inverter_losses_wh: float  # battery_discharge - inverter_output
+    # Consumption
+    consumption_wh: float
 
 
 class PowerPoint(BaseModel):
@@ -374,7 +384,7 @@ async def get_energy_flow(
 ):
     """Get energy flow data aggregated into time buckets.
 
-    Returns grid import/export and battery charge/discharge in Wh per bucket.
+    Returns comprehensive energy flow data for different frames of reference.
     """
     try:
         now = datetime.now(timezone.utc)
@@ -383,27 +393,35 @@ async def get_energy_flow(
         if end is None:
             end = now
 
-        # Get raw data from both tables
-        # Grid power from system_measurements (sum all phases)
+        # Get grid power and consumption from system_measurements (sum all phases per timestamp)
         grid_query = """
-            SELECT timestamp, SUM(grid_power) as grid_power
+            SELECT timestamp, SUM(grid_power) as grid_power, SUM(ac_consumption) as consumption
             FROM system_measurements
             WHERE timestamp >= ? AND timestamp < ?
             GROUP BY timestamp
             ORDER BY timestamp
         """
         grid_cursor = db._conn.execute(grid_query, [start.isoformat(), end.isoformat()])
-        grid_data = {row["timestamp"]: row["grid_power"] for row in grid_cursor.fetchall()}
+        grid_data = {
+            row["timestamp"]: {"grid_power": row["grid_power"], "consumption": row["consumption"]}
+            for row in grid_cursor.fetchall()
+        }
 
-        # Battery power from system_battery
+        # Battery and inverter/charger power from system_battery
         battery_query = """
-            SELECT timestamp, battery_power
+            SELECT timestamp, battery_power, inverter_charger_power
             FROM system_battery
             WHERE timestamp >= ? AND timestamp < ?
             ORDER BY timestamp
         """
         battery_cursor = db._conn.execute(battery_query, [start.isoformat(), end.isoformat()])
-        battery_data = {row["timestamp"]: row["battery_power"] for row in battery_cursor.fetchall()}
+        battery_data = {
+            row["timestamp"]: {
+                "battery_power": row["battery_power"],
+                "inverter_charger_power": row["inverter_charger_power"],
+            }
+            for row in battery_cursor.fetchall()
+        }
 
         # Merge timestamps and calculate energy per bucket
         all_timestamps = sorted(set(grid_data.keys()) | set(battery_data.keys()))
@@ -434,10 +452,18 @@ async def get_energy_flow(
                         "grid_export_wh": 0.0,
                         "battery_charge_wh": 0.0,
                         "battery_discharge_wh": 0.0,
+                        "charger_input_wh": 0.0,
+                        "inverter_output_wh": 0.0,
+                        "consumption_wh": 0.0,
                     }
 
-                grid_power = grid_data.get(ts_str)
-                battery_power = battery_data.get(ts_str)
+                gd = grid_data.get(ts_str, {})
+                bd = battery_data.get(ts_str, {})
+
+                grid_power = gd.get("grid_power")
+                consumption = gd.get("consumption")
+                battery_power = bd.get("battery_power")
+                inverter_charger_power = bd.get("inverter_charger_power")
 
                 if grid_power is not None:
                     if grid_power > 0:
@@ -447,9 +473,18 @@ async def get_energy_flow(
 
                 if battery_power is not None:
                     if battery_power > 0:
+                        # Charging
                         buckets[bucket_key]["battery_charge_wh"] += battery_power * dt_hours
+                        if inverter_charger_power is not None and inverter_charger_power > 0:
+                            buckets[bucket_key]["charger_input_wh"] += inverter_charger_power * dt_hours
                     else:
+                        # Discharging
                         buckets[bucket_key]["battery_discharge_wh"] += abs(battery_power) * dt_hours
+                        if inverter_charger_power is not None and inverter_charger_power < 0:
+                            buckets[bucket_key]["inverter_output_wh"] += abs(inverter_charger_power) * dt_hours
+
+                if consumption is not None:
+                    buckets[bucket_key]["consumption_wh"] += consumption * dt_hours
 
             prev_ts = ts
 
@@ -460,6 +495,11 @@ async def get_energy_flow(
                 grid_export_wh=round(data["grid_export_wh"], 1),
                 battery_charge_wh=round(data["battery_charge_wh"], 1),
                 battery_discharge_wh=round(data["battery_discharge_wh"], 1),
+                charger_input_wh=round(data["charger_input_wh"], 1),
+                inverter_output_wh=round(data["inverter_output_wh"], 1),
+                charger_losses_wh=round(max(0, data["charger_input_wh"] - data["battery_charge_wh"]), 1),
+                inverter_losses_wh=round(max(0, data["battery_discharge_wh"] - data["inverter_output_wh"]), 1),
+                consumption_wh=round(data["consumption_wh"], 1),
             )
             for bucket_key, data in sorted(buckets.items())
         ]
@@ -484,15 +524,20 @@ async def get_power(
             end = now
 
         if aggregate_minutes > 0:
-            # Grid power (sum of phases)
+            # Grid power: first sum phases per timestamp, then average per bucket
             grid_query = f"""
-                SELECT
-                    strftime('%Y-%m-%dT%H:', timestamp) ||
-                        printf('%02d', (CAST(strftime('%M', timestamp) AS INTEGER) / {aggregate_minutes}) * {aggregate_minutes})
-                        || ':00' as bucket,
-                    CAST(SUM(grid_power) AS INTEGER) as grid_power
-                FROM system_measurements
-                WHERE timestamp >= ? AND timestamp < ?
+                SELECT bucket, CAST(AVG(phase_sum) AS INTEGER) as grid_power
+                FROM (
+                    SELECT
+                        strftime('%Y-%m-%dT%H:', timestamp) ||
+                            printf('%02d', (CAST(strftime('%M', timestamp) AS INTEGER) / {aggregate_minutes}) * {aggregate_minutes})
+                            || ':00' as bucket,
+                        timestamp,
+                        SUM(grid_power) as phase_sum
+                    FROM system_measurements
+                    WHERE timestamp >= ? AND timestamp < ?
+                    GROUP BY bucket, timestamp
+                )
                 GROUP BY bucket
             """
             grid_cursor = db._conn.execute(grid_query, [start.isoformat(), end.isoformat()])

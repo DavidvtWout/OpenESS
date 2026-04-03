@@ -328,14 +328,11 @@ async function loadGridChart(elementId, hours = 24) {
     }
 }
 
-// Load and display combined power chart (grid, battery, charger, inverter)
-async function loadPowerChart(elementId, hours = 24, aggregateMinutes = 5) {
+// Load and display combined power chart (grid, battery, inverter/charger)
+async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
     showLoading(elementId);
 
-    const now = new Date();
-    const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
-
-    const url = `/api/power?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=${aggregateMinutes}`;
+    const url = `/api/power?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
     console.log('Fetching power:', url);
 
     try {
@@ -373,21 +370,11 @@ async function loadPowerChart(elementId, hours = 24, aggregateMinutes = 5) {
             },
             {
                 x: times,
-                y: data.map(d => d.charger_power),
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Charger',
-                line: { color: '#2ecc71', width: 1.5, dash: 'dot' },
-                visible: 'legendonly',
-            },
-            {
-                x: times,
                 y: data.map(d => d.inverter_charger_power),
                 type: 'scatter',
                 mode: 'lines',
                 name: 'Inverter/Charger',
-                line: { color: '#9b59b6', width: 1.5, dash: 'dot' },
-                visible: 'legendonly',
+                line: { color: '#9b59b6', width: 2 },
             },
         ];
 
@@ -395,9 +382,24 @@ async function loadPowerChart(elementId, hours = 24, aggregateMinutes = 5) {
         const settings = loadSettings();
         const isDark = settings.theme === 'dark';
 
+        // Only show "now" line if within visible range
+        const now = new Date();
+        const shapes = (now >= start && now <= end) ? [{
+            type: 'line',
+            x0: now,
+            x1: now,
+            y0: 0,
+            y1: 1,
+            yref: 'paper',
+            line: { color: '#e74c3c', width: 1, dash: 'dash' },
+        }] : [];
+
         const layout = {
             ...defaultLayout,
-            xaxis: { ...defaultLayout.xaxis },
+            xaxis: {
+                ...defaultLayout.xaxis,
+                range: [start, end],
+            },
             yaxis: {
                 ...defaultLayout.yaxis,
                 title: 'Power (W)',
@@ -409,15 +411,7 @@ async function loadPowerChart(elementId, hours = 24, aggregateMinutes = 5) {
                 y: -0.15,
                 font: { color: isDark ? '#e4e4e4' : '#333333' },
             },
-            shapes: [{
-                type: 'line',
-                x0: now,
-                x1: now,
-                y0: 0,
-                y1: 1,
-                yref: 'paper',
-                line: { color: '#e74c3c', width: 1, dash: 'dash' },
-            }],
+            shapes: shapes,
         };
 
         document.getElementById(elementId).innerHTML = '';
@@ -428,14 +422,11 @@ async function loadPowerChart(elementId, hours = 24, aggregateMinutes = 5) {
     }
 }
 
-// Load and display energy flow stacked bar chart
-async function loadEnergyFlowChart(elementId, hours = 24, bucketMinutes = 60) {
+// Load and display energy flow stacked bar chart with frame of reference
+async function loadEnergyFlowChart(elementId, start, end, bucketMinutes = 60, frameOfReference = 'multiplus') {
     showLoading(elementId);
 
-    const now = new Date();
-    const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
-
-    const url = `/api/energy-flow?start=${formatDate(start)}&end=${formatDate(now)}&bucket_minutes=${bucketMinutes}`;
+    const url = `/api/energy-flow?start=${formatDate(start)}&end=${formatDate(end)}&bucket_minutes=${bucketMinutes}`;
     console.log('Fetching energy flow:', url);
 
     try {
@@ -456,37 +447,136 @@ async function loadEnergyFlowChart(elementId, hours = 24, bucketMinutes = 60) {
 
         // Convert Wh to kWh for display
         const toKwh = (wh) => wh / 1000;
+        const fmtKwh = (wh) => (wh / 1000).toFixed(2);
 
-        const traces = [
-            {
-                x: times,
-                y: data.map(d => toKwh(d.grid_import_wh)),
-                type: 'bar',
-                name: 'Grid Import',
-                marker: { color: '#e74c3c' },
-            },
-            {
-                x: times,
-                y: data.map(d => -toKwh(d.grid_export_wh)),
-                type: 'bar',
-                name: 'Grid Export',
-                marker: { color: '#27ae60' },
-            },
-            {
-                x: times,
-                y: data.map(d => toKwh(d.battery_charge_wh)),
-                type: 'bar',
-                name: 'Battery Charge',
-                marker: { color: '#3498db' },
-            },
-            {
-                x: times,
-                y: data.map(d => -toKwh(d.battery_discharge_wh)),
-                type: 'bar',
-                name: 'Battery Discharge',
-                marker: { color: '#f39c12' },
-            },
-        ];
+        // Build FoR-specific hover text
+        function buildHoverText(d, forType) {
+            const time = new Date(d.time).toLocaleString();
+            if (forType === 'multiplus') {
+                return `<b>${time}</b><br>` +
+                    `Inverter Output: ${fmtKwh(d.inverter_output_wh)} kWh<br>` +
+                    `Inverter Losses: ${fmtKwh(d.inverter_losses_wh)} kWh<br>` +
+                    `Charger Input: ${fmtKwh(d.charger_input_wh)} kWh<br>` +
+                    `Charger Losses: ${fmtKwh(d.charger_losses_wh)} kWh`;
+            } else if (forType === 'grid') {
+                return `<b>${time}</b><br>` +
+                    `Grid Export: ${fmtKwh(d.grid_export_wh)} kWh<br>` +
+                    `Grid Import: ${fmtKwh(d.grid_import_wh)} kWh<br>` +
+                    `Conversion Losses: ${fmtKwh(d.charger_losses_wh + d.inverter_losses_wh)} kWh`;
+            } else {
+                return `<b>${time}</b><br>` +
+                    `Consumption: ${fmtKwh(d.consumption_wh)} kWh<br>` +
+                    `MultiPlus Losses: ${fmtKwh(d.charger_losses_wh + d.inverter_losses_wh)} kWh`;
+            }
+        }
+
+        const hoverTexts = data.map(d => buildHoverText(d, frameOfReference));
+
+        let traces = [];
+
+        if (frameOfReference === 'multiplus') {
+            // MultiPlus FoR: Top = Inverter output, Bottom = Inverter losses, Charger input, Charger losses
+            traces = [
+                {
+                    x: times,
+                    y: data.map(d => toKwh(d.inverter_output_wh)),
+                    type: 'bar',
+                    name: 'Inverter Output',
+                    marker: { color: '#f39c12' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: times,
+                    y: data.map(d => -toKwh(d.inverter_losses_wh)),
+                    type: 'bar',
+                    name: 'Inverter Losses',
+                    marker: { color: '#e67e22' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: times,
+                    y: data.map(d => -toKwh(d.charger_input_wh)),
+                    type: 'bar',
+                    name: 'Charger Input',
+                    marker: { color: '#3498db' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: times,
+                    y: data.map(d => -toKwh(d.charger_losses_wh)),
+                    type: 'bar',
+                    name: 'Charger Losses',
+                    marker: { color: '#2980b9' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+            ];
+        } else if (frameOfReference === 'grid') {
+            // Grid FoR: Top = Battery-to-grid (export), Bottom = Grid-to-battery, Losses
+            traces = [
+                {
+                    x: times,
+                    y: data.map(d => toKwh(d.grid_export_wh)),
+                    type: 'bar',
+                    name: 'Grid Export',
+                    marker: { color: '#27ae60' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: times,
+                    y: data.map(d => -toKwh(d.grid_import_wh)),
+                    type: 'bar',
+                    name: 'Grid Import',
+                    marker: { color: '#3498db' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: times,
+                    y: data.map(d => -toKwh(d.charger_losses_wh + d.inverter_losses_wh)),
+                    type: 'bar',
+                    name: 'Conversion Losses',
+                    marker: { color: '#e74c3c' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+            ];
+        } else if (frameOfReference === 'consumption') {
+            // Consumption FoR: Consumption + Losses
+            traces = [
+                {
+                    x: times,
+                    y: data.map(d => -toKwh(d.consumption_wh)),
+                    type: 'bar',
+                    name: 'Consumption',
+                    marker: { color: '#9b59b6' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: times,
+                    y: data.map(d => -toKwh(d.charger_losses_wh + d.inverter_losses_wh)),
+                    type: 'bar',
+                    name: 'MultiPlus Losses',
+                    marker: { color: '#e74c3c' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+            ];
+        }
 
         const defaultLayout = getPlotlyLayout();
         const settings = loadSettings();
@@ -495,7 +585,11 @@ async function loadEnergyFlowChart(elementId, hours = 24, bucketMinutes = 60) {
         const layout = {
             ...defaultLayout,
             barmode: 'relative',
-            xaxis: { ...defaultLayout.xaxis },
+            bargap: 0.02,
+            xaxis: {
+                ...defaultLayout.xaxis,
+                range: [start, end],
+            },
             yaxis: {
                 ...defaultLayout.yaxis,
                 title: 'Energy (kWh)',
@@ -514,5 +608,96 @@ async function loadEnergyFlowChart(elementId, hours = 24, bucketMinutes = 60) {
     } catch (error) {
         console.error('Error loading energy flow:', error);
         showError(elementId, 'Failed to load energy flow');
+    }
+}
+
+// Load prices chart with start/end range (for dashboard alignment)
+async function loadPricesChartRange(elementId, start, end) {
+    showLoading(elementId);
+
+    // Extend end by 2 days for future prices
+    const extendedEnd = new Date(end.getTime() + 2 * 24 * 60 * 60 * 1000);
+
+    const url = `/api/prices?start=${formatDate(start)}&end=${formatDate(extendedEnd)}`;
+    console.log('Fetching prices:', url);
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch prices: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('Prices data:', data.length, 'points');
+
+        if (data.length === 0) {
+            showError(elementId, 'No price data available');
+            return;
+        }
+
+        const settings = loadSettings();
+        const priceMultiplier = settings.priceUnit === 'cent' ? 100 : 1;
+        const priceLabel = settings.priceUnit === 'cent' ? 'ct/kWh' : 'EUR/kWh';
+
+        const times = data.map(d => new Date(d.time));
+        const prices = data.map(d => d.price * priceMultiplier);
+
+        // Extend the last price by 1 hour
+        if (times.length > 0) {
+            const lastTime = times[times.length - 1];
+            const extendedTime = new Date(lastTime.getTime() + 60 * 60 * 1000);
+            times.push(extendedTime);
+            prices.push(prices[prices.length - 1]);
+        }
+
+        const now = new Date();
+        const currentTime = now.getTime();
+        let currentPriceIdx = times.findIndex((t, i) =>
+            t.getTime() <= currentTime &&
+            (i === times.length - 1 || times[i + 1].getTime() > currentTime)
+        );
+
+        const trace = {
+            x: times,
+            y: prices,
+            type: 'scatter',
+            mode: 'lines',
+            line: { shape: 'hv', color: '#3498db', width: 2 },
+            fill: 'tozeroy',
+            fillcolor: 'rgba(52, 152, 219, 0.1)',
+            name: 'Price',
+        };
+
+        const defaultLayout = getPlotlyLayout();
+
+        // Only show "now" line if within visible range
+        const showNowLine = now >= start && now <= end;
+
+        const layout = {
+            ...defaultLayout,
+            xaxis: {
+                ...defaultLayout.xaxis,
+                range: [start, end],
+            },
+            yaxis: {
+                ...defaultLayout.yaxis,
+                title: priceLabel,
+            },
+            shapes: showNowLine ? [{
+                type: 'line',
+                x0: now,
+                x1: now,
+                y0: 0,
+                y1: 1,
+                yref: 'paper',
+                line: { color: '#e74c3c', width: 2, dash: 'dash' },
+            }] : [],
+        };
+
+        document.getElementById(elementId).innerHTML = '';
+        Plotly.newPlot(elementId, [trace], layout, defaultConfig);
+    } catch (error) {
+        console.error('Error loading prices:', error);
+        showError(elementId, 'Failed to load prices');
     }
 }
