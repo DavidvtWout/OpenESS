@@ -26,3 +26,9 @@ async def prices_page(request: Request):
 async def settings_page(request: Request):
     """Settings page."""
     return templates.TemplateResponse("settings.html", {"request": request})
+
+
+@router.get("/cycles", response_class=HTMLResponse)
+async def cycles_page(request: Request):
+    """Battery cycles efficiency page."""
+    return templates.TemplateResponse("cycles.html", {"request": request})

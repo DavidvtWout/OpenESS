@@ -276,3 +276,64 @@ h2 {
     outline: none;
     border-color: var(--nav-active);
 }
+
+/* Table styles */
+.table-container {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-top: 1.5rem;
+    box-shadow: 0 2px 4px var(--shadow-color);
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.data-table th,
+.data-table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+    font-weight: 600;
+    color: var(--text-subheading);
+    background: var(--bg-tertiary);
+}
+
+.data-table tbody tr:hover {
+    background: var(--bg-tertiary);
+}
+
+.data-table .loading,
+.data-table .no-data,
+.data-table .error {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+}
+
+.data-table .error {
+    color: #e74c3c;
+}
+
+/* Efficiency color coding */
+.efficiency-good {
+    color: #2ecc71;
+    font-weight: 600;
+}
+
+.efficiency-ok {
+    color: #f39c12;
+    font-weight: 600;
+}
+
+.efficiency-poor {
+    color: #e74c3c;
+    font-weight: 600;
+}

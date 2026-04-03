@@ -42,6 +42,16 @@ class HealthResponse(BaseModel):
     tables: list[str]
 
 
+class BatteryCycle(BaseModel):
+    start_time: datetime
+    end_time: datetime
+    duration_hours: float
+    min_soc: int
+    energy_discharged_wh: float
+    energy_charged_wh: float
+    efficiency: float
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(db: Database = Depends(get_db)):
     """Check API health and database connectivity."""
@@ -220,4 +230,110 @@ async def get_battery_measurements(
             ]
     except Exception as e:
         logger.exception("Failed to get battery measurements")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cycles", response_model=list[BatteryCycle])
+async def get_battery_cycles(
+    start: datetime | None = Query(default=None),
+    end: datetime | None = Query(default=None),
+    min_soc_swing: int = Query(default=10, description="Minimum SOC swing to count as a cycle"),
+    db: Database = Depends(get_db),
+):
+    """Get battery charge/discharge cycles with efficiency.
+
+    A cycle is defined as: starting at 100% SOC, discharging to at least (100 - min_soc_swing)%,
+    then charging back to 100%.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        if start is None:
+            start = now - timedelta(days=30)
+        if end is None:
+            end = now
+
+        # Get all battery data points ordered by time
+        cursor = db._conn.execute(
+            """
+            SELECT timestamp, battery_power, battery_soc
+            FROM system_battery
+            WHERE timestamp >= ? AND timestamp < ?
+            ORDER BY timestamp
+            """,
+            [start.isoformat(), end.isoformat()],
+        )
+        rows = cursor.fetchall()
+
+        if len(rows) < 2:
+            return []
+
+        cycles = []
+        cycle_start = None
+        cycle_min_soc = 100
+        energy_discharged = 0.0  # Wh (positive value)
+        energy_charged = 0.0  # Wh (positive value)
+        prev_time = None
+        prev_soc = None
+
+        for row in rows:
+            time = datetime.fromisoformat(row["timestamp"])
+            power = row["battery_power"]  # W, positive = charging, negative = discharging
+            soc = row["battery_soc"]
+
+            if power is None or soc is None:
+                continue
+
+            # Calculate time delta in hours
+            if prev_time is not None:
+                dt_hours = (time - prev_time).total_seconds() / 3600.0
+
+                # Integrate power to get energy (Wh)
+                if power > 0:
+                    energy_charged += power * dt_hours
+                else:
+                    energy_discharged += abs(power) * dt_hours
+
+            # State machine for cycle detection
+            if cycle_start is None:
+                # Not in a cycle - look for SOC dropping from 100%
+                if prev_soc == 100 and soc < 100:
+                    cycle_start = prev_time or time
+                    cycle_min_soc = soc
+                    energy_discharged = abs(power) * (dt_hours if prev_time else 0)
+                    energy_charged = 0.0
+            else:
+                # In a cycle - track min SOC and look for return to 100%
+                cycle_min_soc = min(cycle_min_soc, soc)
+
+                if soc == 100:
+                    # Cycle complete - check if it meets minimum swing requirement
+                    soc_swing = 100 - cycle_min_soc
+                    if soc_swing >= min_soc_swing and energy_charged > 0:
+                        efficiency = (energy_discharged / energy_charged) * 100 if energy_charged > 0 else 0
+                        duration = (time - cycle_start).total_seconds() / 3600.0
+
+                        cycles.append(
+                            BatteryCycle(
+                                start_time=cycle_start,
+                                end_time=time,
+                                duration_hours=round(duration, 2),
+                                min_soc=cycle_min_soc,
+                                energy_discharged_wh=round(energy_discharged, 1),
+                                energy_charged_wh=round(energy_charged, 1),
+                                efficiency=round(efficiency, 1),
+                            )
+                        )
+
+                    # Reset for next cycle
+                    cycle_start = None
+                    cycle_min_soc = 100
+                    energy_discharged = 0.0
+                    energy_charged = 0.0
+
+            prev_time = time
+            prev_soc = soc
+
+        return cycles
+    except Exception as e:
+        logger.exception("Failed to get battery cycles")
         raise HTTPException(status_code=500, detail=str(e))
