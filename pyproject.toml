@@ -14,13 +14,23 @@ name = "dynamic-ess"
 description = "Victron dynamic ESS charge/discharge schedule optimizer for day-ahead prices."
 version = "0.0.0"
 authors = [{ name = "David van 't Wout", email = "david@vtwout.com" }]
-dependencies = [ "entsoe-apy", "pandas", "pydantic", "pymodbus", "pyyaml" ]
+dependencies = [
+    "entsoe-apy",
+    "fastapi",
+    "jinja2",
+    "pandas",
+    "pydantic",
+    "pymodbus",
+    "pyyaml",
+    "uvicorn",
+]
 
 [project.optional-dependencies]
 dev = ["black", "pre-commit"]
 
 [project.scripts]
 dynamic-ess = "dynamic_ess.main:main"
+dynamic-ess-web = "dynamic_ess.web.cli:main"
 
 [tool.black]
 line-length = 120

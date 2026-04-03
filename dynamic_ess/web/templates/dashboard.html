@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Dynamic ESS{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="chart-container">
+    <h2>Battery Status</h2>
+    <div id="battery-chart" class="chart"></div>
+</div>
+
+<div class="chart-container">
+    <h2>Grid Power</h2>
+    <div id="grid-chart" class="chart"></div>
+</div>
+
+<div class="chart-container">
+    <h2>Today's Prices</h2>
+    <div id="prices-chart" class="chart"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/app.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        loadBatteryChart('battery-chart', 24);
+        loadGridChart('grid-chart', 24);
+        loadPricesChart('prices-chart', 2);
+    });
+</script>
+{% endblock %}
