@@ -20,3 +20,9 @@ async def dashboard(request: Request):
 async def prices_page(request: Request):
     """Energy prices page."""
     return templates.TemplateResponse("prices.html", {"request": request})
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    """Settings page."""
+    return templates.TemplateResponse("settings.html", {"request": request})

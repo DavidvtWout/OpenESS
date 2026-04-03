@@ -1,18 +1,26 @@
-// Plotly default layout settings
-const defaultLayout = {
-    margin: { t: 30, r: 30, b: 50, l: 60 },
-    paper_bgcolor: 'transparent',
-    plot_bgcolor: 'transparent',
-    font: { family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' },
-    xaxis: {
-        gridcolor: '#eee',
-        linecolor: '#ddd',
-    },
-    yaxis: {
-        gridcolor: '#eee',
-        linecolor: '#ddd',
-    },
-};
+// Get Plotly layout based on current theme
+function getPlotlyLayout() {
+    const settings = loadSettings();
+    const isDark = settings.theme === 'dark';
+
+    return {
+        margin: { t: 30, r: 30, b: 50, l: 60 },
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        font: {
+            family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            color: isDark ? '#e4e4e4' : '#333333',
+        },
+        xaxis: {
+            gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
+            linecolor: isDark ? '#3a3a5a' : '#dddddd',
+        },
+        yaxis: {
+            gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
+            linecolor: isDark ? '#3a3a5a' : '#dddddd',
+        },
+    };
+}
 
 const defaultConfig = {
     responsive: true,
@@ -62,8 +70,12 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             return;
         }
 
+        const settings = loadSettings();
+        const priceMultiplier = settings.priceUnit === 'cent' ? 100 : 1;
+        const priceLabel = settings.priceUnit === 'cent' ? 'ct/kWh' : 'EUR/kWh';
+
         const times = data.map(d => new Date(d.time));
-        const prices = data.map(d => d.price);
+        const prices = data.map(d => d.price * priceMultiplier);
 
         // Find current price
         const currentTime = now.getTime();
@@ -83,6 +95,7 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             name: 'Price',
         };
 
+        const defaultLayout = getPlotlyLayout();
         const layout = {
             ...defaultLayout,
             xaxis: {
@@ -91,7 +104,7 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             },
             yaxis: {
                 ...defaultLayout.yaxis,
-                title: 'EUR/kWh',
+                title: priceLabel,
             },
             shapes: currentPriceIdx >= 0 ? [{
                 type: 'line',
@@ -115,22 +128,23 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
                 const max = Math.max(...prices);
                 const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
                 const current = currentPriceIdx >= 0 ? prices[currentPriceIdx] : null;
+                const decimals = settings.priceUnit === 'cent' ? 2 : 4;
 
                 statsEl.innerHTML = `
                     <div class="stat-card">
-                        <div class="stat-value">${current !== null ? current.toFixed(2) : '-'}</div>
-                        <div class="stat-label">Current (EUR/kWh)</div>
+                        <div class="stat-value">${current !== null ? current.toFixed(decimals) : '-'}</div>
+                        <div class="stat-label">Current (${priceLabel})</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-value">${min.toFixed(2)}</div>
+                        <div class="stat-value">${min.toFixed(decimals)}</div>
                         <div class="stat-label">Minimum</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-value">${max.toFixed(2)}</div>
+                        <div class="stat-value">${max.toFixed(decimals)}</div>
                         <div class="stat-label">Maximum</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-value">${avg.toFixed(2)}</div>
+                        <div class="stat-value">${avg.toFixed(decimals)}</div>
                         <div class="stat-label">Average</div>
                     </div>
                 `;
@@ -193,6 +207,10 @@ async function loadBatteryChart(elementId, hours = 24) {
             yaxis: 'y2',
         };
 
+        const defaultLayout = getPlotlyLayout();
+        const settings = loadSettings();
+        const isDark = settings.theme === 'dark';
+
         const layout = {
             ...defaultLayout,
             xaxis: { ...defaultLayout.xaxis },
@@ -207,10 +225,12 @@ async function loadBatteryChart(elementId, hours = 24) {
                 side: 'right',
                 range: [0, 100],
                 gridcolor: 'transparent',
+                linecolor: isDark ? '#3a3a5a' : '#dddddd',
             },
             legend: {
                 orientation: 'h',
                 y: -0.2,
+                font: { color: isDark ? '#e4e4e4' : '#333333' },
             },
         };
 
@@ -274,6 +294,10 @@ async function loadGridChart(elementId, hours = 24) {
             });
         }
 
+        const defaultLayout = getPlotlyLayout();
+        const settings = loadSettings();
+        const isDark = settings.theme === 'dark';
+
         const layout = {
             ...defaultLayout,
             xaxis: { ...defaultLayout.xaxis },
@@ -284,6 +308,7 @@ async function loadGridChart(elementId, hours = 24) {
             legend: {
                 orientation: 'h',
                 y: -0.2,
+                font: { color: isDark ? '#e4e4e4' : '#333333' },
             },
         };
 

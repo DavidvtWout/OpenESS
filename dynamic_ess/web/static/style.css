@@ -1,3 +1,43 @@
+/* Theme variables */
+:root {
+    /* Light theme */
+    --bg-primary: #f5f5f5;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f8f9fa;
+    --text-primary: #333333;
+    --text-secondary: #7f8c8d;
+    --text-heading: #2c3e50;
+    --text-subheading: #34495e;
+    --nav-bg: #2c3e50;
+    --nav-text: #bdc3c7;
+    --nav-hover: #34495e;
+    --nav-active: #3498db;
+    --border-color: #dddddd;
+    --grid-color: #eeeeee;
+    --shadow-color: rgba(0, 0, 0, 0.1);
+    --input-bg: #ffffff;
+    --input-border: #dddddd;
+}
+
+[data-theme="dark"] {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-tertiary: #1f2940;
+    --text-primary: #e4e4e4;
+    --text-secondary: #a0a0a0;
+    --text-heading: #e4e4e4;
+    --text-subheading: #c0c0c0;
+    --nav-bg: #0f0f1a;
+    --nav-text: #a0a0a0;
+    --nav-hover: #252545;
+    --nav-active: #3498db;
+    --border-color: #2a2a4a;
+    --grid-color: #2a2a4a;
+    --shadow-color: rgba(0, 0, 0, 0.3);
+    --input-bg: #1f2940;
+    --input-border: #3a3a5a;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -6,13 +46,13 @@
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
-    background: #f5f5f5;
-    color: #333;
+    background: var(--bg-primary);
+    color: var(--text-primary);
     line-height: 1.6;
 }
 
 nav {
-    background: #2c3e50;
+    background: var(--nav-bg);
     color: white;
     padding: 1rem 2rem;
     display: flex;
@@ -29,10 +69,11 @@ nav {
     list-style: none;
     display: flex;
     gap: 1rem;
+    flex: 1;
 }
 
 .nav-links a {
-    color: #bdc3c7;
+    color: var(--nav-text);
     text-decoration: none;
     padding: 0.5rem 1rem;
     border-radius: 4px;
@@ -40,13 +81,37 @@ nav {
 }
 
 .nav-links a:hover {
-    background: #34495e;
+    background: var(--nav-hover);
     color: white;
 }
 
 .nav-links a.active {
-    background: #3498db;
+    background: var(--nav-active);
     color: white;
+}
+
+.nav-settings {
+    margin-left: auto;
+}
+
+.nav-settings a {
+    color: var(--nav-text);
+    text-decoration: none;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: background 0.2s, color 0.2s;
+    display: flex;
+    align-items: center;
+}
+
+.nav-settings a:hover {
+    background: var(--nav-hover);
+    color: white;
+}
+
+.settings-icon {
+    width: 20px;
+    height: 20px;
 }
 
 main {
@@ -57,21 +122,21 @@ main {
 
 h1 {
     margin-bottom: 1.5rem;
-    color: #2c3e50;
+    color: var(--text-heading);
 }
 
 h2 {
     margin-bottom: 1rem;
-    color: #34495e;
+    color: var(--text-subheading);
     font-size: 1.1rem;
 }
 
 .chart-container {
-    background: white;
+    background: var(--bg-secondary);
     border-radius: 8px;
     padding: 1.5rem;
     margin-bottom: 1.5rem;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px var(--shadow-color);
 }
 
 .chart {
@@ -84,11 +149,11 @@ h2 {
 }
 
 .controls {
-    background: white;
+    background: var(--bg-secondary);
     border-radius: 8px;
     padding: 1rem 1.5rem;
     margin-bottom: 1.5rem;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px var(--shadow-color);
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
@@ -98,21 +163,24 @@ h2 {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    color: var(--text-primary);
 }
 
 .controls select,
 .controls input {
     padding: 0.5rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--input-border);
     border-radius: 4px;
     font-size: 1rem;
+    background: var(--input-bg);
+    color: var(--text-primary);
 }
 
 .stats {
-    background: white;
+    background: var(--bg-secondary);
     border-radius: 8px;
     padding: 1.5rem;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px var(--shadow-color);
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 1rem;
@@ -120,7 +188,7 @@ h2 {
 
 .stat-card {
     padding: 1rem;
-    background: #f8f9fa;
+    background: var(--bg-tertiary);
     border-radius: 4px;
     text-align: center;
 }
@@ -128,12 +196,12 @@ h2 {
 .stat-value {
     font-size: 1.5rem;
     font-weight: bold;
-    color: #2c3e50;
+    color: var(--text-heading);
 }
 
 .stat-label {
     font-size: 0.875rem;
-    color: #7f8c8d;
+    color: var(--text-secondary);
 }
 
 .loading {
@@ -141,11 +209,70 @@ h2 {
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #7f8c8d;
+    color: var(--text-secondary);
 }
 
 .error {
     color: #e74c3c;
     padding: 1rem;
     text-align: center;
+}
+
+/* Settings page styles */
+.settings-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 4px var(--shadow-color);
+}
+
+.settings-section h2 {
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.setting-row:last-child {
+    border-bottom: none;
+}
+
+.setting-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.setting-label span:first-child {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.setting-label span:last-child {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.setting-control select {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--input-border);
+    border-radius: 4px;
+    font-size: 1rem;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    min-width: 150px;
+}
+
+.setting-control select:focus {
+    outline: none;
+    border-color: var(--nav-active);
 }
