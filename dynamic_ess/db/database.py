@@ -242,3 +242,54 @@ class Database:
             ),
         )
         self._conn.commit()
+
+    # -------------------------------------------------------------------------
+    # Charge schedule
+    # -------------------------------------------------------------------------
+
+    def set_schedule(self, entries: list[tuple[datetime, datetime, int, int]]) -> None:
+        """Replace entire schedule with new entries.
+
+        Args:
+            entries: List of (start_time, end_time, power_w, expected_soc)
+        """
+        self._conn.execute("DELETE FROM charge_schedule")
+        self._conn.executemany(
+            "INSERT INTO charge_schedule (start_time, end_time, power, expected_soc) VALUES (?, ?, ?, ?)",
+            [(dt_to_ms(start), dt_to_ms(end), power, soc) for start, end, power, soc in entries],
+        )
+        self._conn.commit()
+
+    def get_schedule(self, start: datetime | None = None) -> list[tuple[datetime, datetime, int, int]]:
+        """Get schedule entries from start time onwards.
+
+        Returns: List of (start_time, end_time, power_w, expected_soc)
+        """
+        if start is None:
+            cursor = self._conn.execute(
+                "SELECT start_time, end_time, power, expected_soc FROM charge_schedule ORDER BY start_time"
+            )
+        else:
+            cursor = self._conn.execute(
+                "SELECT start_time, end_time, power, expected_soc FROM charge_schedule WHERE start_time >= ? ORDER BY start_time",
+                [dt_to_ms(start)],
+            )
+        return [(ms_to_dt(row[0]), ms_to_dt(row[1]), row[2], row[3]) for row in cursor.fetchall()]
+
+    def get_current_schedule_entry(self, now: datetime) -> tuple[datetime, datetime, int, int] | None:
+        """Get the schedule entry active at the given time."""
+        now_ms = dt_to_ms(now)
+        cursor = self._conn.execute(
+            "SELECT start_time, end_time, power, expected_soc FROM charge_schedule WHERE start_time <= ? AND end_time > ?",
+            [now_ms, now_ms],
+        )
+        row = cursor.fetchone()
+        if row:
+            return (ms_to_dt(row[0]), ms_to_dt(row[1]), row[2], row[3])
+        return None
+
+    def prune_old_schedule(self, before: datetime) -> int:
+        """Remove schedule entries that ended before the given time. Returns count deleted."""
+        cursor = self._conn.execute("DELETE FROM charge_schedule WHERE end_time < ?", [dt_to_ms(before)])
+        self._conn.commit()
+        return cursor.rowcount
