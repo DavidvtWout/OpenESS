@@ -138,48 +138,53 @@ async function loadScatterChart() {
             return;
         }
 
-        // Separate charging and discharging points
-        const charging = data.filter(d => d.is_charging);
-        const discharging = data.filter(d => !d.is_charging);
+        // Separate points by category
+        const categories = {
+            charging: { data: [], color: 'rgba(52, 152, 219, 0.5)', name: 'Charging' },
+            discharging: { data: [], color: 'rgba(231, 76, 60, 0.5)', name: 'Discharging' },
+            idling: { data: [], color: 'rgba(149, 165, 166, 0.5)', name: 'Idling' },
+            balancing: { data: [], color: 'rgba(155, 89, 182, 0.5)', name: 'Balancing' },
+        };
 
-        // Build hover text
-        const chargingHover = charging.map(d => {
-            const eff = d.efficiency !== null ? `${d.efficiency.toFixed(1)}%` : 'N/A';
-            return `Time: ${formatScatterTime(d.time)}<br>Power: ${d.battery_power} W<br>Losses: ${d.losses} W<br>Efficiency: ${eff}`;
-        });
-        const dischargingHover = discharging.map(d => {
-            const eff = d.efficiency !== null ? `${d.efficiency.toFixed(1)}%` : 'N/A';
-            return `Time: ${formatScatterTime(d.time)}<br>Power: ${d.battery_power} W<br>Losses: ${d.losses} W<br>Efficiency: ${eff}`;
-        });
+        for (const d of data) {
+            if (categories[d.category]) {
+                categories[d.category].data.push(d);
+            }
+        }
 
-        const traces = [
-            {
-                x: charging.map(d => d.battery_power),
-                y: charging.map(d => d.losses),
-                type: 'scatter',
-                mode: 'markers',
-                name: 'Charging',
-                marker: {
-                    color: 'rgba(52, 152, 219, 0.5)',
-                    size: 8,
-                },
-                text: chargingHover,
-                hoverinfo: 'text',
+        // Build hover text based on category
+        function buildHoverText(d) {
+            const eff = d.efficiency !== null ? `${d.efficiency.toFixed(1)}%` : 'N/A';
+            const soc = d.soc !== null ? `${d.soc}%` : 'N/A';
+            const time = formatScatterTime(d.time);
+
+            switch (d.category) {
+                case 'charging':
+                    return `Time: ${time}<br>SOC: ${soc}<br>Battery: ${d.battery_power} W<br>Charger: ${d.inverter_charger_power} W<br>Losses: ${d.losses} W<br>Efficiency: ${eff}`;
+                case 'discharging':
+                    return `Time: ${time}<br>SOC: ${soc}<br>Battery: ${d.battery_power} W<br>Inverter: ${Math.abs(d.inverter_charger_power)} W<br>Losses: ${d.losses} W<br>Efficiency: ${eff}`;
+                case 'balancing':
+                    return `Time: ${time}<br>SOC: ${soc}<br>Battery: ${d.battery_power} W<br>Balancing power`;
+                case 'idling':
+                    return `Time: ${time}<br>SOC: ${soc}<br>Idle consumption: ${d.losses} W`;
+                default:
+                    return `Time: ${time}`;
+            }
+        }
+
+        const traces = Object.entries(categories).map(([key, cat]) => ({
+            x: cat.data.map(d => d.battery_power),
+            y: cat.data.map(d => d.losses),
+            type: 'scatter',
+            mode: 'markers',
+            name: cat.name,
+            marker: {
+                color: cat.color,
+                size: 8,
             },
-            {
-                x: discharging.map(d => d.battery_power),
-                y: discharging.map(d => d.losses),
-                type: 'scatter',
-                mode: 'markers',
-                name: 'Discharging',
-                marker: {
-                    color: 'rgba(231, 76, 60, 0.5)',
-                    size: 8,
-                },
-                text: dischargingHover,
-                hoverinfo: 'text',
-            },
-        ];
+            text: cat.data.map(buildHoverText),
+            hoverinfo: 'text',
+        }));
 
         const settings = loadSettings();
         const isDark = settings.theme === 'dark';

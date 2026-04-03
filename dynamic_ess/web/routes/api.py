@@ -71,9 +71,11 @@ class PowerPoint(BaseModel):
 class EfficiencyScatterPoint(BaseModel):
     time: datetime
     battery_power: float  # Always positive (absolute value)
+    inverter_charger_power: float
     losses: float
     efficiency: float | None  # Percentage, None if can't be calculated
-    is_charging: bool
+    soc: int | None
+    category: str  # "charging", "discharging", "idling", "balancing"
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -612,12 +614,19 @@ async def get_power(
 async def get_efficiency_scatter(
     limit: int = Query(default=2000, description="Maximum number of data points to return"),
     aggregate_minutes: int = Query(default=10, description="Aggregate into N-minute buckets"),
+    idle_threshold: int = Query(default=5, description="Battery power threshold for idling (W)"),
+    balancing_threshold: int = Query(default=100, description="Inverter/charger power threshold for balancing (W)"),
     db: Database = Depends(get_db),
 ):
     """Get scatter plot data for battery power vs losses.
 
+    Categories:
+    - idling: battery power near zero
+    - balancing: battery charging but inverter/charger power near zero (DC charging/balancing)
+    - charging: battery charging from AC
+    - discharging: battery discharging to AC
+
     Losses are calculated as: inverter_charger_power - battery_power
-    (the difference between AC and DC side power).
     Battery power is always returned as positive (absolute value).
     """
     try:
@@ -628,7 +637,8 @@ async def get_efficiency_scatter(
                     printf('%02d', (CAST(strftime('%M', timestamp) AS INTEGER) / {aggregate_minutes}) * {aggregate_minutes})
                     || ':00' as bucket,
                 AVG(battery_power) as battery_power,
-                AVG(inverter_charger_power) as inverter_charger_power
+                AVG(inverter_charger_power) as inverter_charger_power,
+                CAST(ROUND(AVG(battery_soc)) AS INTEGER) as battery_soc
             FROM system_battery
             WHERE battery_power IS NOT NULL
               AND inverter_charger_power IS NOT NULL
@@ -643,34 +653,42 @@ async def get_efficiency_scatter(
         for row in rows:
             battery_power = row["battery_power"]
             inverter_charger_power = row["inverter_charger_power"]
+            battery_soc = row["battery_soc"]
             bucket = row["bucket"]
 
             if battery_power is None or inverter_charger_power is None:
                 continue
 
-            is_charging = battery_power > 0
+            # Determine category
+            # Balancing: battery at 100% SOC, charging, but inverter/charger near zero
+            if abs(battery_power) < idle_threshold:
+                category = "idling"
+            elif battery_power > 0 and battery_soc == 100 and abs(inverter_charger_power) < balancing_threshold:
+                category = "balancing"
+            elif battery_power > 0:
+                category = "charging"
+            else:
+                category = "discharging"
 
             # Calculate losses: difference between AC and DC side
-            # When charging: inverter_charger_power > battery_power (loss is positive)
-            # When discharging: battery_power < 0, inverter_charger_power < 0, loss = icp - bp is positive
             losses = inverter_charger_power - battery_power
 
             # Calculate efficiency
-            # Charging: efficiency = DC out / AC in = battery_power / inverter_charger_power
-            # Discharging: efficiency = AC out / DC in = |inverter_charger_power| / |battery_power|
             efficiency = None
-            if is_charging and inverter_charger_power > 0:
+            if category == "charging" and inverter_charger_power > 0:
                 efficiency = (battery_power / inverter_charger_power) * 100
-            elif not is_charging and battery_power < 0:
+            elif category == "discharging" and battery_power < 0:
                 efficiency = (inverter_charger_power / battery_power) * 100  # Both negative, result positive
 
             points.append(
                 EfficiencyScatterPoint(
                     time=datetime.fromisoformat(bucket),
                     battery_power=round(abs(battery_power), 1),  # Always positive
+                    inverter_charger_power=round(inverter_charger_power, 1),
                     losses=round(losses, 1),
                     efficiency=round(efficiency, 1) if efficiency is not None else None,
-                    is_charging=is_charging,
+                    soc=battery_soc,
+                    category=category,
                 )
             )
 
