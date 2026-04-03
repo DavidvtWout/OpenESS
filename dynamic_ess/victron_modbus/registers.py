@@ -101,6 +101,9 @@ class System:
 # MultiPlus / Quattro inverter/charger
 # =============================================================================
 class VEBus:
+    # System info
+    NUMBER_OF_PHASES = Register("Number of Phases", 28, DataType.UINT16)
+
     # AC input
     AC_INPUT_VOLTAGE_L1 = Register("AC Input Voltage L1", 3, DataType.UINT16, scale=10)
     AC_INPUT_VOLTAGE_L2 = Register("AC Input Voltage L2", 4, DataType.UINT16, scale=10)

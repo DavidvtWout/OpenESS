@@ -6,7 +6,7 @@ from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
 from .config import VictronConfig
-from .registers import Register, System, VEBus, Battery
+from .registers import Battery, Register, System, VEBus
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class VictronClient:
     def __init__(self, config: VictronConfig):
         self._config = config
         self._client = ModbusTcpClient(config.host, port=config.port)
+        self._phases_cache: dict[int, int] = {}  # vebus_id -> num_phases
 
     @property
     def host(self) -> str:
@@ -33,11 +34,42 @@ class VictronClient:
     def port(self) -> int:
         return self._config.port
 
+    @property
+    def config(self) -> VictronConfig:
+        return self._config
+
     def connect(self) -> bool:
         return self._client.connect()
 
     def close(self):
         self._client.close()
+
+    def initialize(self) -> bool:
+        """Connect and detect phases for all configured VEBus devices."""
+        if not self.connect():
+            return False
+
+        for vebus_id in self._config.vebus_ids:
+            self._phases_cache[vebus_id] = self.detect_phases(vebus_id)
+            logger.info(f"VEBus {vebus_id}: detected {self._phases_cache[vebus_id]} phase(s)")
+
+        return True
+
+    def detect_phases(self, vebus_id: int) -> int:
+        """
+        Detect the number of phases from a VEBus device.
+        Returns 1, 2, or 3. Defaults to 3 if detection fails.
+        """
+        phases = self.read(vebus_id, VEBus.NUMBER_OF_PHASES)
+        if phases is None or phases not in (1, 2, 3):
+            logger.warning(f"Could not detect phases for VEBus {vebus_id}, defaulting to 3")
+            return 3
+        return int(phases)
+
+    def get_active_phases(self, vebus_id: int) -> list[int]:
+        """Return list of active phase numbers [1], [1,2], or [1,2,3]."""
+        num = self._phases_cache.get(vebus_id, 3)
+        return list(range(1, num + 1))
 
     def read(self, unit_id: int, register: Register) -> float | None:
         """Read a register and return the scaled value."""
@@ -102,9 +134,7 @@ class VictronClient:
             logger.error(f"Modbus exception writing register {register.address}: {e}")
             return False
 
-    def read_many(
-            self, unit_id: int, registers: list[Register]
-    ) -> dict[Register, float | None]:
+    def read_many(self, unit_id: int, registers: list[Register]) -> dict[Register, float | None]:
         """
         Read multiple registers efficiently by batching consecutive addresses.
 
@@ -212,7 +242,7 @@ class VictronClient:
         system_values = self.read_many(self._config.system_id, regs)
         logger.info(f"\n{pprint.pformat(system_values, indent=2)}")
 
-        regs = [
+        vebus_regs = [
             VEBus.AC_INPUT_POWER_L1,
             VEBus.AC_INPUT_POWER_L2,
             VEBus.AC_INPUT_POWER_L3,
@@ -233,13 +263,15 @@ class VictronClient:
             VEBus.ENERGY_INVERTER_TO_AC_OUT,
             VEBus.ENERGY_AC_OUT_TO_INVERTER,
         ]
-        multiplus_values = self.read_many(self._config.vebus_id, regs)
-        logger.info(f"\n{pprint.pformat(multiplus_values, indent=2)}")
+        for vebus_id in self._config.vebus_ids:
+            multiplus_values = self.read_many(vebus_id, vebus_regs)
+            logger.info(f"\nVEBus {vebus_id}:\n{pprint.pformat(multiplus_values, indent=2)}")
 
-        regs = [
-            Battery.DC_POWER,
-            Battery.DISCHARGED_ENERGY,
-            Battery.CHARGED_ENERGY,
-        ]
-        bms_values = self.read_many(self._config.bms_id, regs)
-        logger.info(f"\n{pprint.pformat(bms_values, indent=2)}")
+        if self._config.bms_id:
+            regs = [
+                Battery.DC_POWER,
+                Battery.DISCHARGED_ENERGY,
+                Battery.CHARGED_ENERGY,
+            ]
+            bms_values = self.read_many(self._config.bms_id, regs)
+            logger.info(f"\n{pprint.pformat(bms_values, indent=2)}")

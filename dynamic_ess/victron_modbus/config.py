@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class VictronConfig(BaseModel):
@@ -11,7 +11,7 @@ class VictronConfig(BaseModel):
 
     # Modbus unit IDs, check Settings → Services → Modbus TCP → Available services
     system_id: int = 100
-    vebus_id: int | None = None
+    vebus_ids: list[int] = []
     bms_id: int | None = None
     solarcharger_id: int | None = None
     grid_id: int | None = None

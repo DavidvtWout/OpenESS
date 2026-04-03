@@ -1,4 +1,4 @@
-from .client import SystemState, VictronClient, VictronConfig
+from .client import SystemState, VictronClient
 from .config import VictronConfig
 from .registers import Battery, DataType, GridMeter, Register, SolarCharger, System, VEBus
 
