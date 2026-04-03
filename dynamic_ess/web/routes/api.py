@@ -61,7 +61,7 @@ async def get_prices(
     end: datetime | None = Query(default=None),
     db: Database = Depends(get_db),
 ):
-    """Get day-ahead energy prices."""
+    """Get day-ahead energy prices, aggregated to hourly averages."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -69,8 +69,22 @@ async def get_prices(
         if end is None:
             end = now + timedelta(days=2)
 
-        prices = db.get_prices(area, start, end)
-        return [PricePoint(time=p[0], price=p[2]) for p in prices]
+        # Aggregate 15-minute prices to hourly averages (as energy providers do)
+        # Convert from EUR/MWh to EUR/kWh (divide by 1000)
+        query = """
+            SELECT
+                strftime('%Y-%m-%dT%H:00:00', start_time) as hour,
+                AVG(price) / 1000.0 as price
+            FROM day_ahead_prices
+            WHERE area = ? AND start_time >= ? AND start_time < ?
+            GROUP BY hour
+            ORDER BY hour
+        """
+        cursor = db._conn.execute(query, [area, start.isoformat(), end.isoformat()])
+        return [
+            PricePoint(time=datetime.fromisoformat(row["hour"]), price=row["price"])
+            for row in cursor.fetchall()
+        ]
     except Exception as e:
         logger.exception("Failed to get prices")
         raise HTTPException(status_code=500, detail=str(e))

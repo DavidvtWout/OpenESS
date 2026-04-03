@@ -91,7 +91,7 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             },
             yaxis: {
                 ...defaultLayout.yaxis,
-                title: 'EUR/MWh',
+                title: 'EUR/kWh',
             },
             shapes: currentPriceIdx >= 0 ? [{
                 type: 'line',
@@ -119,7 +119,7 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
                 statsEl.innerHTML = `
                     <div class="stat-card">
                         <div class="stat-value">${current !== null ? current.toFixed(2) : '-'}</div>
-                        <div class="stat-label">Current (EUR/MWh)</div>
+                        <div class="stat-label">Current (EUR/kWh)</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-value">${min.toFixed(2)}</div>
