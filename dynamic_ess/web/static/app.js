@@ -42,13 +42,20 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
     const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     const end = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
 
+    const url = `/api/prices?start=${formatDate(start)}&end=${formatDate(end)}`;
+    console.log('Fetching prices:', url);
+
     try {
-        const response = await fetch(
-            `/api/prices?start=${formatDate(start)}&end=${formatDate(end)}`
-        );
-        if (!response.ok) throw new Error('Failed to fetch prices');
+        const response = await fetch(url);
+        console.log('Prices response:', response.status);
+        if (!response.ok) {
+            const text = await response.text();
+            console.error('Prices error:', text);
+            throw new Error(`Failed to fetch prices: ${response.status}`);
+        }
 
         const data = await response.json();
+        console.log('Prices data:', data.length, 'points');
 
         if (data.length === 0) {
             showError(elementId, 'No price data available');
@@ -97,6 +104,7 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             }] : [],
         };
 
+        document.getElementById(elementId).innerHTML = '';
         Plotly.newPlot(elementId, [trace], layout, defaultConfig);
 
         // Update stats if requested
@@ -141,13 +149,20 @@ async function loadBatteryChart(elementId, hours = 24) {
     const now = new Date();
     const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
 
+    const url = `/api/battery?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=5`;
+    console.log('Fetching battery:', url);
+
     try {
-        const response = await fetch(
-            `/api/battery?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=5`
-        );
-        if (!response.ok) throw new Error('Failed to fetch battery data');
+        const response = await fetch(url);
+        console.log('Battery response:', response.status);
+        if (!response.ok) {
+            const text = await response.text();
+            console.error('Battery error:', text);
+            throw new Error(`Failed to fetch battery data: ${response.status}`);
+        }
 
         const data = await response.json();
+        console.log('Battery data:', data.length, 'points');
 
         if (data.length === 0) {
             showError(elementId, 'No battery data available');
@@ -199,6 +214,7 @@ async function loadBatteryChart(elementId, hours = 24) {
             },
         };
 
+        document.getElementById(elementId).innerHTML = '';
         Plotly.newPlot(elementId, [powerTrace, socTrace], layout, defaultConfig);
     } catch (error) {
         console.error('Error loading battery data:', error);
@@ -213,13 +229,20 @@ async function loadGridChart(elementId, hours = 24) {
     const now = new Date();
     const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
 
+    const url = `/api/system?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=5`;
+    console.log('Fetching system:', url);
+
     try {
-        const response = await fetch(
-            `/api/system?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=5`
-        );
-        if (!response.ok) throw new Error('Failed to fetch system data');
+        const response = await fetch(url);
+        console.log('System response:', response.status);
+        if (!response.ok) {
+            const text = await response.text();
+            console.error('System error:', text);
+            throw new Error(`Failed to fetch system data: ${response.status}`);
+        }
 
         const data = await response.json();
+        console.log('System data:', data.length, 'points');
 
         if (data.length === 0) {
             showError(elementId, 'No system data available');
@@ -264,6 +287,7 @@ async function loadGridChart(elementId, hours = 24) {
             },
         };
 
+        document.getElementById(elementId).innerHTML = '';
         Plotly.newPlot(elementId, traces, layout, defaultConfig);
     } catch (error) {
         console.error('Error loading system data:', error);
