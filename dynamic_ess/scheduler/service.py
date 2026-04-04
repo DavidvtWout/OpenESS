@@ -2,18 +2,18 @@ import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from dynamic_ess.components.base import Component
 from dynamic_ess.db import Database
-from dynamic_ess.scheduler import Optimizer
+from dynamic_ess.service import Service
+from .optimizer import Optimizer
 
 logger = logging.getLogger(__name__)
 
 
-class ChargePlanner(Component):
+class SchedulerService(Service):
     """Runs the charge optimizer before each hour."""
 
     def __init__(self, db_path: Path, area: str = "NL", run_at_minute: int = 55):
-        super().__init__("ChargePlanner")
+        super().__init__("SchedulerService")
         self.db_path = db_path
         self.area = area
         self.run_at_minute = run_at_minute
@@ -21,16 +21,13 @@ class ChargePlanner(Component):
         self.optimizer: Optimizer | None = None
 
     def on_start(self):
-        # Create connection in this thread
         self.db = Database(self.db_path, run_migrations=False)
         self.optimizer = Optimizer(self.db, area=self.area)
 
     def tick(self):
-        # Prune old schedule entries
         now = datetime.now(timezone.utc)
         self.db.prune_old_schedule(now - timedelta(hours=1))
 
-        # Run optimizer
         logger.info("Running charge optimizer")
         schedule = self.optimizer.optimize()
 
@@ -44,7 +41,6 @@ class ChargePlanner(Component):
         """Wait until run_at_minute of the next hour."""
         now = datetime.now(timezone.utc)
 
-        # Calculate next run time
         next_run = now.replace(minute=self.run_at_minute, second=0, microsecond=0)
         if now.minute >= self.run_at_minute:
             next_run += timedelta(hours=1)

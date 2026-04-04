@@ -1,13 +1,12 @@
 import logging
 import threading
-import time
 from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
 
-class Component(ABC, threading.Thread):
-    """Base class for background components with their own lifecycle."""
+class Service(ABC, threading.Thread):
+    """Base class for background services with their own lifecycle."""
 
     def __init__(self, name: str):
         super().__init__(name=name, daemon=True)
@@ -44,12 +43,12 @@ class Component(ABC, threading.Thread):
         logger.info(f"{self.name} stopped")
 
     def on_start(self):
-        """Called once when component starts. Override for initialization."""
+        """Called once when service starts. Override for initialization."""
         pass
 
     @abstractmethod
     def tick(self):
-        """Called repeatedly. Override with component logic."""
+        """Called repeatedly. Override with service logic."""
         pass
 
     def wait_until_next(self):
@@ -57,7 +56,7 @@ class Component(ABC, threading.Thread):
         self._stop_event.wait(timeout=1.0)
 
     def stop(self):
-        """Signal the component to stop."""
+        """Signal the service to stop."""
         self._running = False
         self._stop_event.set()
 

@@ -2,18 +2,19 @@ import logging
 import time
 from pathlib import Path
 
-from dynamic_ess.components.base import Component
 from dynamic_ess.db import Database
-from dynamic_ess.victron_modbus import VictronClient, VictronConfig
+from dynamic_ess.service import Service
+from .client import VictronClient
+from .config import VictronConfig
 
 logger = logging.getLogger(__name__)
 
 
-class VictronCollector(Component):
+class VictronService(Service):
     """Collects measurements from Victron GX at regular intervals."""
 
     def __init__(self, config: VictronConfig, db_path: Path):
-        super().__init__("VictronCollector")
+        super().__init__("VictronService")
         self.config = config
         self.db_path = db_path
         self.poll_interval = config.poll_interval
@@ -38,4 +39,5 @@ class VictronCollector(Component):
 
     def stop(self):
         super().stop()
-        self.client.close()
+        if self.client:
+            self.client.close()

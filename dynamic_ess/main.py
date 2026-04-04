@@ -3,9 +3,11 @@ import logging
 import signal
 from pathlib import Path
 
-from dynamic_ess.components import ChargePlanner, EntsoeCollector, VictronCollector
 from dynamic_ess.config import Config
 from dynamic_ess.db import Database
+from dynamic_ess.entsoe_api import EntsoeService
+from dynamic_ess.scheduler import SchedulerService
+from dynamic_ess.victron_modbus import VictronService
 
 logger = logging.getLogger(__name__)
 
@@ -35,29 +37,29 @@ def main():
     # Run migrations on startup (main thread)
     Database(config.db_path, run_migrations=True).close()
 
-    # Components create their own connections in their threads
-    components = [
-        VictronCollector(config.victron_gx, config.db_path),
-        EntsoeCollector(config.entsoe, config.db_path, check_interval_hours=1.0),
-        ChargePlanner(config.db_path, area=config.entsoe.area, run_at_minute=58),
+    # Services create their own connections in their threads
+    services = [
+        VictronService(config.victron_gx, config.db_path),
+        EntsoeService(config.entsoe, config.db_path, check_interval_hours=1.0),
+        SchedulerService(config.db_path, area=config.entsoe.area, run_at_minute=58),
     ]
 
     # Shutdown handler
     def shutdown(signum, frame):
         logger.info("Shutting down...")
-        for c in components:
-            c.stop()
+        for s in services:
+            s.stop()
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    # Start all components
-    for c in components:
-        c.start()
+    # Start all services
+    for s in services:
+        s.start()
 
-    # Wait for all components to finish
-    for c in components:
-        c.join()
+    # Wait for all services to finish
+    for s in services:
+        s.join()
 
     logger.info("Shutdown complete")
 
