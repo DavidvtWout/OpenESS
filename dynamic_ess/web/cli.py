@@ -6,7 +6,7 @@ import uvicorn
 
 from dynamic_ess.config import Config
 from dynamic_ess.web.app import create_app
-from dynamic_ess.web.dependencies import init_database, close_database
+from dynamic_ess.web.dependencies import init_dependencies, close_dependencies
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def main():
     )
 
     config = Config.from_file(args.config)
-    init_database(config.db_path)
+    init_dependencies(config.db_path, config.prices)
 
     logger.info(f"Starting web server on http://{args.host}:{args.port}")
 
@@ -59,7 +59,7 @@ def main():
             log_level="info",
         )
     finally:
-        close_database()
+        close_dependencies()
 
 
 if __name__ == "__main__":

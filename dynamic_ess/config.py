@@ -3,14 +3,15 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
-from dynamic_ess.entsoe_api import EntsoeConfig
+from dynamic_ess.pricing import PriceConfig
 from dynamic_ess.victron_modbus import VictronConfig
 from dynamic_ess.optimizer import BatteryConfig
+
 
 class Config(BaseModel):
     db_path: Path
 
-    entsoe: EntsoeConfig
+    prices: PriceConfig
     victron_gx: VictronConfig
     battery: BatteryConfig
 

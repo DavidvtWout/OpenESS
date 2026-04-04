@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dynamic_ess.config import Config
 from dynamic_ess.db import Database, DatabaseService
-from dynamic_ess.entsoe_api import EntsoeService
+from dynamic_ess.pricing import EntsoeService
 from dynamic_ess.optimizer import SchedulerService
 from dynamic_ess.victron_modbus import VictronService
 
@@ -75,11 +75,11 @@ def main():
     # Services create their own connections in their threads
     services = [
         VictronService(config.victron_gx, config.db_path),
-        EntsoeService(config.entsoe, config.db_path, check_interval_hours=1.0),
+        EntsoeService(config.prices, config.db_path, check_interval_hours=1.0),
         SchedulerService(
             config.db_path,
             battery=config.battery,
-            area=config.entsoe.area,
+            prices=config.prices,
             run_at_minute=55,
         ),
         DatabaseService(config.db_path),

@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta, timezone
+from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
 from entsoe import set_config
@@ -9,15 +10,13 @@ from pandas import DataFrame
 
 from dynamic_ess.db import Database
 from .areas import AREAS
-from .config import EntsoeConfig
-
-from xml.etree import ElementTree as ET
+from .config import PriceConfig
 
 logger = logging.getLogger(__name__)
 
 
 class EntsoeClient:
-    def __init__(self, config: EntsoeConfig, db: Database):
+    def __init__(self, config: PriceConfig, db: Database):
         if config.area not in AREAS:
             raise ValueError(f"Unknown area code: '{config.area}'")
 
@@ -27,8 +26,8 @@ class EntsoeClient:
         self._eic_code, tz_name = AREAS[config.area]
         self._tz = ZoneInfo(tz_name)
 
-        if config.api_key:
-            set_config(security_token=config.api_key)
+        if config.entsoe_api_key:
+            set_config(security_token=config.entsoe_api_key)
 
     def fetch_day_ahead_prices(
             self,
@@ -63,7 +62,6 @@ class EntsoeClient:
         except ET.ParseError:
             # On a 404, entsoe-apy still tries to parse the result which fails. Other errors such as 503 and timeouts are retried
             return []
-
 
         records = extract_records(result)
         records = add_timestamps(records)

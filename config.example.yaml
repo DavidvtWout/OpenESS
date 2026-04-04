@@ -1,16 +1,29 @@
 db_path: /var/lib/dynamic-ess/data.db
 
-entsoe:
-  api_key_file: /var/lib/dynamic-ess/entsoe_api_key
-  area: NL
+prices:
+  area: NL  # ENTSO-E bidding zone (NL, DE_LU, BE, etc.)
+  entsoe_api_key_file: /var/lib/dynamic-ess/entsoe_api_key
+
+  # Price formulas: calculate actual buy/sell price from market price
+  # Use 'price' or 'p' as the market price variable (EUR/kWh)
+  # Allowed operations: +, -, *, /, **, parentheses
+  # Example: "(price + 0.05) * 1.21" adds €0.05/kWh markup and 21% VAT
+  buy_formula: "price"   # default: pass-through
+  sell_formula: "price"  # default: pass-through
 
 victron_gx:
   host: 192.168.1.100  # IP of your Victron GX device
   port: 502
   poll_interval: 2     # seconds between measurements
-  min_soc: 10          # Lowest allowed battery state-of-charge
 
   # Modbus unit IDs - check Settings → Services → Modbus TCP → Available services
   system_id: 100
-  vebus_ids: [ 228 ]     # list of MultiPlus/Quattro unit IDs
+  vebus_ids: [ 228 ]   # list of MultiPlus/Quattro unit IDs
   bms_id: 225          # optional, for BMS direct access
+
+battery:
+  capacity_kwh: 10.0
+  max_charge_power_kw: 3.0
+  max_discharge_power_kw: 3.0
+  min_soc: 10   # percentage
+  max_soc: 100  # percentage

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from dynamic_ess.db import Database, dt_to_ms, ms_to_dt
+from dynamic_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +21,16 @@ def get_db() -> Database:
     return get_database()
 
 
+def get_prices() -> PriceConfig:
+    from dynamic_ess.web.dependencies import get_price_config
+    return get_price_config()
+
+
 class PricePoint(BaseModel):
     time: datetime
-    price: float
+    market_price: float
+    buy_price: float
+    sell_price: float
 
 
 class SystemMeasurementPoint(BaseModel):
@@ -96,11 +104,11 @@ async def health_check(db: Database = Depends(get_db)):
 
 
 @router.get("/prices", response_model=list[PricePoint])
-async def get_prices(
-    area: str = "NL",
+async def get_price_data(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     db: Database = Depends(get_db),
+    price_config: PriceConfig = Depends(get_prices),
 ):
     try:
         now = datetime.now(timezone.utc)
@@ -116,8 +124,16 @@ async def get_prices(
             WHERE area = ? AND start_time >= ? AND start_time < ?
             GROUP BY hour ORDER BY hour
         """
-        cursor = db._conn.execute(query, [MS_PER_HOUR, MS_PER_HOUR, area, dt_to_ms(start), dt_to_ms(end)])
-        return [PricePoint(time=ms_to_dt(row["hour"]), price=row["price"]) for row in cursor.fetchall()]
+        cursor = db._conn.execute(query, [MS_PER_HOUR, MS_PER_HOUR, price_config.area, dt_to_ms(start), dt_to_ms(end)])
+        return [
+            PricePoint(
+                time=ms_to_dt(row["hour"]),
+                market_price=row["price"],
+                buy_price=price_config.buy_price(row["price"]),
+                sell_price=price_config.sell_price(row["price"]),
+            )
+            for row in cursor.fetchall()
+        ]
     except Exception as e:
         logger.exception("Failed to get prices")
         raise HTTPException(status_code=500, detail=str(e))

@@ -4,7 +4,7 @@ from pathlib import Path
 from dynamic_ess.db import Database
 from dynamic_ess.service import Service
 from .client import EntsoeClient
-from .config import EntsoeConfig
+from .config import PriceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class EntsoeService(Service):
     """Fetches day-ahead prices from ENTSO-E at regular intervals."""
 
-    def __init__(self, config: EntsoeConfig, db_path: Path, check_interval_hours: float = 1.0):
+    def __init__(self, config: PriceConfig, db_path: Path, check_interval_hours: float = 1.0):
         super().__init__("EntsoeService")
         self.config = config
         self.db_path = db_path

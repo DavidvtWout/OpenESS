@@ -1,27 +1,38 @@
 from pathlib import Path
 
 from dynamic_ess.db import Database
+from dynamic_ess.pricing import PriceConfig
 
-# Global database instance (simple approach for now)
+# Global instances (simple approach for now)
 _database: Database | None = None
+_price_config: PriceConfig | None = None
 
 
-def init_database(db_path: Path) -> None:
-    """Initialize the global database connection."""
-    global _database
+def init_dependencies(db_path: Path, price_config: PriceConfig) -> None:
+    """Initialize global dependencies."""
+    global _database, _price_config
     _database = Database(db_path)
+    _price_config = price_config
 
 
 def get_database() -> Database:
     """Get the global database instance."""
     if _database is None:
-        raise RuntimeError("Database not initialized. Call init_database() first.")
+        raise RuntimeError("Database not initialized. Call init_dependencies() first.")
     return _database
 
 
-def close_database() -> None:
-    """Close the global database connection."""
-    global _database
+def get_price_config() -> PriceConfig:
+    """Get the global price config instance."""
+    if _price_config is None:
+        raise RuntimeError("Price config not initialized. Call init_dependencies() first.")
+    return _price_config
+
+
+def close_dependencies() -> None:
+    """Close global connections."""
+    global _database, _price_config
     if _database is not None:
         _database.close()
         _database = None
+    _price_config = None

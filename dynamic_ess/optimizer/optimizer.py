@@ -6,6 +6,7 @@ import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
 from dynamic_ess.db import Database
+from dynamic_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,9 @@ def charger_loss_kw(battery_power_kw: float) -> float:
     """
     p = abs(battery_power_kw)
     return (
-        2.43326342680815e-2 * p
-        + 1.41038332692784e-2 * p**2
-        + 4.16335950406618e-3 * p**3
+            2.43326342680815e-2 * p
+            + 1.41038332692784e-2 * p ** 2
+            + 4.16335950406618e-3 * p ** 3
     )
 
 
@@ -40,7 +41,7 @@ def inverter_loss_kw(grid_power_kw: float) -> float:
     battery_power = grid_power + inverter_loss
     """
     p = abs(grid_power_kw)
-    return 1.992198656282844e-2 * p**2 + 8.142966987508347e-4 * p**3
+    return 1.992198656282844e-2 * p ** 2 + 8.142966987508347e-4 * p ** 3
 
 
 def charging_efficiency(battery_power_kw: float) -> float:
@@ -70,25 +71,12 @@ def discharging_efficiency(battery_power_kw: float) -> float:
     return grid_power / battery_power_kw
 
 
-def buy_price(market_price: float) -> float:
-    return (market_price + 0.01653 + 0.1088) * 1.21
-
-
-def sell_price(market_price: float) -> float:
-    return (market_price + 0.01653 + 0.1088) * 1.21
-
-
-def cost_at_t(model, t):
-    power_into_battery = model.charge_power[t] + charger_loss_kw(model.charge_power[t]) - model.discharge_power[t]
-    return power_into_battery * buy_price(model.price[t])
-
-
 class Optimizer:
     """Optimizes charge/discharge schedule based on prices and constraints using Pyomo."""
 
-    def __init__(self, db: Database, area: str, battery: BatteryConfig):
+    def __init__(self, db: Database, prices: PriceConfig, battery: BatteryConfig):
         self.db = db
-        self.area = area
+        self.prices = prices
         self.battery = battery
 
     def optimize(self) -> list[tuple[datetime, datetime, int, int]]:
@@ -102,6 +90,14 @@ class Optimizer:
             List of (start_time, end_time, power_w, expected_soc) tuples.
             power_w > 0 means charging, < 0 means discharging.
         """
+        # Capture price functions for use in nested function
+        buy_price_fn = self.prices.buy_price
+        sell_price_fn = self.prices.sell_price
+
+        def cost_at_t(model, t):
+            charge_from_grid = model.charge_power[t] + charger_loss_kw(model.charge_power[t])
+            discharge_to_grid = model.discharge_power[t]
+            return charge_from_grid * buy_price_fn(model.price[t]) - discharge_to_grid * sell_price_fn(model.price[t])
 
         def soc_update_rule(model, t):
             if t == model.T.at(-1):
@@ -127,7 +123,7 @@ class Optimizer:
 
         # Get average price from last 7 days as the "value" of stored energy
         week_ago = now - timedelta(days=7)
-        avg_price = self.db.get_average_price(self.area, week_ago, now)
+        avg_price = self.db.get_average_price(self.prices.area, week_ago, now)
         if avg_price is None:
             logger.warning("No historical price data, cannot optimize")
             return []
@@ -139,7 +135,7 @@ class Optimizer:
         # Get hourly prices for the planning horizon
         start_hour = now.replace(minute=0, second=0, microsecond=0)
         end_hour = start_hour + timedelta(hours=36)
-        hourly_prices = self.db.get_hourly_prices(self.area, start_hour, end_hour)
+        hourly_prices = self.db.get_hourly_prices(self.prices.area, start_hour, end_hour)
 
         if not hourly_prices:
             logger.warning("No future price data available")

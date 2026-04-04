@@ -83,14 +83,18 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
         const priceLabel = settings.priceUnit === 'cent' ? 'ct/kWh' : 'EUR/kWh';
 
         const times = data.map(d => new Date(d.time));
-        const prices = data.map(d => d.price * priceMultiplier);
+        const marketPrices = data.map(d => d.market_price * priceMultiplier);
+        const buyPrices = data.map(d => d.buy_price * priceMultiplier);
+        const sellPrices = data.map(d => d.sell_price * priceMultiplier);
 
         // Extend the last price by 1 hour so the step chart shows the full last hour
         if (times.length > 0) {
             const lastTime = times[times.length - 1];
             const extendedTime = new Date(lastTime.getTime() + 60 * 60 * 1000);
             times.push(extendedTime);
-            prices.push(prices[prices.length - 1]);
+            marketPrices.push(marketPrices[marketPrices.length - 1]);
+            buyPrices.push(buyPrices[buyPrices.length - 1]);
+            sellPrices.push(sellPrices[sellPrices.length - 1]);
         }
 
         // Find current price
@@ -100,16 +104,34 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             (i === times.length - 1 || times[i + 1].getTime() > currentTime)
         );
 
-        const trace = {
+        const marketTrace = {
             x: times,
-            y: prices,
+            y: marketPrices,
             type: 'scatter',
             mode: 'lines',
-            line: { shape: 'hv', color: '#3498db', width: 2 },
-            fill: 'tozeroy',
-            fillcolor: 'rgba(52, 152, 219, 0.1)',
-            name: 'Price',
-            hovertemplate: `%{y:.2f} ${priceLabel}<extra></extra>`,
+            line: { shape: 'hv', color: '#95a5a6', width: 1 },
+            name: 'Market',
+            hovertemplate: `Market: %{y:.2f} ${priceLabel}<extra></extra>`,
+        };
+
+        const buyTrace = {
+            x: times,
+            y: buyPrices,
+            type: 'scatter',
+            mode: 'lines',
+            line: { shape: 'hv', color: '#e74c3c', width: 2 },
+            name: 'Buy',
+            hovertemplate: `Buy: %{y:.2f} ${priceLabel}<extra></extra>`,
+        };
+
+        const sellTrace = {
+            x: times,
+            y: sellPrices,
+            type: 'scatter',
+            mode: 'lines',
+            line: { shape: 'hv', color: '#2ecc71', width: 2 },
+            name: 'Sell',
+            hovertemplate: `Sell: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
 
         const defaultLayout = getPlotlyLayout();
@@ -136,16 +158,16 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
         };
 
         document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, [trace], layout, defaultConfig);
+        Plotly.newPlot(elementId, [marketTrace, buyTrace, sellTrace], layout, defaultConfig);
 
-        // Update stats if requested
+        // Update stats if requested (use buy prices)
         if (showStats) {
             const statsEl = document.getElementById('price-stats');
             if (statsEl) {
-                const min = Math.min(...prices);
-                const max = Math.max(...prices);
-                const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
-                const current = currentPriceIdx >= 0 ? prices[currentPriceIdx] : null;
+                const min = Math.min(...buyPrices);
+                const max = Math.max(...buyPrices);
+                const avg = buyPrices.reduce((a, b) => a + b, 0) / buyPrices.length;
+                const current = currentPriceIdx >= 0 ? buyPrices[currentPriceIdx] : null;
                 const decimals = settings.priceUnit === 'cent' ? 2 : 4;
 
                 statsEl.innerHTML = `
@@ -679,14 +701,18 @@ async function loadPricesChartRange(elementId, start, end) {
         const priceLabel = settings.priceUnit === 'cent' ? 'ct/kWh' : 'EUR/kWh';
 
         const times = data.map(d => new Date(d.time));
-        const prices = data.map(d => d.price * priceMultiplier);
+        const marketPrices = data.map(d => d.market_price * priceMultiplier);
+        const buyPrices = data.map(d => d.buy_price * priceMultiplier);
+        const sellPrices = data.map(d => d.sell_price * priceMultiplier);
 
         // Extend the last price by 1 hour
         if (times.length > 0) {
             const lastTime = times[times.length - 1];
             const extendedTime = new Date(lastTime.getTime() + 60 * 60 * 1000);
             times.push(extendedTime);
-            prices.push(prices[prices.length - 1]);
+            marketPrices.push(marketPrices[marketPrices.length - 1]);
+            buyPrices.push(buyPrices[buyPrices.length - 1]);
+            sellPrices.push(sellPrices[sellPrices.length - 1]);
         }
 
         const now = new Date();
@@ -696,16 +722,34 @@ async function loadPricesChartRange(elementId, start, end) {
             (i === times.length - 1 || times[i + 1].getTime() > currentTime)
         );
 
-        const trace = {
+        const marketTrace = {
             x: times,
-            y: prices,
+            y: marketPrices,
             type: 'scatter',
             mode: 'lines',
-            line: { shape: 'hv', color: '#3498db', width: 2 },
-            fill: 'tozeroy',
-            fillcolor: 'rgba(52, 152, 219, 0.1)',
-            name: 'Price',
-            hovertemplate: `%{y:.2f} ${priceLabel}<extra></extra>`,
+            line: { shape: 'hv', color: '#95a5a6', width: 1 },
+            name: 'Market',
+            hovertemplate: `Market: %{y:.2f} ${priceLabel}<extra></extra>`,
+        };
+
+        const buyTrace = {
+            x: times,
+            y: buyPrices,
+            type: 'scatter',
+            mode: 'lines',
+            line: { shape: 'hv', color: '#e74c3c', width: 2 },
+            name: 'Buy',
+            hovertemplate: `Buy: %{y:.2f} ${priceLabel}<extra></extra>`,
+        };
+
+        const sellTrace = {
+            x: times,
+            y: sellPrices,
+            type: 'scatter',
+            mode: 'lines',
+            line: { shape: 'hv', color: '#2ecc71', width: 2 },
+            name: 'Sell',
+            hovertemplate: `Sell: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
 
         const defaultLayout = getPlotlyLayout();
@@ -731,12 +775,12 @@ async function loadPricesChartRange(elementId, start, end) {
                 y0: 0,
                 y1: 1,
                 yref: 'paper',
-                line: { color: '#e74c3c', width: 2, dash: 'dash' },
+                line: { color: '#9b59b6', width: 2, dash: 'dash' },
             }] : [],
         };
 
         document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, [trace], layout, defaultConfig);
+        Plotly.newPlot(elementId, [marketTrace, buyTrace, sellTrace], layout, defaultConfig);
     } catch (error) {
         console.error('Error loading prices:', error);
         showError(elementId, 'Failed to load prices');

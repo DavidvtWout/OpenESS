@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dynamic_ess.db import Database
+from dynamic_ess.pricing import PriceConfig
 from dynamic_ess.service import Service
 from .optimizer import BatteryConfig, Optimizer
 
@@ -13,15 +14,15 @@ class SchedulerService(Service):
     """Runs the charge optimizer before each hour."""
 
     def __init__(
-        self,
-        db_path: Path,
-        area: str,
-        battery: BatteryConfig,
-        run_at_minute: int = 55,
+            self,
+            db_path: Path,
+            prices: PriceConfig,
+            battery: BatteryConfig,
+            run_at_minute: int = 55,
     ):
         super().__init__("SchedulerService")
         self.db_path = db_path
-        self.area = area
+        self.prices = prices
         self.run_at_minute = run_at_minute
         self.battery = battery
         self.db: Database | None = None
@@ -29,7 +30,7 @@ class SchedulerService(Service):
 
     def on_start(self):
         self.db = Database(self.db_path, run_migrations=False)
-        self.optimizer = Optimizer(self.db, area=self.area, battery=self.battery)
+        self.optimizer = Optimizer(self.db, prices=self.prices, battery=self.battery)
 
     def tick(self):
         now = datetime.now(timezone.utc)
