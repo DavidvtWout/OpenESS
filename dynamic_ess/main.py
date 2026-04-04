@@ -38,7 +38,14 @@ class ColoredFormatter(logging.Formatter):
         # Message with level color
         message_str = f"{record.getMessage()}{self.RESET}"
 
-        return f"{time_str} | {level_str} | {location_str} - {message_str}"
+        result = f"{time_str} | {level_str} | {location_str} - {message_str}"
+
+        # Append exception traceback if present
+        if record.exc_info:
+            exc_text = self.formatException(record.exc_info)
+            result = f"{result}\n{exc_text}"
+
+        return result
 
 
 def setup_logging():

@@ -23,6 +23,11 @@
 </div>
 
 <div class="chart-container">
+    <h2>Battery SoC</h2>
+    <div id="soc-chart" class="chart"></div>
+</div>
+
+<div class="chart-container">
     <h2>Power</h2>
     <div id="power-chart" class="chart"></div>
 </div>
@@ -71,7 +76,7 @@
     let isRelayoutInProgress = false; // Flag to prevent infinite zoom sync loops
 
     // Chart IDs for synchronized zooming
-    const chartIds = ['power-chart', 'energy-chart', 'prices-chart'];
+    const chartIds = ['soc-chart', 'power-chart', 'energy-chart', 'prices-chart'];
 
     function getTimeRange(hours, offset = 0) {
         const now = new Date();
@@ -176,6 +181,7 @@
         cachedBucketMinutes = bucketMinutes;
 
         await Promise.all([
+            loadSocChart('soc-chart', dashboardStart, dashboardEnd, aggregateMinutes),
             loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes),
             loadAndCacheEnergyData(dashboardStart, dashboardEnd, bucketMinutes),
             loadPricesChartRange('prices-chart', dashboardStart, dashboardEnd)

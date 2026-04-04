@@ -210,24 +210,25 @@ class Optimizer:
             discharge_power = pyo.value(model.discharge_power[t])
             discharge_power = discharge_power if discharge_power >= 0.001 else 0
 
-            soc_val = pyo.value(model.battery_charge[t]) / self.battery.capacity_kwh * 100,
+            try:
+                soc_val = pyo.value(model.battery_charge[t+1]) / self.battery.capacity_kwh * 100
+            except KeyError:
+                break
 
             # Determine action (use small threshold to avoid noise)
             if charge_power > 0.01:
                 power_kw = charge_power  # Positive = charging
-                action = "charge"
             elif discharge_power > 0.01:
                 power_kw = -discharge_power  # Negative = discharging
-                action = "discharge"
             else:
-                continue  # No action this hour
+                power_kw = 0
 
             power_w = int(power_kw * 1000)
-            expected_soc = int(soc_val[0])
+            expected_soc = int(soc_val)
 
             schedule.append((hour_start, hour_end, power_w, expected_soc))
             logger.debug(
-                f"{hour_start.strftime('%H:%M')} {action:10} "
+                f"{hour_start.strftime('%H:%M')} "
                 f"{abs(power_kw):.2f}kW @ {pyo.value(model.price[t]):.4f} EUR/kWh -> SOC={expected_soc}%"
             )
 

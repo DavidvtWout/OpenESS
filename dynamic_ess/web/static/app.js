@@ -393,34 +393,48 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         const useKw = settings.powerUnit === 'kw';
         const divisor = useKw ? 1000 : 1;
         const powerLabel = useKw ? 'Power (kW)' : 'Power (W)';
+        const now = new Date();
 
         // Build schedule step data with 0 for gaps (idle hours)
-        // Sort schedule entries by start time and filter to view range
+        // Schedule line starts at "now", not the beginning of the view range
         const scheduleInRange = schedule
             .map(entry => ({
                 start: new Date(entry.start_time),
                 end: new Date(entry.end_time),
                 power: entry.power_w / divisor
             }))
-            .filter(e => e.end >= start && e.start <= end)
+            .filter(e => e.end > now && e.start <= end)  // Only future entries
             .sort((a, b) => a.start - b.start);
 
         const scheduleTimes = [];
         const schedulePowers = [];
 
         if (scheduleInRange.length > 0) {
-            // Start with 0 at the beginning of the view range (or first entry start)
-            const firstStart = scheduleInRange[0].start;
-            if (firstStart > start) {
-                scheduleTimes.push(start, firstStart);
+            // Start at "now" with 0 power (or current entry's power if we're in the middle of one)
+            const firstEntry = scheduleInRange[0];
+            const effectiveStart = firstEntry.start < now ? now : firstEntry.start;
+
+            // If there's a gap from now to first entry, show 0
+            if (effectiveStart > now) {
+                scheduleTimes.push(now, effectiveStart);
                 schedulePowers.push(0, 0);
+            } else {
+                // We're in the middle of an entry, start at now
+                scheduleTimes.push(now);
+                schedulePowers.push(firstEntry.power);
             }
 
             for (let i = 0; i < scheduleInRange.length; i++) {
                 const entry = scheduleInRange[i];
-                // Add the schedule entry
-                scheduleTimes.push(entry.start, entry.end);
-                schedulePowers.push(entry.power, entry.power);
+                const entryStart = entry.start < now ? now : entry.start;
+
+                // Add the schedule entry (skip start if already added for first entry)
+                if (i > 0 || entryStart > now) {
+                    scheduleTimes.push(entryStart);
+                    schedulePowers.push(entry.power);
+                }
+                scheduleTimes.push(entry.end);
+                schedulePowers.push(entry.power);
 
                 // Add gap to next entry (or to end of view range)
                 const nextStart = i < scheduleInRange.length - 1
@@ -492,7 +506,6 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         const defaultLayout = getPlotlyLayout();
 
         // Only show "now" line if within visible range
-        const now = new Date();
         const shapes = (now >= start && now <= end) ? [{
             type: 'line',
             x0: now,
@@ -532,6 +545,163 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
     }
 }
 
+// Load and display battery SoC chart with scheduled SoC
+async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
+    showLoading(elementId);
+
+    const batteryUrl = `/api/battery?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
+    const scheduleUrl = `/api/schedule?start=${formatDate(start)}`;
+    console.log('Fetching SoC:', batteryUrl);
+
+    try {
+        const [batteryResponse, scheduleResponse] = await Promise.all([
+            fetch(batteryUrl),
+            fetch(scheduleUrl)
+        ]);
+
+        if (!batteryResponse.ok) {
+            throw new Error(`Failed to fetch battery data: ${batteryResponse.status}`);
+        }
+
+        const data = await batteryResponse.json();
+        const schedule = scheduleResponse.ok ? await scheduleResponse.json() : [];
+        console.log('SoC data:', data.length, 'points, Schedule:', schedule.length, 'entries');
+
+        const settings = loadSettings();
+        const isDark = settings.theme === 'dark';
+        const now = new Date();
+
+        // Build scheduled SoC line starting from "now"
+        // expected_soc represents the SoC at the END of each schedule entry
+        // Gaps in the schedule mean zero power, so SoC stays constant
+        const scheduleInRange = schedule
+            .map(entry => ({
+                start: new Date(entry.start_time),
+                end: new Date(entry.end_time),
+                soc: entry.expected_soc
+            }))
+            .filter(e => e.end > now && e.start <= end)  // Only future entries
+            .sort((a, b) => a.start - b.start);
+
+        const scheduleTimes = [];
+        const scheduleSocs = [];
+
+        if (scheduleInRange.length > 0) {
+            // Get current SoC from latest battery data as starting point
+            let currentSoc = null;
+            if (data.length > 0) {
+                currentSoc = data[data.length - 1].battery_soc;
+            }
+
+            // Start at "now" with current SoC
+            if (currentSoc !== null) {
+                scheduleTimes.push(now);
+                scheduleSocs.push(currentSoc);
+            }
+
+            let lastSoc = currentSoc;
+            let lastTime = now;
+
+            for (let i = 0; i < scheduleInRange.length; i++) {
+                const entry = scheduleInRange[i];
+                const effectiveStart = entry.start < now ? now : entry.start;
+
+                // If there's a gap from last point to this entry's start, SoC stays flat
+                if (lastSoc !== null && effectiveStart > lastTime) {
+                    scheduleTimes.push(effectiveStart);
+                    scheduleSocs.push(lastSoc);
+                }
+
+                // Add the end point with expected SoC (linear line to this point)
+                scheduleTimes.push(entry.end);
+                scheduleSocs.push(entry.soc);
+                lastSoc = entry.soc;
+                lastTime = entry.end;
+            }
+
+            // Extend to end of view range with constant SoC if needed
+            if (lastSoc !== null && lastTime < end) {
+                scheduleTimes.push(end);
+                scheduleSocs.push(lastSoc);
+            }
+        }
+
+        // Check if we have any data to show
+        if (data.length === 0 && scheduleInRange.length === 0) {
+            showError(elementId, 'No SoC data available');
+            return;
+        }
+
+        const traces = [];
+
+        // Add actual SoC trace if we have measurement data
+        if (data.length > 0) {
+            const times = data.map(d => new Date(d.time));
+            traces.push({
+                x: times,
+                y: data.map(d => d.battery_soc),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'SoC',
+                line: { color: '#3498db', width: 2 },
+                hovertemplate: '%{y}%<extra>SoC</extra>',
+            });
+        }
+
+        // Add scheduled SoC trace
+        if (scheduleTimes.length > 0) {
+            traces.push({
+                x: scheduleTimes,
+                y: scheduleSocs,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Scheduled',
+                line: { color: '#2ecc71', width: 2, dash: 'dot' },
+                hovertemplate: '%{y}%<extra>Scheduled</extra>',
+            });
+        }
+
+        const defaultLayout = getPlotlyLayout();
+
+        // Only show "now" line if within visible range
+        const shapes = (now >= start && now <= end) ? [{
+            type: 'line',
+            x0: now,
+            x1: now,
+            y0: 0,
+            y1: 1,
+            yref: 'paper',
+            line: { color: '#e74c3c', width: 2, dash: 'dash' },
+        }] : [];
+
+        const layout = {
+            ...defaultLayout,
+            hovermode: 'x unified',
+            xaxis: {
+                ...defaultLayout.xaxis,
+                range: [start, end],
+            },
+            yaxis: {
+                ...defaultLayout.yaxis,
+                title: 'SoC (%)',
+                range: [0, 100],
+            },
+            legend: {
+                orientation: 'h',
+                y: -0.15,
+                font: { color: isDark ? '#e4e4e4' : '#333333' },
+            },
+            shapes: shapes,
+        };
+
+        document.getElementById(elementId).innerHTML = '';
+        Plotly.newPlot(elementId, traces, layout, defaultConfig);
+    } catch (error) {
+        console.error('Error loading SoC data:', error);
+        showError(elementId, 'Failed to load SoC data');
+    }
+}
+
 // Render energy flow chart from pre-fetched data (for caching)
 function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = 'multiplus', schedule = [], bucketMinutes = 60) {
     const settings = loadSettings();
@@ -565,6 +735,9 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
         return;
     }
 
+    // Only show scheduled energy for future time (starting from "now")
+    const now = new Date().getTime();
+
     const scheduledData = times.map(t => {
         const bucketStart = t.getTime() - bucketMs / 2;  // times are centered
         const bucketEnd = bucketStart + bucketMs;
@@ -573,11 +746,18 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
         let inverterOutputWh = 0;
         let inverterLossWh = 0;
 
+        // Only calculate scheduled energy for the future portion of the bucket
+        const effectiveBucketStart = Math.max(bucketStart, now);
+        if (effectiveBucketStart >= bucketEnd) {
+            // Bucket is entirely in the past, no scheduled data
+            return { chargerInputWh, chargerLossWh, inverterOutputWh, inverterLossWh };
+        }
+
         for (const entry of schedule) {
             const entryStart = new Date(entry.start_time).getTime();
             const entryEnd = new Date(entry.end_time).getTime();
-            // Calculate overlap between schedule entry and bucket
-            const overlapStart = Math.max(bucketStart, entryStart);
+            // Calculate overlap between schedule entry and future portion of bucket
+            const overlapStart = Math.max(effectiveBucketStart, entryStart);
             const overlapEnd = Math.min(bucketEnd, entryEnd);
             if (overlapEnd > overlapStart) {
                 const overlapHours = (overlapEnd - overlapStart) / 3600000;
@@ -775,7 +955,6 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
     const isDark = settings.theme === 'dark';
 
     // Only show "now" line if within visible range
-    const now = new Date();
     const shapes = (now >= start && now <= end) ? [{
         type: 'line',
         x0: now,
