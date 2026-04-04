@@ -15,15 +15,15 @@ class SchedulerService(Service):
     def __init__(
         self,
         db_path: Path,
-        area: str = "NL",
+        area: str,
+        battery: BatteryConfig,
         run_at_minute: int = 55,
-        battery: BatteryConfig | None = None,
     ):
         super().__init__("SchedulerService")
         self.db_path = db_path
         self.area = area
         self.run_at_minute = run_at_minute
-        self.battery = battery or BatteryConfig()
+        self.battery = battery
         self.db: Database | None = None
         self.optimizer: Optimizer | None = None
 

@@ -2,6 +2,9 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+import pyomo.environ as pyo
+from pyomo.opt import SolverFactory
+
 from dynamic_ess.db import Database
 
 logger = logging.getLogger(__name__)
@@ -9,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BatteryConfig:
-    """Battery configuration for the optimizer."""
-
     capacity_kwh: float  # Total battery capacity in kWh
     max_charge_power_kw: float  # Maximum charge power in kW
     max_discharge_power_kw: float  # Maximum discharge power in kW
@@ -45,7 +46,7 @@ def inverter_loss_kw(grid_power_kw: float) -> float:
 def charging_efficiency(battery_power_kw: float) -> float:
     """Calculate charging efficiency: battery_power / grid_power."""
     if battery_power_kw <= 0:
-        return 1.0
+        return 0.0
     loss = charger_loss_kw(battery_power_kw)
     grid_power = battery_power_kw + loss
     return battery_power_kw / grid_power
@@ -63,15 +64,27 @@ def discharging_efficiency(battery_power_kw: float) -> float:
     grid_power = battery_power_kw * 0.95  # Initial guess
     for _ in range(10):
         loss = inverter_loss_kw(grid_power)
-        # battery_power = grid_power + loss, so grid_power = battery_power - loss
         grid_power = battery_power_kw - loss
         if grid_power <= 0:
             return 0.0
     return grid_power / battery_power_kw
 
 
+def buy_price(market_price: float) -> float:
+    return (market_price + 0.01653 + 0.1088) * 1.21
+
+
+def sell_price(market_price: float) -> float:
+    return (market_price + 0.01653 + 0.1088) * 1.21
+
+
+def cost_at_t(model, t):
+    power_into_battery = model.charge_power[t] + charger_loss_kw(model.charge_power[t]) - model.discharge_power[t]
+    return power_into_battery * buy_price(model.price[t])
+
+
 class Optimizer:
-    """Optimizes charge/discharge schedule based on prices and constraints."""
+    """Optimizes charge/discharge schedule based on prices and constraints using Pyomo."""
 
     def __init__(self, db: Database, area: str, battery: BatteryConfig):
         self.db = db
@@ -79,12 +92,31 @@ class Optimizer:
         self.battery = battery
 
     def optimize(self) -> list[tuple[datetime, datetime, int, int]]:
-        """Generate optimal charge schedule.
+        """Generate optimal charge schedule using linear programming.
+
+        The optimization minimizes electricity cost while respecting battery constraints.
+        The value of energy remaining in the battery is accounted for using the
+        average price from the last 7 days.
 
         Returns:
             List of (start_time, end_time, power_w, expected_soc) tuples.
             power_w > 0 means charging, < 0 means discharging.
         """
+
+        def soc_update_rule(model, t):
+            if t == model.T.at(-1):
+                # Skip this for the last time step
+                return pyo.Constraint.Skip
+
+            multiplus_base_power = 0.020
+
+            return (
+                    model.battery_charge[t + 1] == model.battery_charge[t]
+                    + model.charge_power[t]
+                    - (model.discharge_power[t] + inverter_loss_kw(model.discharge_power[t]))
+                    - multiplus_base_power
+            )
+
         now = datetime.now(timezone.utc)
 
         # Get current SOC
@@ -100,11 +132,11 @@ class Optimizer:
             logger.warning("No historical price data, cannot optimize")
             return []
 
-        # Convert to EUR/kWh for easier calculations
+        # Convert to EUR/kWh
         avg_price_kwh = avg_price / 1000.0
         logger.info(f"Average price (last 7 days): {avg_price_kwh:.4f} EUR/kWh")
 
-        # Get hourly prices for the next 36 hours
+        # Get hourly prices for the planning horizon
         start_hour = now.replace(minute=0, second=0, microsecond=0)
         end_hour = start_hour + timedelta(hours=36)
         hourly_prices = self.db.get_hourly_prices(self.area, start_hour, end_hour)
@@ -113,75 +145,95 @@ class Optimizer:
             logger.warning("No future price data available")
             return []
 
-        logger.info(f"Planning for {len(hourly_prices)} hours starting at {start_hour}")
+        # Filter out past hours
+        hourly_prices = [(t, p) for t, p in hourly_prices if t + timedelta(hours=1) > now]
 
-        # Calculate efficiencies at typical power levels
+        if not hourly_prices:
+            logger.warning("No future hours to optimize")
+            return []
+
+        n_hours = len(hourly_prices)
+        times = [t for t, _ in hourly_prices]
+        prices = {t: p for t, (_, p) in enumerate(hourly_prices)}  # EUR/kWh
+
+        logger.info(f"Optimizing for {n_hours} hours starting at {times[0]}")
+
+        # Calculate efficiencies at max power (linearized)
         charge_eff = charging_efficiency(self.battery.max_charge_power_kw)
         discharge_eff = discharging_efficiency(self.battery.max_discharge_power_kw)
 
-        logger.info(f"Charging efficiency at {self.battery.max_charge_power_kw:.1f}kW: {charge_eff:.1%}")
-        logger.info(f"Discharging efficiency at {self.battery.max_discharge_power_kw:.1f}kW: {discharge_eff:.1%}")
+        logger.info(f"Charging efficiency: {charge_eff:.1%}, Discharging efficiency: {discharge_eff:.1%}")
 
-        # Round-trip efficiency
-        round_trip_eff = charge_eff * discharge_eff
-        logger.info(f"Round-trip efficiency: {round_trip_eff:.1%}")
+        # Build Pyomo model
+        model = pyo.ConcreteModel()
 
-        # Build schedule
+        # Create input parameters
+        model.T = pyo.RangeSet(0, n_hours - 1)
+        model.price = pyo.Param(model.T, initialize=prices, mutable=False)
+
+        # Create variables to optimize for the model
+        model.charge_power = pyo.Var(model.T, bounds=(0, self.battery.max_charge_power_kw))
+        model.discharge_power = pyo.Var(model.T, bounds=(0, self.battery.max_discharge_power_kw))
+        model.battery_charge = pyo.Var(model.T, bounds=(
+            self.battery.capacity_kwh * self.battery.min_soc / 100,
+            self.battery.capacity_kwh * self.battery.max_soc / 100
+        ))
+
+        # Make sure the battery SoC at the end is the same as the current SoC. Otherwise,
+        # the battery will be drained to optimize costs which is not what we want.
+        battery_capacity_remaining = self.battery.capacity_kwh * current_soc / 100
+        model.battery_charge[0].fix(battery_capacity_remaining)
+        model.battery_charge[n_hours - 1].fix(battery_capacity_remaining)
+
+        model.soc_update = pyo.Constraint(model.T, rule=soc_update_rule)
+
+        model.cost = pyo.Objective(rule=lambda m: sum(cost_at_t(model, t) for t in m.T), sense=pyo.minimize)
+
+        solver = SolverFactory("ipopt")
+        solver.options["linear_solver"] = "mumps"
+        result = solver.solve(model)
+
+        if result.solver.termination_condition != pyo.TerminationCondition.optimal:
+            logger.error(f"Optimization failed: {result.solver.termination_condition}")
+            return []
+
+        total_cost = pyo.value(model.cost)
+        logger.info(f"Optimization solved: cost = {total_cost:.4f} EUR")
+
+        # Extract schedule
         schedule = []
-        simulated_soc = current_soc
-
-        for hour_start, price in hourly_prices:
+        for t in model.T:
+            hour_start = times[t]
             hour_end = hour_start + timedelta(hours=1)
 
-            # Skip hours in the past
-            if hour_end <= now:
-                continue
+            charge_power = pyo.value(model.charge_power[t])
+            if charge_power < 1:
+                charge_power = 0
+            else:
+                charge_power += charger_loss_kw(charge_power)
+            discharge_power = pyo.value(model.discharge_power[t])
+            discharge_power = discharge_power if discharge_power >= 0.001 else 0
 
-            # Effective prices accounting for losses
-            # When charging: we pay price, but only charge_eff of that goes to battery
-            # So effective cost per kWh stored = price / charge_eff
-            effective_charge_price = price / charge_eff
+            soc_val = pyo.value(model.battery_charge[t]) / self.battery.capacity_kwh * 100,
 
-            # When discharging: we get price, but need to discharge (1/discharge_eff) from battery
-            # So effective revenue per kWh discharged = price * discharge_eff
-            effective_discharge_price = price * discharge_eff
+            # Determine action (use small threshold to avoid noise)
+            if charge_power > 0.01:
+                power_kw = charge_power  # Positive = charging
+                action = "charge"
+            elif discharge_power > 0.01:
+                power_kw = -discharge_power  # Negative = discharging
+                action = "discharge"
+            else:
+                continue  # No action this hour
 
-            # Decision thresholds
-            # Charge if effective_charge_price < avg_price (we're buying cheap)
-            # Discharge if effective_discharge_price > avg_price (we're selling dear)
+            power_w = int(power_kw * 1000)
+            expected_soc = int(soc_val[0])
 
-            power_kw = 0.0
-            action = "hold"
-
-            if effective_charge_price < avg_price_kwh * 0.95:  # 5% margin
-                # Charging is profitable
-                if simulated_soc < self.battery.max_soc:
-                    power_kw = self.battery.max_charge_power_kw
-                    action = "charge"
-                    # Energy added to battery in this hour (kWh)
-                    energy_added_kwh = power_kw * charge_eff
-                    soc_increase = (energy_added_kwh / self.battery.capacity_kwh) * 100
-                    simulated_soc = min(self.battery.max_soc, simulated_soc + soc_increase)
-
-            elif effective_discharge_price > avg_price_kwh * 1.05:  # 5% margin
-                # Discharging is profitable
-                if simulated_soc > self.battery.min_soc:
-                    power_kw = -self.battery.max_discharge_power_kw
-                    action = "discharge"
-                    # Energy removed from battery in this hour (kWh)
-                    energy_removed_kwh = self.battery.max_discharge_power_kw
-                    soc_decrease = (energy_removed_kwh / self.battery.capacity_kwh) * 100
-                    simulated_soc = max(self.battery.min_soc, simulated_soc - soc_decrease)
-
-            if power_kw != 0:
-                # Convert to W for schedule storage
-                power_w = int(power_kw * 1000)
-                schedule.append((hour_start, hour_end, power_w, int(simulated_soc)))
-                logger.debug(
-                    f"{hour_start.strftime('%H:%M')} {action:10} "
-                    f"price={price:.4f} eff_price={effective_charge_price if power_kw > 0 else effective_discharge_price:.4f} "
-                    f"avg={avg_price_kwh:.4f} -> SOC={simulated_soc:.0f}%"
-                )
+            schedule.append((hour_start, hour_end, power_w, expected_soc))
+            logger.debug(
+                f"{hour_start.strftime('%H:%M')} {action:10} "
+                f"{abs(power_kw):.2f}kW @ {pyo.value(model.price[t]):.4f} EUR/kWh -> SOC={expected_soc}%"
+            )
 
         logger.info(f"Generated schedule with {len(schedule)} entries")
         return schedule

@@ -18,9 +18,11 @@ dependencies = [
     "entsoe-apy",
     "fastapi",
     "jinja2",
+    "numpy",
     "pandas",
     "pydantic",
     "pymodbus",
+    "pyomo",
     "pyyaml",
     "uvicorn",
 ]

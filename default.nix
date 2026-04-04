@@ -1,6 +1,6 @@
 { lib, buildPythonPackage, fetchPypi, setuptools, setuptools-scm, entsoe-apy
-, fastapi, jinja2, pandas, pydantic, pymodbus, pyyaml, matplotlib, uvicorn
-, xsdata, httpx }:
+, fastapi, jinja2, numpy, pandas, pydantic, pymodbus, pyomo, pyyaml, matplotlib
+, uvicorn, xsdata, httpx }:
 
 buildPythonPackage {
   pname = "dynamic-ess";
@@ -10,8 +10,19 @@ buildPythonPackage {
   src = ./.;
 
   nativeBuildInputs = [ setuptools setuptools-scm ];
-  propagatedBuildInputs =
-    [ entsoe-apy fastapi jinja2 pandas pydantic pymodbus pyyaml matplotlib uvicorn ];
+  propagatedBuildInputs = [
+    entsoe-apy
+    fastapi
+    jinja2
+    numpy
+    pandas
+    pydantic
+    pymodbus
+    pyomo
+    pyyaml
+    matplotlib
+    uvicorn
+  ];
 
   meta = with lib; {
     description = "Victron dynamic ESS charge/discharge schedule optimizer";

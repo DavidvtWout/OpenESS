@@ -69,7 +69,7 @@ def main():
     args = parse_args()
     config = Config.from_file(args.config)
 
-    # Run migrations on startup (main thread)
+    # Run migrations on startup
     Database(config.db_path, run_migrations=True).close()
 
     # Services create their own connections in their threads
@@ -78,9 +78,9 @@ def main():
         EntsoeService(config.entsoe, config.db_path, check_interval_hours=1.0),
         SchedulerService(
             config.db_path,
+            battery=config.battery,
             area=config.entsoe.area,
             run_at_minute=55,
-            battery=config.battery,
         ),
         DatabaseService(config.db_path),
     ]
@@ -94,11 +94,8 @@ def main():
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    # Start all services
     for s in services:
         s.start()
-
-    # Wait for all services to finish
     for s in services:
         s.join()
 
