@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from dynamic_ess.db import Database, dt_to_ms, ms_to_dt
 from dynamic_ess.pricing import PriceConfig
+from dynamic_ess.optimizer.optimizer import charger_loss_kw, inverter_loss_kw
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,18 @@ class EfficiencyScatterPoint(BaseModel):
     category: str
 
 
+class SchedulePoint(BaseModel):
+    start_time: datetime
+    end_time: datetime
+    power_w: int  # positive = charging, negative = discharging
+    expected_soc: int
+    # Predicted values based on loss formulas
+    charger_input_w: float  # power drawn from grid when charging
+    inverter_output_w: float  # power delivered to grid when discharging
+    charger_loss_w: float
+    inverter_loss_w: float
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(db: Database = Depends(get_db)):
     try:
@@ -100,6 +113,53 @@ async def health_check(db: Database = Depends(get_db)):
         return HealthResponse(status="ok", database="connected", tables=tables)
     except Exception as e:
         logger.exception("Health check failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/schedule", response_model=list[SchedulePoint])
+async def get_schedule(
+    start: datetime | None = Query(default=None),
+    db: Database = Depends(get_db),
+):
+    """Get the charge/discharge schedule with predicted losses."""
+    try:
+        schedule = db.get_schedule(start)
+        result = []
+        for start_time, end_time, power_w, expected_soc in schedule:
+            power_kw = power_w / 1000.0
+            if power_w > 0:
+                # Charging: charger draws more from grid than goes into battery
+                charger_loss = charger_loss_kw(power_kw) * 1000  # W
+                charger_input = power_w + charger_loss
+                inverter_output = 0
+                inverter_loss = 0
+            elif power_w < 0:
+                # Discharging: battery provides more than goes to grid
+                # power_w is negative, so abs() for calculation
+                battery_power_kw = abs(power_kw)
+                inverter_loss = inverter_loss_kw(battery_power_kw) * 1000  # W
+                inverter_output = abs(power_w) - inverter_loss
+                charger_input = 0
+                charger_loss = 0
+            else:
+                charger_input = 0
+                charger_loss = 0
+                inverter_output = 0
+                inverter_loss = 0
+
+            result.append(SchedulePoint(
+                start_time=start_time,
+                end_time=end_time,
+                power_w=power_w,
+                expected_soc=expected_soc,
+                charger_input_w=round(charger_input, 1),
+                inverter_output_w=round(inverter_output, 1),
+                charger_loss_w=round(charger_loss, 1),
+                inverter_loss_w=round(inverter_loss, 1),
+            ))
+        return result
+    except Exception as e:
+        logger.exception("Failed to get schedule")
         raise HTTPException(status_code=500, detail=str(e))
 
 

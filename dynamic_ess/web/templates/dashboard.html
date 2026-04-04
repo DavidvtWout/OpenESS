@@ -65,6 +65,8 @@
     let dashboardEnd = null;
     let currentFoR = 'multiplus';
     let cachedEnergyData = null;
+    let cachedScheduleData = null;
+    let cachedBucketMinutes = 60;
     let rangeOffset = 0; // Number of periods to shift back from current
     let isRelayoutInProgress = false; // Flag to prevent infinite zoom sync loops
 
@@ -100,8 +102,8 @@
         const labelEl = document.getElementById('range-label');
         const nextBtn = document.getElementById('range-next');
 
-        // Enable/disable next button
-        nextBtn.disabled = rangeOffset === 0;
+        // Enable/disable next button (allow 1 day into future for schedule)
+        nextBtn.disabled = rangeOffset <= -1;
 
         // Build label showing the date range
         if (dashboardStart && dashboardEnd) {
@@ -170,6 +172,8 @@
 
         // Clear cache when time range changes
         cachedEnergyData = null;
+        cachedScheduleData = null;
+        cachedBucketMinutes = bucketMinutes;
 
         await Promise.all([
             loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes),
@@ -177,30 +181,37 @@
             loadPricesChartRange('prices-chart', dashboardStart, dashboardEnd)
         ]);
 
-        renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR);
+        renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR, cachedScheduleData, cachedBucketMinutes);
 
         // Setup zoom sync after charts are loaded (needs to be re-attached after each newPlot)
         setupZoomSync();
     }
 
     async function loadAndCacheEnergyData(start, end, bucketMinutes) {
-        const url = `/api/energy-flow?start=${start.toISOString()}&end=${end.toISOString()}&bucket_minutes=${bucketMinutes}`;
+        const energyUrl = `/api/energy-flow?start=${start.toISOString()}&end=${end.toISOString()}&bucket_minutes=${bucketMinutes}`;
+        const scheduleUrl = `/api/schedule?start=${start.toISOString()}`;
 
         try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch energy flow: ${response.status}`);
+            const [energyResponse, scheduleResponse] = await Promise.all([
+                fetch(energyUrl),
+                fetch(scheduleUrl)
+            ]);
+
+            if (!energyResponse.ok) {
+                throw new Error(`Failed to fetch energy flow: ${energyResponse.status}`);
             }
-            cachedEnergyData = await response.json();
+            cachedEnergyData = await energyResponse.json();
+            cachedScheduleData = scheduleResponse.ok ? await scheduleResponse.json() : [];
         } catch (error) {
             console.error('Error fetching energy data:', error);
             cachedEnergyData = null;
+            cachedScheduleData = [];
         }
     }
 
     function renderEnergyOnly() {
-        if (cachedEnergyData && dashboardStart && dashboardEnd) {
-            renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR);
+        if (dashboardStart && dashboardEnd && (cachedEnergyData || cachedScheduleData)) {
+            renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR, cachedScheduleData || [], cachedBucketMinutes);
         }
     }
 
@@ -230,7 +241,7 @@
         });
 
         document.getElementById('range-next').addEventListener('click', () => {
-            if (rangeOffset > 0) {
+            if (rangeOffset > -1) {
                 rangeOffset--;
                 loadDashboard();
             }

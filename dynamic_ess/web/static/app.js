@@ -120,6 +120,7 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             type: 'scatter',
             mode: 'lines',
             line: { shape: 'hv', color: '#e74c3c', width: 2 },
+            opacity: 0.5,
             name: 'Buy',
             hovertemplate: `Buy: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
@@ -130,6 +131,7 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             type: 'scatter',
             mode: 'lines',
             line: { shape: 'hv', color: '#2ecc71', width: 2 },
+            opacity: 0.5,
             name: 'Sell',
             hovertemplate: `Sell: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
@@ -146,6 +148,10 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
                 ...defaultLayout.yaxis,
                 title: priceLabel,
             },
+            legend: {
+                orientation: 'h',
+                y: -0.2,
+            },
             shapes: currentPriceIdx >= 0 ? [{
                 type: 'line',
                 x0: now,
@@ -153,7 +159,7 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
                 y0: 0,
                 y1: 1,
                 yref: 'paper',
-                line: { color: '#e74c3c', width: 2, dash: 'dash' },
+                line: { color: '#9b59b6', width: 2, dash: 'dash' },
             }] : [],
         };
 
@@ -360,26 +366,27 @@ async function loadGridChart(elementId, hours = 24) {
     }
 }
 
-// Load and display combined power chart (grid, battery, inverter/charger)
+// Load and display combined power chart (grid, battery, inverter/charger, scheduled)
 async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
     showLoading(elementId);
 
-    const url = `/api/power?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
-    console.log('Fetching power:', url);
+    const powerUrl = `/api/power?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
+    const scheduleUrl = `/api/schedule?start=${formatDate(start)}`;
+    console.log('Fetching power:', powerUrl);
 
     try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch power data: ${response.status}`);
+        const [powerResponse, scheduleResponse] = await Promise.all([
+            fetch(powerUrl),
+            fetch(scheduleUrl)
+        ]);
+
+        if (!powerResponse.ok) {
+            throw new Error(`Failed to fetch power data: ${powerResponse.status}`);
         }
 
-        const data = await response.json();
-        console.log('Power data:', data.length, 'points');
-
-        if (data.length === 0) {
-            showError(elementId, 'No power data available');
-            return;
-        }
+        const data = await powerResponse.json();
+        const schedule = scheduleResponse.ok ? await scheduleResponse.json() : [];
+        console.log('Power data:', data.length, 'points, Schedule:', schedule.length, 'entries');
 
         const settings = loadSettings();
         const isDark = settings.theme === 'dark';
@@ -387,38 +394,100 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         const divisor = useKw ? 1000 : 1;
         const powerLabel = useKw ? 'Power (kW)' : 'Power (W)';
 
-        const times = data.map(d => new Date(d.time));
+        // Build schedule step data with 0 for gaps (idle hours)
+        // Sort schedule entries by start time and filter to view range
+        const scheduleInRange = schedule
+            .map(entry => ({
+                start: new Date(entry.start_time),
+                end: new Date(entry.end_time),
+                power: entry.power_w / divisor
+            }))
+            .filter(e => e.end >= start && e.start <= end)
+            .sort((a, b) => a.start - b.start);
 
+        const scheduleTimes = [];
+        const schedulePowers = [];
+
+        if (scheduleInRange.length > 0) {
+            // Start with 0 at the beginning of the view range (or first entry start)
+            const firstStart = scheduleInRange[0].start;
+            if (firstStart > start) {
+                scheduleTimes.push(start, firstStart);
+                schedulePowers.push(0, 0);
+            }
+
+            for (let i = 0; i < scheduleInRange.length; i++) {
+                const entry = scheduleInRange[i];
+                // Add the schedule entry
+                scheduleTimes.push(entry.start, entry.end);
+                schedulePowers.push(entry.power, entry.power);
+
+                // Add gap to next entry (or to end of view range)
+                const nextStart = i < scheduleInRange.length - 1
+                    ? scheduleInRange[i + 1].start
+                    : end;
+                if (entry.end < nextStart) {
+                    scheduleTimes.push(entry.end, nextStart);
+                    schedulePowers.push(0, 0);
+                }
+            }
+        }
+
+        // Check if we have any data to show
+        if (data.length === 0 && scheduleInRange.length === 0) {
+            showError(elementId, 'No power data available');
+            return;
+        }
+
+        const times = data.map(d => new Date(d.time));
         const unit = useKw ? 'kW' : 'W';
-        const traces = [
-            {
-                x: times,
-                y: data.map(d => d.grid_power / divisor),
+        const traces = [];
+
+        // Add measurement traces only if we have measurement data
+        if (data.length > 0) {
+            traces.push(
+                {
+                    x: times,
+                    y: data.map(d => d.grid_power / divisor),
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Grid',
+                    line: { color: '#e74c3c', width: 2 },
+                    hovertemplate: `%{y:.1f} ${unit}<extra>Grid</extra>`,
+                },
+                {
+                    x: times,
+                    y: data.map(d => d.battery_power / divisor),
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Battery',
+                    line: { color: '#3498db', width: 2 },
+                    hovertemplate: `%{y:.1f} ${unit}<extra>Battery</extra>`,
+                },
+                {
+                    x: times,
+                    y: data.map(d => d.inverter_charger_power / divisor),
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Inverter/Charger',
+                    line: { color: '#9b59b6', width: 2 },
+                    hovertemplate: `%{y:.1f} ${unit}<extra>Inverter/Charger</extra>`,
+                },
+            );
+        }
+
+        // Add schedule trace if we have schedule data
+        if (scheduleTimes.length > 0) {
+            traces.push({
+                x: scheduleTimes,
+                y: schedulePowers,
                 type: 'scatter',
                 mode: 'lines',
-                name: 'Grid',
-                line: { color: '#e74c3c', width: 2 },
-                hovertemplate: `%{y:.1f} ${unit}<extra>Grid</extra>`,
-            },
-            {
-                x: times,
-                y: data.map(d => d.battery_power / divisor),
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Battery',
-                line: { color: '#3498db', width: 2 },
-                hovertemplate: `%{y:.1f} ${unit}<extra>Battery</extra>`,
-            },
-            {
-                x: times,
-                y: data.map(d => d.inverter_charger_power / divisor),
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Inverter/Charger',
-                line: { color: '#9b59b6', width: 2 },
-                hovertemplate: `%{y:.1f} ${unit}<extra>Inverter/Charger</extra>`,
-            },
-        ];
+                name: 'Scheduled',
+                line: { color: '#2ecc71', width: 2, dash: 'dot' },
+                hovertemplate: `%{y:.1f} ${unit}<extra>Scheduled</extra>`,
+            });
+        }
 
         const defaultLayout = getPlotlyLayout();
 
@@ -464,20 +533,67 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
 }
 
 // Render energy flow chart from pre-fetched data (for caching)
-function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = 'multiplus') {
-    if (!data || data.length === 0) {
-        showError(elementId, 'No energy flow data available');
-        return;
-    }
-
+function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = 'multiplus', schedule = [], bucketMinutes = 60) {
     const settings = loadSettings();
     const useKw = settings.powerUnit === 'kw';
-    const times = data.map(d => new Date(d.time));
 
     // Convert Wh based on unit preference
     const toDisplay = useKw ? (wh) => wh / 1000 : (wh) => wh;
     const fmtEnergy = useKw ? (wh) => (wh / 1000).toFixed(2) : (wh) => Math.round(wh);
     const energyUnit = useKw ? 'kWh' : 'Wh';
+
+    // Build scheduled energy data aligned with time buckets
+    // Schedule entries have power in W, we need to convert to Wh for each bucket
+    const bucketMs = bucketMinutes * 60 * 1000;
+
+    // Generate time buckets from data if available, otherwise from schedule range
+    let times;
+    if (data && data.length > 0) {
+        times = data.map(d => new Date(d.time));
+    } else if (schedule.length > 0) {
+        // Generate time buckets covering the schedule range
+        times = [];
+        const scheduleStart = Math.min(...schedule.map(s => new Date(s.start_time).getTime()));
+        const scheduleEnd = Math.max(...schedule.map(s => new Date(s.end_time).getTime()));
+        // Align to bucket boundaries
+        const bucketStartTime = Math.floor(scheduleStart / bucketMs) * bucketMs + bucketMs / 2;
+        for (let t = bucketStartTime; t < scheduleEnd; t += bucketMs) {
+            times.push(new Date(t));
+        }
+    } else {
+        showError(elementId, 'No energy flow data available');
+        return;
+    }
+
+    const scheduledData = times.map(t => {
+        const bucketStart = t.getTime() - bucketMs / 2;  // times are centered
+        const bucketEnd = bucketStart + bucketMs;
+        let chargerInputWh = 0;
+        let chargerLossWh = 0;
+        let inverterOutputWh = 0;
+        let inverterLossWh = 0;
+
+        for (const entry of schedule) {
+            const entryStart = new Date(entry.start_time).getTime();
+            const entryEnd = new Date(entry.end_time).getTime();
+            // Calculate overlap between schedule entry and bucket
+            const overlapStart = Math.max(bucketStart, entryStart);
+            const overlapEnd = Math.min(bucketEnd, entryEnd);
+            if (overlapEnd > overlapStart) {
+                const overlapHours = (overlapEnd - overlapStart) / 3600000;
+                if (entry.power_w > 0) {
+                    // Charging
+                    chargerInputWh += entry.charger_input_w * overlapHours;
+                    chargerLossWh += entry.charger_loss_w * overlapHours;
+                } else if (entry.power_w < 0) {
+                    // Discharging
+                    inverterOutputWh += entry.inverter_output_w * overlapHours;
+                    inverterLossWh += entry.inverter_loss_w * overlapHours;
+                }
+            }
+        }
+        return { chargerInputWh, chargerLossWh, inverterOutputWh, inverterLossWh };
+    });
 
     // Build FoR-specific hover text
     function buildHoverText(d, forType) {
@@ -500,112 +616,159 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
         }
     }
 
-    const hoverTexts = data.map(d => buildHoverText(d, frameOfReference));
+    const hasData = data && data.length > 0;
+    const dataTimes = hasData ? data.map(d => new Date(d.time)) : [];
+    const hoverTexts = hasData ? data.map(d => buildHoverText(d, frameOfReference)) : [];
 
     let traces = [];
 
     if (frameOfReference === 'multiplus') {
         // MultiPlus FoR: Top = Inverter output, Bottom = Inverter losses, Charger input, Charger losses
-        traces = [
-            {
-                x: times,
-                y: data.map(d => toDisplay(d.inverter_output_wh)),
-                type: 'bar',
-                name: 'Inverter Output',
-                marker: { color: '#f39c12' },
-                text: hoverTexts,
-                hoverinfo: 'text',
-                textposition: 'none',
-            },
-            {
-                x: times,
-                y: data.map(d => -toDisplay(d.inverter_losses_wh)),
-                type: 'bar',
-                name: 'Inverter Losses',
-                marker: { color: '#e67e22' },
-                text: hoverTexts,
-                hoverinfo: 'text',
-                textposition: 'none',
-            },
-            {
-                x: times,
-                y: data.map(d => -toDisplay(d.charger_input_wh)),
-                type: 'bar',
-                name: 'Charger Input',
-                marker: { color: '#3498db' },
-                text: hoverTexts,
-                hoverinfo: 'text',
-                textposition: 'none',
-            },
-            {
-                x: times,
-                y: data.map(d => -toDisplay(d.charger_losses_wh)),
-                type: 'bar',
-                name: 'Charger Losses',
-                marker: { color: '#2980b9' },
-                text: hoverTexts,
-                hoverinfo: 'text',
-                textposition: 'none',
-            },
-        ];
+        if (hasData) {
+            traces = [
+                {
+                    x: dataTimes,
+                    y: data.map(d => toDisplay(d.inverter_output_wh)),
+                    type: 'bar',
+                    name: 'Inverter Output',
+                    marker: { color: '#f39c12' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: dataTimes,
+                    y: data.map(d => -toDisplay(d.inverter_losses_wh)),
+                    type: 'bar',
+                    name: 'Inverter Losses',
+                    marker: { color: '#e67e22' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: dataTimes,
+                    y: data.map(d => -toDisplay(d.charger_input_wh)),
+                    type: 'bar',
+                    name: 'Charger Input',
+                    marker: { color: '#3498db' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: dataTimes,
+                    y: data.map(d => -toDisplay(d.charger_losses_wh)),
+                    type: 'bar',
+                    name: 'Charger Losses',
+                    marker: { color: '#2980b9' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+            ];
+        }
+
+        // Add scheduled energy traces (with pattern fill to distinguish from actual)
+        const hasScheduledData = scheduledData.some(d => d.chargerInputWh > 0 || d.inverterOutputWh > 0);
+        if (hasScheduledData) {
+            traces.push(
+                {
+                    x: times,
+                    y: scheduledData.map(d => toDisplay(d.inverterOutputWh)),
+                    type: 'bar',
+                    name: 'Sched. Inverter',
+                    marker: { color: '#f39c12', opacity: 0.4, line: { color: '#f39c12', width: 1 } },
+                    hovertemplate: `%{y:.1f} ${energyUnit}<extra>Scheduled Inverter Output</extra>`,
+                },
+                {
+                    x: times,
+                    y: scheduledData.map(d => toDisplay(d.inverterLossWh)),
+                    type: 'bar',
+                    name: 'Sched. Inv. Losses',
+                    marker: { color: '#e67e22', opacity: 0.4, line: { color: '#e67e22', width: 1 } },
+                    hovertemplate: `%{y:.1f} ${energyUnit}<extra>Scheduled Inverter Losses</extra>`,
+                },
+                {
+                    x: times,
+                    y: scheduledData.map(d => -toDisplay(d.chargerInputWh)),
+                    type: 'bar',
+                    name: 'Sched. Charger',
+                    marker: { color: '#3498db', opacity: 0.4, line: { color: '#3498db', width: 1 } },
+                    hovertemplate: `%{y:.1f} ${energyUnit}<extra>Scheduled Charger Input</extra>`,
+                },
+                {
+                    x: times,
+                    y: scheduledData.map(d => -toDisplay(d.chargerLossWh)),
+                    type: 'bar',
+                    name: 'Sched. Chg. Losses',
+                    marker: { color: '#2980b9', opacity: 0.4, line: { color: '#2980b9', width: 1 } },
+                    hovertemplate: `%{y:.1f} ${energyUnit}<extra>Scheduled Charger Losses</extra>`,
+                },
+            );
+        }
     } else if (frameOfReference === 'grid') {
         // Grid FoR: Top = Battery-to-grid (export), Bottom = Grid-to-battery, Losses
-        traces = [
-            {
-                x: times,
-                y: data.map(d => toDisplay(d.grid_export_wh)),
-                type: 'bar',
-                name: 'Grid Export',
-                marker: { color: '#27ae60' },
-                text: hoverTexts,
-                hoverinfo: 'text',
-                textposition: 'none',
-            },
-            {
-                x: times,
-                y: data.map(d => -toDisplay(d.grid_import_wh)),
-                type: 'bar',
-                name: 'Grid Import',
-                marker: { color: '#3498db' },
-                text: hoverTexts,
-                hoverinfo: 'text',
-                textposition: 'none',
-            },
-            {
-                x: times,
-                y: data.map(d => -toDisplay(d.charger_losses_wh + d.inverter_losses_wh)),
-                type: 'bar',
-                name: 'Conversion Losses',
-                marker: { color: '#e74c3c' },
-                text: hoverTexts,
-                hoverinfo: 'text',
-                textposition: 'none',
-            },
-        ];
+        if (hasData) {
+            traces = [
+                {
+                    x: dataTimes,
+                    y: data.map(d => toDisplay(d.grid_export_wh)),
+                    type: 'bar',
+                    name: 'Grid Export',
+                    marker: { color: '#27ae60' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: dataTimes,
+                    y: data.map(d => -toDisplay(d.grid_import_wh)),
+                    type: 'bar',
+                    name: 'Grid Import',
+                    marker: { color: '#3498db' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: dataTimes,
+                    y: data.map(d => -toDisplay(d.charger_losses_wh + d.inverter_losses_wh)),
+                    type: 'bar',
+                    name: 'Conversion Losses',
+                    marker: { color: '#e74c3c' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+            ];
+        }
     } else if (frameOfReference === 'consumption') {
         // Consumption FoR: Consumption + Losses
-        traces = [
-            {
-                x: times,
-                y: data.map(d => -toDisplay(d.consumption_wh)),
-                type: 'bar',
-                name: 'Consumption',
-                marker: { color: '#9b59b6' },
-                text: hoverTexts,
-                hoverinfo: 'text',
-                textposition: 'none',
-            },
-            {
-                x: times,
-                y: data.map(d => -toDisplay(d.charger_losses_wh + d.inverter_losses_wh)),
-                type: 'bar',
-                name: 'MultiPlus Losses',
-                marker: { color: '#e74c3c' },
-                text: hoverTexts,
-                hoverinfo: 'text',
-                textposition: 'none',
-            },
-        ];
+        if (hasData) {
+            traces = [
+                {
+                    x: dataTimes,
+                    y: data.map(d => -toDisplay(d.consumption_wh)),
+                    type: 'bar',
+                    name: 'Consumption',
+                    marker: { color: '#9b59b6' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+                {
+                    x: dataTimes,
+                    y: data.map(d => -toDisplay(d.charger_losses_wh + d.inverter_losses_wh)),
+                    type: 'bar',
+                    name: 'MultiPlus Losses',
+                    marker: { color: '#e74c3c' },
+                    text: hoverTexts,
+                    hoverinfo: 'text',
+                    textposition: 'none',
+                },
+            ];
+        }
     }
 
     const defaultLayout = getPlotlyLayout();
@@ -653,19 +816,25 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
 async function loadEnergyFlowChart(elementId, start, end, bucketMinutes = 60, frameOfReference = 'multiplus') {
     showLoading(elementId);
 
-    const url = `/api/energy-flow?start=${formatDate(start)}&end=${formatDate(end)}&bucket_minutes=${bucketMinutes}`;
-    console.log('Fetching energy flow:', url);
+    const energyUrl = `/api/energy-flow?start=${formatDate(start)}&end=${formatDate(end)}&bucket_minutes=${bucketMinutes}`;
+    const scheduleUrl = `/api/schedule?start=${formatDate(start)}`;
+    console.log('Fetching energy flow:', energyUrl);
 
     try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch energy flow: ${response.status}`);
+        const [energyResponse, scheduleResponse] = await Promise.all([
+            fetch(energyUrl),
+            fetch(scheduleUrl)
+        ]);
+
+        if (!energyResponse.ok) {
+            throw new Error(`Failed to fetch energy flow: ${energyResponse.status}`);
         }
 
-        const data = await response.json();
-        console.log('Energy flow data:', data.length, 'buckets');
+        const data = await energyResponse.json();
+        const schedule = scheduleResponse.ok ? await scheduleResponse.json() : [];
+        console.log('Energy flow data:', data.length, 'buckets, Schedule:', schedule.length, 'entries');
 
-        renderEnergyFlowChart(elementId, data, start, end, frameOfReference);
+        renderEnergyFlowChart(elementId, data, start, end, frameOfReference, schedule, bucketMinutes);
     } catch (error) {
         console.error('Error loading energy flow:', error);
         showError(elementId, 'Failed to load energy flow');
@@ -738,6 +907,7 @@ async function loadPricesChartRange(elementId, start, end) {
             type: 'scatter',
             mode: 'lines',
             line: { shape: 'hv', color: '#e74c3c', width: 2 },
+            opacity: 0.5,
             name: 'Buy',
             hovertemplate: `Buy: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
@@ -748,6 +918,7 @@ async function loadPricesChartRange(elementId, start, end) {
             type: 'scatter',
             mode: 'lines',
             line: { shape: 'hv', color: '#2ecc71', width: 2 },
+            opacity: 0.5,
             name: 'Sell',
             hovertemplate: `Sell: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
@@ -767,6 +938,10 @@ async function loadPricesChartRange(elementId, start, end) {
             yaxis: {
                 ...defaultLayout.yaxis,
                 title: priceLabel,
+            },
+            legend: {
+                orientation: 'h',
+                y: -0.2,
             },
             shapes: showNowLine ? [{
                 type: 'line',
