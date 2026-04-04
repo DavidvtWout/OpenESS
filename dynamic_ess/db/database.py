@@ -299,3 +299,33 @@ class Database:
         cursor = self._conn.execute("DELETE FROM charge_schedule WHERE end_time < ?", [dt_to_ms(before)])
         self._conn.commit()
         return cursor.rowcount
+
+    def get_average_price(self, area: str, start: datetime, end: datetime) -> float | None:
+        """Get average price for an area over a time range. Returns EUR/MWh or None if no data."""
+        cursor = self._conn.execute(
+            "SELECT AVG(price) as avg_price FROM day_ahead_prices WHERE area = ? AND start_time >= ? AND start_time < ?",
+            (area, dt_to_ms(start), dt_to_ms(end)),
+        )
+        row = cursor.fetchone()
+        return row["avg_price"] if row and row["avg_price"] is not None else None
+
+    def get_current_soc(self) -> int | None:
+        """Get the most recent battery SOC reading."""
+        cursor = self._conn.execute(
+            "SELECT battery_soc FROM system_battery WHERE battery_soc IS NOT NULL ORDER BY timestamp DESC LIMIT 1"
+        )
+        row = cursor.fetchone()
+        return row["battery_soc"] if row else None
+
+    def get_hourly_prices(self, area: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
+        """Get hourly aggregated prices. Returns list of (hour_start, price_eur_per_kwh)."""
+        cursor = self._conn.execute(
+            """
+            SELECT (start_time / 3600000) * 3600000 AS hour, AVG(price) / 1000.0 AS price
+            FROM day_ahead_prices
+            WHERE area = ? AND start_time >= ? AND start_time < ?
+            GROUP BY hour ORDER BY hour
+            """,
+            (area, dt_to_ms(start), dt_to_ms(end)),
+        )
+        return [(ms_to_dt(row["hour"]), row["price"]) for row in cursor.fetchall()]

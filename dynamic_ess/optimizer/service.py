@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dynamic_ess.db import Database
 from dynamic_ess.service import Service
-from .optimizer import Optimizer
+from .optimizer import BatteryConfig, Optimizer
 
 logger = logging.getLogger(__name__)
 
@@ -12,17 +12,24 @@ logger = logging.getLogger(__name__)
 class SchedulerService(Service):
     """Runs the charge optimizer before each hour."""
 
-    def __init__(self, db_path: Path, area: str = "NL", run_at_minute: int = 55):
+    def __init__(
+        self,
+        db_path: Path,
+        area: str = "NL",
+        run_at_minute: int = 55,
+        battery: BatteryConfig | None = None,
+    ):
         super().__init__("SchedulerService")
         self.db_path = db_path
         self.area = area
         self.run_at_minute = run_at_minute
+        self.battery = battery or BatteryConfig()
         self.db: Database | None = None
         self.optimizer: Optimizer | None = None
 
     def on_start(self):
         self.db = Database(self.db_path, run_migrations=False)
-        self.optimizer = Optimizer(self.db, area=self.area)
+        self.optimizer = Optimizer(self.db, area=self.area, battery=self.battery)
 
     def tick(self):
         now = datetime.now(timezone.utc)

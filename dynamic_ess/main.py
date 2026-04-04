@@ -6,7 +6,7 @@ from pathlib import Path
 from dynamic_ess.config import Config
 from dynamic_ess.db import Database
 from dynamic_ess.entsoe_api import EntsoeService
-from dynamic_ess.scheduler import SchedulerService
+from dynamic_ess.optimizer import SchedulerService
 from dynamic_ess.victron_modbus import VictronService
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,12 @@ def main():
     services = [
         VictronService(config.victron_gx, config.db_path),
         EntsoeService(config.entsoe, config.db_path, check_interval_hours=1.0),
-        SchedulerService(config.db_path, area=config.entsoe.area, run_at_minute=58),
+        SchedulerService(
+            config.db_path,
+            area=config.entsoe.area,
+            run_at_minute=55,
+            battery=config.battery,
+        ),
     ]
 
     # Shutdown handler
