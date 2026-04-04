@@ -11,6 +11,14 @@ function getPlotlyLayout() {
             family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
             color: isDark ? '#e4e4e4' : '#333333',
         },
+        hoverlabel: {
+            bgcolor: isDark ? '#2a2a4a' : '#ffffff',
+            bordercolor: isDark ? '#4a4a6a' : '#cccccc',
+            font: {
+                family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                color: isDark ? '#e4e4e4' : '#333333',
+            },
+        },
         xaxis: {
             gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
             linecolor: isDark ? '#3a3a5a' : '#dddddd',
@@ -101,11 +109,13 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             fill: 'tozeroy',
             fillcolor: 'rgba(52, 152, 219, 0.1)',
             name: 'Price',
+            hovertemplate: `%{y:.2f} ${priceLabel}<extra></extra>`,
         };
 
         const defaultLayout = getPlotlyLayout();
         const layout = {
             ...defaultLayout,
+            hovermode: 'x',
             xaxis: {
                 ...defaultLayout.xaxis,
                 title: 'Time',
@@ -357,6 +367,7 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
 
         const times = data.map(d => new Date(d.time));
 
+        const unit = useKw ? 'kW' : 'W';
         const traces = [
             {
                 x: times,
@@ -365,6 +376,7 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
                 mode: 'lines',
                 name: 'Grid',
                 line: { color: '#e74c3c', width: 2 },
+                hovertemplate: `%{y:.1f} ${unit}<extra>Grid</extra>`,
             },
             {
                 x: times,
@@ -373,6 +385,7 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
                 mode: 'lines',
                 name: 'Battery',
                 line: { color: '#3498db', width: 2 },
+                hovertemplate: `%{y:.1f} ${unit}<extra>Battery</extra>`,
             },
             {
                 x: times,
@@ -381,6 +394,7 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
                 mode: 'lines',
                 name: 'Inverter/Charger',
                 line: { color: '#9b59b6', width: 2 },
+                hovertemplate: `%{y:.1f} ${unit}<extra>Inverter/Charger</extra>`,
             },
         ];
 
@@ -395,11 +409,12 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
             y0: 0,
             y1: 1,
             yref: 'paper',
-            line: { color: '#e74c3c', width: 1, dash: 'dash' },
+            line: { color: '#e74c3c', width: 2, dash: 'dash' },
         }] : [];
 
         const layout = {
             ...defaultLayout,
+            hovermode: 'x unified',
             xaxis: {
                 ...defaultLayout.xaxis,
                 range: [start, end],
@@ -574,6 +589,18 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
     const defaultLayout = getPlotlyLayout();
     const isDark = settings.theme === 'dark';
 
+    // Only show "now" line if within visible range
+    const now = new Date();
+    const shapes = (now >= start && now <= end) ? [{
+        type: 'line',
+        x0: now,
+        x1: now,
+        y0: 0,
+        y1: 1,
+        yref: 'paper',
+        line: { color: '#e74c3c', width: 2, dash: 'dash' },
+    }] : [];
+
     const layout = {
         ...defaultLayout,
         barmode: 'relative',
@@ -593,6 +620,7 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
             y: -0.15,
             font: { color: isDark ? '#e4e4e4' : '#333333' },
         },
+        shapes: shapes,
     };
 
     document.getElementById(elementId).innerHTML = '';
@@ -677,6 +705,7 @@ async function loadPricesChartRange(elementId, start, end) {
             fill: 'tozeroy',
             fillcolor: 'rgba(52, 152, 219, 0.1)',
             name: 'Price',
+            hovertemplate: `%{y:.2f} ${priceLabel}<extra></extra>`,
         };
 
         const defaultLayout = getPlotlyLayout();
@@ -686,6 +715,7 @@ async function loadPricesChartRange(elementId, start, end) {
 
         const layout = {
             ...defaultLayout,
+            hovermode: 'x',
             xaxis: {
                 ...defaultLayout.xaxis,
                 range: [start, end],

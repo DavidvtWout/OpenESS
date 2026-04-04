@@ -310,6 +310,7 @@ async def get_energy_flow(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     bucket_minutes: int = Query(default=60),
+    max_gap_seconds: int = Query(default=300),
     db: Database = Depends(get_db),
 ):
     try:
@@ -338,12 +339,19 @@ async def get_energy_flow(
             return []
 
         bucket_ms = bucket_minutes * MS_PER_MIN
+        max_gap_ms = max_gap_seconds * 1000
         buckets: dict[int, dict] = {}
 
         prev_ts = None
         for ts in all_timestamps:
             if prev_ts is not None:
-                dt_hours = (ts - prev_ts) / 3_600_000.0
+                gap_ms = ts - prev_ts
+                if gap_ms > max_gap_ms:
+                    # Gap too large, skip this interval to avoid inflated values
+                    prev_ts = ts
+                    continue
+
+                dt_hours = gap_ms / 3_600_000.0
                 bucket_key = (ts // bucket_ms) * bucket_ms
 
                 if bucket_key not in buckets:
@@ -378,9 +386,11 @@ async def get_energy_flow(
 
             prev_ts = ts
 
+        # Center the time in the middle of each bucket
+        half_bucket_ms = bucket_ms // 2
         return [
             EnergyFlowPoint(
-                time=ms_to_dt(bk), grid_import_wh=round(d["grid_import_wh"], 1), grid_export_wh=round(d["grid_export_wh"], 1),
+                time=ms_to_dt(bk + half_bucket_ms), grid_import_wh=round(d["grid_import_wh"], 1), grid_export_wh=round(d["grid_export_wh"], 1),
                 battery_charge_wh=round(d["battery_charge_wh"], 1), battery_discharge_wh=round(d["battery_discharge_wh"], 1),
                 charger_input_wh=round(d["charger_input_wh"], 1), inverter_output_wh=round(d["inverter_output_wh"], 1),
                 charger_losses_wh=round(max(0, d["charger_input_wh"] - d["battery_charge_wh"]), 1),
