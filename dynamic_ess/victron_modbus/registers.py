@@ -216,15 +216,13 @@ class GridMeter:
     POWER_L1 = Register("Power L1", 2600, DataType.INT16)
     POWER_L2 = Register("Power L2", 2601, DataType.INT16)
     POWER_L3 = Register("Power L3", 2602, DataType.INT16)
-    POWER_TOTAL = Register("Power Total", 2603, DataType.INT16)
 
     VOLTAGE_L1 = Register("Voltage L1", 2616, DataType.UINT16, scale=10)
-    VOLTAGE_L2 = Register("Voltage L2", 2617, DataType.UINT16, scale=10)
-    VOLTAGE_L3 = Register("Voltage L3", 2618, DataType.UINT16, scale=10)
-
-    CURRENT_L1 = Register("Current L1", 2619, DataType.INT16, scale=10)
-    CURRENT_L2 = Register("Current L2", 2620, DataType.INT16, scale=10)
+    CURRENT_L1 = Register("Current L1", 2617, DataType.INT16, scale=10)
+    VOLTAGE_L2 = Register("Voltage L2", 2618, DataType.UINT16, scale=10)
+    CURRENT_L2 = Register("Current L2", 2619, DataType.INT16, scale=10)
+    VOLTAGE_L3 = Register("Voltage L3", 2620, DataType.UINT16, scale=10)
     CURRENT_L3 = Register("Current L3", 2621, DataType.INT16, scale=10)
 
-    ENERGY_FORWARD = Register("Energy Forward", 2634, DataType.UINT32, scale=100)
-    ENERGY_REVERSE = Register("Energy Reverse", 2636, DataType.UINT32, scale=100)
+    ENERGY_FORWARD = Register("Energy from net", 2634, DataType.UINT32, scale=100)
+    ENERGY_REVERSE = Register("Energy to net", 2636, DataType.UINT32, scale=100)

@@ -13,3 +13,4 @@ class VictronConfig(BaseModel):
     system_id: int = 100
     vebus_ids: list[int] = []
     bms_id: int | None = None
+    grid_id: int | None = None

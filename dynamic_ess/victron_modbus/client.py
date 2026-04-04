@@ -7,7 +7,7 @@ from pymodbus.exceptions import ModbusException
 
 from dynamic_ess.db import Database
 from .config import VictronConfig
-from .registers import Register, System, VEBus
+from .registers import Register, System, VEBus, GridMeter
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +345,18 @@ class VictronClient:
                 "energy_ac_out_to_battery": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_INVERTER),
             }
             self._database.insert_vebus_energy(timestamp, vebus_id, energy_data)
+
+        # if self._config.grid_id:
+        #     grid_regs = [
+        #         GridMeter.POWER_L1,
+        #         GridMeter.POWER_L2,
+        #         GridMeter.POWER_L3,
+        #         GridMeter.ENERGY_FORWARD,
+        #         GridMeter.ENERGY_REVERSE,
+        #     ]
+        #
+        #     grid_values = self.read_many(self._config.grid_id, grid_regs)
+        #     logger.info(grid_values)
 
         logger.debug(f"Stored measurements at {timestamp.isoformat()}")
 
