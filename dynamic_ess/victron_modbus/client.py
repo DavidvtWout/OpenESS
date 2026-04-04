@@ -348,7 +348,7 @@ class VictronClient:
             }
             self._database.insert_vebus_energy(timestamp, vebus_id, energy_data)
 
-        logger.info(f"Stored measurements at {timestamp.isoformat()}")
+        logger.debug(f"Stored measurements at {timestamp.isoformat()}")
 
 
 def _to_int(value: float | None) -> int | None:

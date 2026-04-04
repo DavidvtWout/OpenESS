@@ -9,12 +9,47 @@ from dynamic_ess.entsoe_api import EntsoeService
 from dynamic_ess.optimizer import SchedulerService
 from dynamic_ess.victron_modbus import VictronService
 
-logger = logging.getLogger(__name__)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+class ColoredFormatter(logging.Formatter):
+    RESET = "\033[0m"
+
+    LEVEL_COLORS = {
+        logging.DEBUG: "\033[36m",  # cyan
+        logging.INFO: "\033[32m",  # green
+        logging.WARNING: "\033[33m",  # yellow
+        logging.ERROR: "\033[31m",  # red
+        logging.CRITICAL: "\033[1;91m",  # bold red
+    }
+
+    def format(self, record):
+        timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        msecs = f"{record.msecs:03.0f}"
+        time_str = f"\033[90m{timestamp}.{msecs}{self.RESET}" # grey
+
+        level_color = self.LEVEL_COLORS.get(record.levelno, self.RESET)
+        level_str = f"{level_color}{record.levelname:<8}{self.RESET}"
+
+        location_str = (
+            f"\033[34m{record.name}{self.RESET}:"  # blue
+            f"\033[36m{record.funcName}{self.RESET}:" # cyan
+            f"\033[32m{record.lineno}{self.RESET}" # green
+        )
+
+        # Message with level color
+        message_str = f"{record.getMessage()}{self.RESET}"
+
+        return f"{time_str} | {level_str} | {location_str} - {message_str}"
+
+
+def setup_logging():
+    handler = logging.StreamHandler()
+    handler.setFormatter(ColoredFormatter())
+    logging.root.addHandler(handler)
+    logging.root.setLevel(logging.INFO)
+
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
