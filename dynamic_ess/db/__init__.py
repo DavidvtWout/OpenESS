@@ -7,9 +7,11 @@ from .database import (
     dt_to_ms,
     ms_to_dt,
 )
+from .service import DatabaseService
 
 __all__ = [
     "Database",
+    "DatabaseService",
     "SystemMeasurement",
     "BatteryMeasurement",
     "VEBusMeasurement",

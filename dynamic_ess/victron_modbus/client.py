@@ -284,8 +284,6 @@ class VictronClient:
         battery_data = {
             "battery_power": _to_int(system_values.get(System.BATTERY_POWER)),
             "battery_soc": _to_int(system_values.get(System.BATTERY_SOC)),
-            "charger_power": _to_int(system_values.get(System.CHARGER_POWER)),
-            "dc_system_power": _to_int(system_values.get(System.DC_SYSTEM_POWER)),
             "inverter_charger_power": _to_int(system_values.get(System.INVERTER_CHARGER_POWER)),
         }
         self._database.insert_battery_measurement(timestamp, battery_data)

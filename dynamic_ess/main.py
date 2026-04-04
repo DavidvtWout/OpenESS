@@ -4,7 +4,7 @@ import signal
 from pathlib import Path
 
 from dynamic_ess.config import Config
-from dynamic_ess.db import Database
+from dynamic_ess.db import Database, DatabaseService
 from dynamic_ess.entsoe_api import EntsoeService
 from dynamic_ess.optimizer import SchedulerService
 from dynamic_ess.victron_modbus import VictronService
@@ -82,6 +82,7 @@ def main():
             run_at_minute=55,
             battery=config.battery,
         ),
+        DatabaseService(config.db_path),
     ]
 
     # Shutdown handler

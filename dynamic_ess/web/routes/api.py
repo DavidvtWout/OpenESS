@@ -71,7 +71,6 @@ class PowerPoint(BaseModel):
     time: datetime
     grid_power: int | None
     battery_power: int | None
-    charger_power: int | None
     inverter_charger_power: int | None
 
 
@@ -434,28 +433,27 @@ async def get_power(
             battery_query = f"""
                 SELECT (timestamp / {bucket_ms}) * {bucket_ms} as bucket,
                        CAST(AVG(battery_power) AS INTEGER) as battery_power,
-                       CAST(AVG(charger_power) AS INTEGER) as charger_power,
                        CAST(AVG(inverter_charger_power) AS INTEGER) as inverter_charger_power
                 FROM system_battery WHERE timestamp >= ? AND timestamp < ? GROUP BY bucket
             """
             battery_cursor = db._conn.execute(battery_query, [start_ms, end_ms])
-            battery_data = {row["bucket"]: {"battery_power": row["battery_power"], "charger_power": row["charger_power"], "inverter_charger_power": row["inverter_charger_power"]} for row in battery_cursor.fetchall()}
+            battery_data = {row["bucket"]: {"battery_power": row["battery_power"], "inverter_charger_power": row["inverter_charger_power"]} for row in battery_cursor.fetchall()}
 
             all_buckets = sorted(set(grid_data.keys()) | set(battery_data.keys()))
             return [
                 PowerPoint(time=ms_to_dt(b), grid_power=grid_data.get(b), battery_power=battery_data.get(b, {}).get("battery_power"),
-                           charger_power=battery_data.get(b, {}).get("charger_power"), inverter_charger_power=battery_data.get(b, {}).get("inverter_charger_power"))
+                           inverter_charger_power=battery_data.get(b, {}).get("inverter_charger_power"))
                 for b in all_buckets
             ]
         else:
             # SQLite UNION approach for FULL OUTER JOIN
             query = """
-                SELECT timestamp, grid_power, battery_power, charger_power, inverter_charger_power FROM (
-                    SELECT g.timestamp, g.grid_power, b.battery_power, b.charger_power, b.inverter_charger_power
+                SELECT timestamp, grid_power, battery_power, inverter_charger_power FROM (
+                    SELECT g.timestamp, g.grid_power, b.battery_power, b.inverter_charger_power
                     FROM (SELECT timestamp, SUM(grid_power) as grid_power FROM system_measurements WHERE timestamp >= ? AND timestamp < ? GROUP BY timestamp) g
                     LEFT JOIN system_battery b ON g.timestamp = b.timestamp
                     UNION
-                    SELECT b.timestamp, g.grid_power, b.battery_power, b.charger_power, b.inverter_charger_power
+                    SELECT b.timestamp, g.grid_power, b.battery_power, b.inverter_charger_power
                     FROM system_battery b
                     LEFT JOIN (SELECT timestamp, SUM(grid_power) as grid_power FROM system_measurements WHERE timestamp >= ? AND timestamp < ? GROUP BY timestamp) g ON b.timestamp = g.timestamp
                     WHERE b.timestamp >= ? AND b.timestamp < ?
@@ -464,7 +462,7 @@ async def get_power(
             cursor = db._conn.execute(query, [start_ms, end_ms, start_ms, end_ms, start_ms, end_ms])
             return [
                 PowerPoint(time=ms_to_dt(row["timestamp"]), grid_power=row["grid_power"], battery_power=row["battery_power"],
-                           charger_power=row["charger_power"], inverter_charger_power=row["inverter_charger_power"])
+                           inverter_charger_power=row["inverter_charger_power"])
                 for row in cursor.fetchall()
             ]
     except Exception as e:

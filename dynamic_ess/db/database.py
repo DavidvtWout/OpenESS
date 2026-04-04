@@ -20,18 +20,16 @@ def ms_to_dt(ms: int) -> datetime:
 
 
 class SystemMeasurement(TypedDict, total=False):
-    ac_consumption: int | None
-    grid_power: int | None
-    grid_to_multiplus: int | None
-    multiplus_output: int | None
+    ac_consumption: float | None
+    grid_power: float | None
+    grid_to_multiplus: float | None
+    multiplus_output: float | None
 
 
 class BatteryMeasurement(TypedDict, total=False):
-    battery_power: int | None
-    battery_soc: int | None
-    charger_power: int | None
-    dc_system_power: int | None
-    inverter_charger_power: int | None
+    battery_power: float | None
+    battery_soc: float | None
+    inverter_charger_power: float | None
 
 
 class VEBusMeasurement(TypedDict, total=False):
@@ -58,6 +56,10 @@ class Database:
         self._db_path = db_path
         self._conn = sqlite3.connect(db_path)
         self._conn.row_factory = sqlite3.Row
+        # WAL mode allows concurrent reads/writes without blocking
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        # Wait up to 30 seconds for locks instead of failing immediately
+        self._conn.execute("PRAGMA busy_timeout = 30000")
         if run_migrations:
             self._run_migrations()
 
@@ -157,13 +159,13 @@ class Database:
     def insert_system_measurements(self, timestamp: datetime, phases: dict[int, SystemMeasurement]) -> None:
         ts = dt_to_ms(timestamp)
         rows = [
-            (ts, phase, m.get("ac_consumption"), m.get("grid_power"), m.get("grid_to_multiplus"), m.get("multiplus_output"))
+            (ts, 1, phase, m.get("ac_consumption"), m.get("grid_power"), m.get("grid_to_multiplus"), m.get("multiplus_output"))
             for phase, m in phases.items()
         ]
         self._conn.executemany(
             """
-            INSERT INTO system_measurements (timestamp, phase, ac_consumption, grid_power, grid_to_multiplus, multiplus_output)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO system_measurements (timestamp, sample_count, phase, ac_consumption, grid_power, grid_to_multiplus, multiplus_output)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (timestamp, phase) DO UPDATE SET
                 ac_consumption = excluded.ac_consumption, grid_power = excluded.grid_power,
                 grid_to_multiplus = excluded.grid_to_multiplus, multiplus_output = excluded.multiplus_output
@@ -175,19 +177,16 @@ class Database:
     def insert_battery_measurement(self, timestamp: datetime, measurement: BatteryMeasurement) -> None:
         self._conn.execute(
             """
-            INSERT INTO system_battery (timestamp, battery_power, battery_soc, charger_power, dc_system_power, inverter_charger_power)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO system_battery (timestamp, sample_count, battery_power, battery_soc, inverter_charger_power)
+            VALUES (?, 1, ?, ?, ?)
             ON CONFLICT (timestamp) DO UPDATE SET
                 battery_power = excluded.battery_power, battery_soc = excluded.battery_soc,
-                charger_power = excluded.charger_power, dc_system_power = excluded.dc_system_power,
                 inverter_charger_power = excluded.inverter_charger_power
             """,
             (
                 dt_to_ms(timestamp),
                 measurement.get("battery_power"),
                 measurement.get("battery_soc"),
-                measurement.get("charger_power"),
-                measurement.get("dc_system_power"),
                 measurement.get("inverter_charger_power"),
             ),
         )
@@ -199,11 +198,11 @@ class Database:
 
     def insert_vebus_measurements(self, timestamp: datetime, modbus_id: int, phases: dict[int, VEBusMeasurement]) -> None:
         ts = dt_to_ms(timestamp)
-        rows = [(ts, modbus_id, phase, m.get("ac_input_power"), m.get("ac_output_power")) for phase, m in phases.items()]
+        rows = [(ts, 1, modbus_id, phase, m.get("ac_input_power"), m.get("ac_output_power")) for phase, m in phases.items()]
         self._conn.executemany(
             """
-            INSERT INTO vebus_measurements (timestamp, modbus_id, phase, ac_input_power, ac_output_power)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO vebus_measurements (timestamp, sample_count, modbus_id, phase, ac_input_power, ac_output_power)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT (timestamp, modbus_id, phase) DO UPDATE SET
                 ac_input_power = excluded.ac_input_power, ac_output_power = excluded.ac_output_power
             """,
@@ -348,3 +347,201 @@ class Database:
             (area, dt_to_ms(start), dt_to_ms(end)),
         )
         return [(ms_to_dt(row["hour"]), row["price"]) for row in cursor.fetchall()]
+
+    # -------------------------------------------------------------------------
+    # Data compression
+    # -------------------------------------------------------------------------
+
+    def compress_battery_data(self, older_than: datetime, bucket_ms: int) -> int:
+        """Compress raw battery measurements older than a given time into buckets.
+
+        Raw samples (end_timestamp IS NULL) are grouped into time buckets and replaced
+        with a single time-weighted average entry. If the bucket is "whole" (first sample
+        at bucket start, last sample at bucket end), timestamps are rounded to whole minutes.
+
+        Args:
+            older_than: Only compress data with timestamp before this
+            bucket_ms: Bucket size in milliseconds (e.g., 60000 for 1 minute)
+
+        Returns:
+            Number of rows compressed (removed)
+        """
+        return self._compress_table(
+            table="system_battery",
+            columns=["battery_power", "battery_soc", "inverter_charger_power"],
+            older_than=older_than,
+            bucket_ms=bucket_ms,
+            group_by=None,
+        )
+
+    def compress_system_measurements(self, older_than: datetime, bucket_ms: int) -> int:
+        """Compress raw system measurements older than a given time into buckets.
+
+        Args:
+            older_than: Only compress data with timestamp before this
+            bucket_ms: Bucket size in milliseconds (e.g., 60000 for 1 minute)
+
+        Returns:
+            Number of rows compressed (removed)
+        """
+        return self._compress_table(
+            table="system_measurements",
+            columns=["ac_consumption", "grid_power", "grid_to_multiplus", "multiplus_output"],
+            older_than=older_than,
+            bucket_ms=bucket_ms,
+            group_by="phase",
+        )
+
+    def compress_vebus_measurements(self, older_than: datetime, bucket_ms: int) -> int:
+        """Compress raw vebus measurements older than a given time into buckets.
+
+        Args:
+            older_than: Only compress data with timestamp before this
+            bucket_ms: Bucket size in milliseconds (e.g., 60000 for 1 minute)
+
+        Returns:
+            Number of rows compressed (removed)
+        """
+        return self._compress_table(
+            table="vebus_measurements",
+            columns=["ac_input_power", "ac_output_power"],
+            older_than=older_than,
+            bucket_ms=bucket_ms,
+            group_by=["modbus_id", "phase"],
+        )
+
+    def _compress_table(
+        self,
+        table: str,
+        columns: list[str],
+        older_than: datetime,
+        bucket_ms: int,
+        group_by: str | list[str] | None,
+    ) -> int:
+        """Generic compression for time-series tables with end_timestamp support.
+
+        Groups raw samples (end_timestamp IS NULL) into time buckets and replaces them
+        with a single time-weighted average entry. If the bucket is "whole" (samples
+        span from bucket start to bucket end), timestamps are rounded to whole minutes.
+
+        What about leap seconds?
+        Luckily unix time doesn't take leap seconds into account at all! This means that
+        aligning buckets with actual minutes is very easy. The only "problem" is that
+        buckets with leap seconds are a second longer or shorter than the unix time would
+        let you believe. But I don't care at all about this.
+
+        Args:
+            table: Table name to compress
+            columns: List of value columns to average
+            older_than: Only compress data with timestamp before this
+            bucket_ms: Bucket size in milliseconds
+            group_by: Optional column(s) to group by (e.g., "phase" or ["modbus_id", "phase"])
+
+        Returns:
+            Number of rows compressed
+        """
+        cutoff_ms = dt_to_ms(older_than)
+        group_cols = [group_by] if isinstance(group_by, str) else (group_by or [])
+
+        # Build query to find buckets with data to compress
+        # Include both raw samples and already-compressed data (for re-compression)
+        bucket_query = f"""
+            SELECT
+                (timestamp / ?) * ? AS bucket,
+                {"".join(f"{col}, " for col in group_cols)}
+                MIN(timestamp) AS first_ts,
+                MAX(COALESCE(end_timestamp, timestamp)) AS last_ts,
+                SUM(sample_count) AS total_samples,
+                COUNT(*) AS row_count
+            FROM {table}
+            WHERE timestamp < ?
+            GROUP BY {", ".join(["bucket"] + group_cols)}
+            ORDER BY bucket
+        """
+
+        cursor = self._conn.execute(bucket_query, (bucket_ms, bucket_ms, cutoff_ms))
+        buckets = cursor.fetchall()
+
+        total_compressed = 0
+        for bucket_row in buckets:
+            bucket_start = bucket_row["bucket"]
+            bucket_end = bucket_start + bucket_ms
+            first_ts = bucket_row["first_ts"]
+            last_ts = bucket_row["last_ts"]
+            total_samples = bucket_row["total_samples"]
+
+            # Build WHERE clause for this bucket
+            where_clause = " AND ".join(["timestamp >= ?", "timestamp < ?"] + [f"{col} = ?" for col in group_cols])
+            group_values = [bucket_row[col] for col in group_cols]
+            where_params = [bucket_start, bucket_end] + group_values
+
+            # Get all samples in this bucket, ordered by time
+            col_select = ", ".join(columns)
+            cursor = self._conn.execute(
+                f"SELECT timestamp, end_timestamp, sample_count, {col_select} FROM {table} WHERE {where_clause} ORDER BY timestamp",
+                where_params,
+            )
+            samples = cursor.fetchall()
+            if len(samples) <= 1:
+                # Should never happen, but just to be sure.
+                continue
+
+            # Calculate time-weighted averages
+            # For raw samples (end_timestamp IS NULL), weight by duration to next sample
+            # For compressed samples, weight by their own duration (end_timestamp - timestamp)
+            total_duration = 0
+            total_sample_count = 0
+            weighted_sums = {col: 0.0 for col in columns}
+
+            for i, sample in enumerate(samples):
+                if sample["end_timestamp"] is not None:
+                    # Already compressed: use its own duration
+                    duration = sample["end_timestamp"] - sample["timestamp"]
+                elif i < len(samples) - 1:
+                    # Raw sample: use duration to next sample
+                    duration = samples[i + 1]["timestamp"] - sample["timestamp"]
+                else:
+                    # Last raw sample: assume duration is equal to average sample duration.
+                    duration = total_duration / total_sample_count
+                total_sample_count += sample["sample_count"]
+
+                total_duration += duration
+                for col in columns:
+                    val = sample[col]
+                    if val is not None:
+                        weighted_sums[col] += val * duration
+
+            if total_duration <= 0:
+                # Should never happen, but just to be sure.
+                continue
+
+            # Calculate averages
+            averages = {}
+            for col in columns:
+                has_data = any(s[col] is not None for s in samples)
+                if has_data:
+                    averages[col] = weighted_sums[col] / total_duration
+                else:
+                    averages[col] = None
+
+            # Determine timestamps: use whole minutes if bucket is "whole"
+            average_duration = total_duration / total_sample_count
+            if first_ts <= bucket_start + 1.5 * average_duration:
+                first_ts = bucket_start
+            if last_ts >= bucket_end - 1.5 * average_duration:
+                last_ts = bucket_end
+
+            # Delete original samples
+            self._conn.execute(f"DELETE FROM {table} WHERE {where_clause}", where_params)
+            total_compressed += len(samples)
+
+            # Insert compressed entry with summed sample_count
+            all_cols = ["timestamp", "end_timestamp", "sample_count"] + group_cols + columns
+            placeholders = ", ".join("?" for _ in all_cols)
+            col_names = ", ".join(all_cols)
+            values = [first_ts, last_ts, total_samples] + group_values + [averages[col] for col in columns]
+
+            self._conn.execute(f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})", values)
+
+        self._conn.commit()
+        return total_compressed
