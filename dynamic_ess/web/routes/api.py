@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from dynamic_ess.db import Database, dt_to_ms, ms_to_dt
-from dynamic_ess.pricing import PriceConfig
 from dynamic_ess.optimizer.optimizer import charger_loss_kw, inverter_loss_kw
+from dynamic_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +306,89 @@ async def get_battery_measurements(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _find_cycles_recursive(
+    rows: list,
+    start: int,
+    end: int,
+    min_soc_swing: int,
+) -> list[dict]:
+    """
+    Find battery cycles using divide-and-conquer.
+
+    Algorithm:
+    1. Find the global minimum SoC in the range
+    2. Find the peak (max SoC) on the left and right sides
+    3. If min(left_peak, right_peak) - min_soc >= threshold, it's a valid cycle
+    4. Recursively process data before left peak and after right peak
+    5. If no valid cycle, split at minimum and recurse both sides
+
+    rows: list of (timestamp_ms, power, soc) tuples
+    start, end: range indices (end exclusive)
+    """
+    if end - start < 3:
+        return []
+
+    # Find minimum SoC in range
+    min_idx = start
+    min_soc = rows[start][2]
+    for i in range(start + 1, end):
+        if rows[i][2] < min_soc:
+            min_soc = rows[i][2]
+            min_idx = i
+
+    # Find peak on left side (start to min_idx inclusive)
+    left_peak_idx = start
+    left_peak = rows[start][2]
+    for i in range(start, min_idx + 1):
+        if rows[i][2] > left_peak:
+            left_peak = rows[i][2]
+            left_peak_idx = i
+
+    # Find peak on right side (min_idx to end exclusive)
+    right_peak_idx = min_idx
+    right_peak = rows[min_idx][2]
+    for i in range(min_idx, end):
+        if rows[i][2] > right_peak:
+            right_peak = rows[i][2]
+            right_peak_idx = i
+
+    # Calculate effective peak (lower of the two) and swing
+    effective_peak = min(left_peak, right_peak)
+    swing = effective_peak - min_soc
+
+    if swing >= min_soc_swing:
+        # Valid cycle from left_peak to right_peak
+        # Calculate energy during the cycle
+        energy_discharged = 0.0
+        energy_charged = 0.0
+        for i in range(left_peak_idx + 1, right_peak_idx + 1):
+            dt_hours = (rows[i][0] - rows[i - 1][0]) / 3_600_000.0
+            power = rows[i][1]
+            if power is not None:
+                if power > 0:
+                    energy_charged += power * dt_hours
+                else:
+                    energy_discharged += abs(power) * dt_hours
+
+        cycle = {
+            "start_ms": rows[left_peak_idx][0],
+            "end_ms": rows[right_peak_idx][0],
+            "min_soc": min_soc,
+            "energy_discharged": energy_discharged,
+            "energy_charged": energy_charged,
+        }
+
+        return (
+            _find_cycles_recursive(rows, start, left_peak_idx, min_soc_swing)
+            + [cycle]
+            + _find_cycles_recursive(rows, right_peak_idx + 1, end, min_soc_swing)
+        )
+    else:
+        return _find_cycles_recursive(rows, start, left_peak_idx, min_soc_swing) + _find_cycles_recursive(
+            rows, right_peak_idx + 1, end, min_soc_swing
+        )
+
+
 @router.get("/cycles", response_model=list[BatteryCycle])
 async def get_battery_cycles(
     start: datetime | None = Query(default=None),
@@ -324,65 +407,32 @@ async def get_battery_cycles(
             "SELECT timestamp, battery_power, battery_soc FROM system_battery WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp",
             [dt_to_ms(start), dt_to_ms(end)],
         )
-        rows = cursor.fetchall()
+        rows = [(row["timestamp"], row["battery_power"], row["battery_soc"]) for row in cursor.fetchall()]
 
-        if len(rows) < 2:
+        if len(rows) < 3:
             return []
 
+        # Find cycles using divide-and-conquer
+        raw_cycles = _find_cycles_recursive(rows, 0, len(rows), min_soc_swing)
+
+        # Convert to response format, sorted by start time
         cycles = []
-        cycle_start = None
-        cycle_min_soc = 100
-        energy_discharged = 0.0
-        energy_charged = 0.0
-        prev_time = None
-        prev_soc = None
-
-        for row in rows:
-            time = ms_to_dt(row["timestamp"])
-            power = row["battery_power"]
-            soc = row["battery_soc"]
-
-            if power is None or soc is None:
-                continue
-
-            if prev_time is not None:
-                dt_hours = (time - prev_time).total_seconds() / 3600.0
-                if power > 0:
-                    energy_charged += power * dt_hours
-                else:
-                    energy_discharged += abs(power) * dt_hours
-
-            if cycle_start is None:
-                if prev_soc == 100 and soc < 100:
-                    cycle_start = prev_time or time
-                    cycle_min_soc = soc
-                    energy_discharged = abs(power) * (dt_hours if prev_time else 0)
-                    energy_charged = 0.0
-            else:
-                cycle_min_soc = min(cycle_min_soc, soc)
-                if soc == 100:
-                    soc_swing = 100 - cycle_min_soc
-                    if soc_swing >= min_soc_swing and energy_charged > 0:
-                        efficiency = (energy_discharged / energy_charged) * 100
-                        duration = (time - cycle_start).total_seconds() / 3600.0
-                        cycles.append(
-                            BatteryCycle(
-                                start_time=cycle_start,
-                                end_time=time,
-                                duration_hours=round(duration, 2),
-                                min_soc=cycle_min_soc,
-                                energy_discharged_wh=round(energy_discharged, 1),
-                                energy_charged_wh=round(energy_charged, 1),
-                                efficiency=round(efficiency, 1),
-                            )
-                        )
-                    cycle_start = None
-                    cycle_min_soc = 100
-                    energy_discharged = 0.0
-                    energy_charged = 0.0
-
-            prev_time = time
-            prev_soc = soc
+        for c in sorted(raw_cycles, key=lambda x: x["start_ms"]):
+            start_time = ms_to_dt(c["start_ms"])
+            end_time = ms_to_dt(c["end_ms"])
+            duration = (end_time - start_time).total_seconds() / 3600.0
+            efficiency = (c["energy_discharged"] / c["energy_charged"]) * 100 if c["energy_charged"] > 0 else 0
+            cycles.append(
+                BatteryCycle(
+                    start_time=start_time,
+                    end_time=end_time,
+                    duration_hours=round(duration, 2),
+                    min_soc=round(c["min_soc"]),
+                    energy_discharged_wh=round(c["energy_discharged"], 1),
+                    energy_charged_wh=round(c["energy_charged"], 1),
+                    efficiency=round(efficiency, 1),
+                )
+            )
 
         return cycles
     except Exception as e:
