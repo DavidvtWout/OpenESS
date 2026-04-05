@@ -64,13 +64,16 @@
                 <th>End</th>
                 <th>Duration</th>
                 <th>Min SOC</th>
-                <th>Discharged</th>
-                <th>Charged</th>
-                <th>Efficiency</th>
+                <th>DC In</th>
+                <th>DC Out</th>
+                <th>AC In</th>
+                <th>AC Out</th>
+                <th>Battery Eff.</th>
+                <th>System Eff.</th>
             </tr>
         </thead>
         <tbody id="cycles-body">
-            <tr><td colspan="7" class="loading">Loading...</td></tr>
+            <tr><td colspan="10" class="loading">Loading...</td></tr>
         </tbody>
     </table>
 </div>
@@ -246,7 +249,7 @@ async function loadCycles() {
     const url = `/api/cycles?start=${start.toISOString()}&end=${now.toISOString()}&min_soc_swing=${minSwing}`;
 
     const tbody = document.getElementById('cycles-body');
-    tbody.innerHTML = '<tr><td colspan="7" class="loading">Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="loading">Loading...</td></tr>';
 
     try {
         const response = await fetch(url);
@@ -257,10 +260,14 @@ async function loadCycles() {
         const cycles = await response.json();
 
         if (cycles.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="no-data">No cycles found in the selected time range</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="no-data">No cycles found in the selected time range</td></tr>';
             document.getElementById('cycle-stats').innerHTML = '';
             return;
         }
+
+        // Helper for efficiency display
+        const fmtEff = (eff) => eff !== null ? `${eff.toFixed(1)}%` : '-';
+        const effClass = (eff) => eff !== null ? getEfficiencyClass(eff) : '';
 
         // Build table rows
         tbody.innerHTML = cycles.map(cycle => `
@@ -269,17 +276,22 @@ async function loadCycles() {
                 <td>${formatDateTime(cycle.end_time)}</td>
                 <td>${formatDuration(cycle.duration_hours)}</td>
                 <td>${cycle.min_soc}%</td>
-                <td>${formatEnergy(cycle.energy_discharged_wh)}</td>
-                <td>${formatEnergy(cycle.energy_charged_wh)}</td>
-                <td class="${getEfficiencyClass(cycle.efficiency)}">${cycle.efficiency.toFixed(1)}%</td>
+                <td>${formatEnergy(cycle.dc_energy_charged_wh)}</td>
+                <td>${formatEnergy(cycle.dc_energy_discharged_wh)}</td>
+                <td>${formatEnergy(cycle.ac_energy_in_wh)}</td>
+                <td>${formatEnergy(cycle.ac_energy_out_wh)}</td>
+                <td class="${effClass(cycle.battery_efficiency)}">${fmtEff(cycle.battery_efficiency)}</td>
+                <td class="${effClass(cycle.system_efficiency)}">${fmtEff(cycle.system_efficiency)}</td>
             </tr>
         `).join('');
 
         // Calculate and show stats
-        const totalDischarged = cycles.reduce((sum, c) => sum + c.energy_discharged_wh, 0);
-        const totalCharged = cycles.reduce((sum, c) => sum + c.energy_charged_wh, 0);
-        const avgEfficiency = totalCharged > 0 ? (totalDischarged / totalCharged) * 100 : 0;
-        const avgCycleEfficiency = cycles.reduce((sum, c) => sum + c.efficiency, 0) / cycles.length;
+        const totalDcIn = cycles.reduce((sum, c) => sum + c.dc_energy_charged_wh, 0);
+        const totalDcOut = cycles.reduce((sum, c) => sum + c.dc_energy_discharged_wh, 0);
+        const totalAcIn = cycles.reduce((sum, c) => sum + c.ac_energy_in_wh, 0);
+        const totalAcOut = cycles.reduce((sum, c) => sum + c.ac_energy_out_wh, 0);
+        const avgBatteryEff = totalDcIn > 0 ? (totalDcOut / totalDcIn) * 100 : null;
+        const avgSystemEff = totalAcIn > 0 ? (totalAcOut / totalAcIn) * 100 : null;
 
         document.getElementById('cycle-stats').innerHTML = `
             <div class="stat-card">
@@ -287,22 +299,26 @@ async function loadCycles() {
                 <div class="stat-label">Total Cycles</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value">${formatEnergy(totalDischarged)}</div>
-                <div class="stat-label">Total Discharged</div>
+                <div class="stat-value">${formatEnergy(totalDcIn)}</div>
+                <div class="stat-label">Total DC In</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value">${formatEnergy(totalCharged)}</div>
-                <div class="stat-label">Total Charged</div>
+                <div class="stat-value">${formatEnergy(totalDcOut)}</div>
+                <div class="stat-label">Total DC Out</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value">${avgCycleEfficiency.toFixed(1)}%</div>
-                <div class="stat-label">Avg Efficiency</div>
+                <div class="stat-value">${avgBatteryEff !== null ? avgBatteryEff.toFixed(1) + '%' : '-'}</div>
+                <div class="stat-label">Battery Efficiency</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${avgSystemEff !== null ? avgSystemEff.toFixed(1) + '%' : '-'}</div>
+                <div class="stat-label">System Efficiency</div>
             </div>
         `;
 
     } catch (error) {
         console.error('Error loading cycles:', error);
-        tbody.innerHTML = '<tr><td colspan="7" class="error">Failed to load cycles</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="error">Failed to load cycles</td></tr>';
     }
 }
 

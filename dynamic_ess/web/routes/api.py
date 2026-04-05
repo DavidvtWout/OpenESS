@@ -60,9 +60,15 @@ class BatteryCycle(BaseModel):
     end_time: datetime
     duration_hours: float
     min_soc: int
-    energy_discharged_wh: float
-    energy_charged_wh: float
-    efficiency: float
+    # DC side (battery terminals) - from system_battery
+    dc_energy_charged_wh: float
+    dc_energy_discharged_wh: float
+    # AC side (grid/loads) - from vebus_energy
+    ac_energy_in_wh: float  # energy drawn from grid for charging
+    ac_energy_out_wh: float  # energy delivered to grid/loads from discharging
+    # Efficiencies
+    battery_efficiency: float | None  # DC out / DC in (battery cell efficiency)
+    system_efficiency: float | None  # AC out / AC in (total round-trip)
 
 
 class EnergyFlowPoint(BaseModel):
@@ -324,6 +330,8 @@ def _find_cycles_recursive(
 
     rows: list of (timestamp_ms, power, soc) tuples
     start, end: range indices (end exclusive)
+
+    Returns cycle boundaries only; energy is calculated separately.
     """
     if end - start < 3:
         return []
@@ -357,25 +365,12 @@ def _find_cycles_recursive(
     swing = effective_peak - min_soc
 
     if swing >= min_soc_swing:
-        # Valid cycle from left_peak to right_peak
-        # Calculate energy during the cycle
-        energy_discharged = 0.0
-        energy_charged = 0.0
-        for i in range(left_peak_idx + 1, right_peak_idx + 1):
-            dt_hours = (rows[i][0] - rows[i - 1][0]) / 3_600_000.0
-            power = rows[i][1]
-            if power is not None:
-                if power > 0:
-                    energy_charged += power * dt_hours
-                else:
-                    energy_discharged += abs(power) * dt_hours
-
         cycle = {
+            "start_idx": left_peak_idx,
+            "end_idx": right_peak_idx,
             "start_ms": rows[left_peak_idx][0],
             "end_ms": rows[right_peak_idx][0],
             "min_soc": min_soc,
-            "energy_discharged": energy_discharged,
-            "energy_charged": energy_charged,
         }
 
         return (
@@ -387,6 +382,39 @@ def _find_cycles_recursive(
         return _find_cycles_recursive(rows, start, left_peak_idx, min_soc_swing) + _find_cycles_recursive(
             rows, right_peak_idx + 1, end, min_soc_swing
         )
+
+
+def _calculate_dc_energy(rows: list, start_idx: int, end_idx: int) -> tuple[float, float]:
+    """Calculate DC energy charged/discharged from battery power measurements."""
+    energy_charged = 0.0
+    energy_discharged = 0.0
+    for i in range(start_idx + 1, end_idx + 1):
+        dt_hours = (rows[i][0] - rows[i - 1][0]) / 3_600_000.0
+        power = rows[i][1]
+        if power is not None:
+            if power > 0:
+                energy_charged += power * dt_hours
+            else:
+                energy_discharged += abs(power) * dt_hours
+    return energy_charged, energy_discharged
+
+
+def _get_vebus_energy_at(conn, timestamp_ms: int) -> dict | None:
+    """Get the vebus_energy counter values closest to the given timestamp."""
+    # Find the closest record at or before the timestamp
+    cursor = conn.execute(
+        """SELECT energy_ac_in1_to_battery, energy_battery_to_ac_in1, energy_battery_to_ac_out
+           FROM vebus_energy WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1""",
+        [timestamp_ms],
+    )
+    row = cursor.fetchone()
+    if row:
+        return {
+            "ac_in_to_battery": row["energy_ac_in1_to_battery"] or 0,
+            "battery_to_ac_in": row["energy_battery_to_ac_in1"] or 0,
+            "battery_to_ac_out": row["energy_battery_to_ac_out"] or 0,
+        }
+    return None
 
 
 @router.get("/cycles", response_model=list[BatteryCycle])
@@ -412,25 +440,52 @@ async def get_battery_cycles(
         if len(rows) < 3:
             return []
 
-        # Find cycles using divide-and-conquer
+        # Find cycles using divide-and-conquer (boundaries only)
         raw_cycles = _find_cycles_recursive(rows, 0, len(rows), min_soc_swing)
 
-        # Convert to response format, sorted by start time
+        # Calculate energy for each cycle and convert to response format
         cycles = []
         for c in sorted(raw_cycles, key=lambda x: x["start_ms"]):
             start_time = ms_to_dt(c["start_ms"])
             end_time = ms_to_dt(c["end_ms"])
             duration = (end_time - start_time).total_seconds() / 3600.0
-            efficiency = (c["energy_discharged"] / c["energy_charged"]) * 100 if c["energy_charged"] > 0 else 0
+
+            # DC energy from battery power measurements
+            dc_charged, dc_discharged = _calculate_dc_energy(rows, c["start_idx"], c["end_idx"])
+
+            # AC energy from vebus_energy counters (cumulative, so take delta)
+            vebus_start = _get_vebus_energy_at(db._conn, c["start_ms"])
+            vebus_end = _get_vebus_energy_at(db._conn, c["end_ms"])
+
+            ac_in = 0.0
+            ac_out = 0.0
+            if vebus_start and vebus_end:
+                # Energy drawn from grid for charging (kWh -> Wh)
+                ac_in = (vebus_end["ac_in_to_battery"] - vebus_start["ac_in_to_battery"]) * 1000
+                # Energy delivered from battery to grid and loads (kWh -> Wh)
+                ac_out = (
+                    (vebus_end["battery_to_ac_in"] - vebus_start["battery_to_ac_in"])
+                    + (vebus_end["battery_to_ac_out"] - vebus_start["battery_to_ac_out"])
+                ) * 1000
+
+            # Battery efficiency: DC out / DC in
+            battery_eff = (dc_discharged / dc_charged) * 100 if dc_charged > 0 else None
+
+            # System efficiency: AC out / AC in
+            system_eff = (ac_out / ac_in) * 100 if ac_in > 0 else None
+
             cycles.append(
                 BatteryCycle(
                     start_time=start_time,
                     end_time=end_time,
                     duration_hours=round(duration, 2),
                     min_soc=round(c["min_soc"]),
-                    energy_discharged_wh=round(c["energy_discharged"], 1),
-                    energy_charged_wh=round(c["energy_charged"], 1),
-                    efficiency=round(efficiency, 1),
+                    dc_energy_charged_wh=round(dc_charged, 1),
+                    dc_energy_discharged_wh=round(dc_discharged, 1),
+                    ac_energy_in_wh=round(ac_in, 1),
+                    ac_energy_out_wh=round(ac_out, 1),
+                    battery_efficiency=round(battery_eff, 1) if battery_eff else None,
+                    system_efficiency=round(system_eff, 1) if system_eff else None,
                 )
             )
 
