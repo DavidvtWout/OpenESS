@@ -88,12 +88,12 @@ class System:
     PV_AC_COUPLED_OUTPUT_L3 = Register("PV AC Output L3", 886, DataType.UINT16)
 
     # ESS control (requires ESS Assistant)
-    ESS_SETPOINT_L1 = Register("ESS Setpoint L1", 2700, DataType.INT16, writable=True)
-    ESS_SETPOINT_L2 = Register("ESS Setpoint L2", 2701, DataType.INT16, writable=True)
-    ESS_SETPOINT_L3 = Register("ESS Setpoint L3", 2702, DataType.INT16, writable=True)
-    ESS_DISABLE_CHARGE = Register("ESS Disable Charge", 2703, DataType.UINT16, writable=True)
-    ESS_DISABLE_FEEDBACK = Register("ESS Disable Feedback", 2704, DataType.UINT16, writable=True)
+    ESS_SETPOINT = Register("ESS Setpoint", 2700, DataType.INT16, writable=True)
+    ESS_SETPOINT_VOLATILE = Register("ESS Setpoint", 2716, DataType.INT32, writable=True)
+    # ^ It's recommended to use the volatile register to avoid wearing down the flash on the GX-device.
     ESS_MIN_SOC = Register("ESS Min SOC", 2901, DataType.UINT16, scale=10, writable=True)
+    ESS_MODE = Register("ESS Mode", 2902, DataType.UINT16, writable=True)
+    # ^ 1=ESS with Phase Compensation;  2=ESS without phase compensation;  3=Disabled/External Control
 
 
 # =============================================================================
@@ -101,9 +101,6 @@ class System:
 # MultiPlus / Quattro inverter/charger
 # =============================================================================
 class VEBus:
-    # System info
-    NUMBER_OF_PHASES = Register("Number of Phases", 28, DataType.UINT16)
-
     # AC input
     AC_INPUT_VOLTAGE_L1 = Register("AC Input Voltage L1", 3, DataType.UINT16, scale=10)
     AC_INPUT_VOLTAGE_L2 = Register("AC Input Voltage L2", 4, DataType.UINT16, scale=10)
@@ -124,6 +121,7 @@ class VEBus:
     AC_OUTPUT_CURRENT_L2 = Register("AC Output Current L2", 19, DataType.INT16, scale=10)
     AC_OUTPUT_CURRENT_L3 = Register("AC Output Current L3", 20, DataType.INT16, scale=10)
     AC_OUTPUT_FREQUENCY = Register("AC Output Frequency", 21, DataType.INT16, scale=100)
+    AC_INPUT_CURRENT_LIMIT = Register("AC Input Current Limit", 22, DataType.INT16, scale=10, writable=True)
     AC_OUTPUT_POWER_L1 = Register("AC Output Power L1", 23, DataType.INT16, scale=0.1)
     AC_OUTPUT_POWER_L2 = Register("AC Output Power L2", 24, DataType.INT16, scale=0.1)
     AC_OUTPUT_POWER_L3 = Register("AC Output Power L3", 25, DataType.INT16, scale=0.1)
@@ -132,14 +130,41 @@ class VEBus:
     DC_VOLTAGE = Register("DC Voltage", 26, DataType.UINT16, scale=100)
     DC_CURRENT = Register("DC Current", 27, DataType.INT16, scale=10)
 
-    # State
+    NUMBER_OF_PHASES = Register("Number of Phases", 28, DataType.UINT16)
     SOC = Register("SOC", 30, DataType.UINT16, scale=10, writable=True)
     STATE = Register("State", 31, DataType.UINT16)
+    # ^ 0=Off  1=Low Power  2=Fault  3=Bulk  4=Absorption  5=Float  6=Storage
+    #   7=Equalize  8=Passthru  9=Inverting  10=Power assist  11=Power
     ERROR = Register("Error", 32, DataType.UINT16)
+    # ^ 0:  No error
+    #   1:  Device is switched off because one of the other phases in the system has switched off
+    #   2:  New and old types MK2 are mixed in the system
+    #   3:  Not all- or more than- the expected devices were found in the system
+    #   4:  No other device whatsoever detected
+    #   5:  Overvoltage on AC-out
+    #   6:  Error in DDC Program
+    #   7:  BMS connected- which requires an Assistant- but no assistant found
+    #   10: System time synchronisation problem occurred
+    #   14: Device cannot transmit data
+    #   16: Dongle missing
+    #   17: One of the devices assumed master status because the original master failed
+    #   18: AC Overvoltage on the output of a slave has occurred while already switched off
+    #   22: This device cannot function as slave
+    #   24: Switch-over system protection initiated
+    #   25: Firmware incompatibility. The firmware of one of the connected device is not sufficiently up to date to operate in conjunction with this device
+    #   26: Internal error
 
-    # Control
     SWITCH_POSITION = Register("Switch Position", 33, DataType.UINT16, writable=True)
-    AC_INPUT_CURRENT_LIMIT = Register("AC Input Current Limit", 22, DataType.INT16, scale=10, writable=True)
+    # ^ 1=Charger Only  2=Inverter Only  3=On  4=Off
+
+    # ESS mode 3
+    ESS_SETPOINT_L1 = Register("ESS Setpoint L1", 37, DataType.INT16, writable=True)
+    ESS_DISABLE_CHARGE = Register("ESS Disable Charge", 38, DataType.INT16, writable=True)
+    # ^ 0=Charge allowed  1=Charge disabled
+    ESS_DISABLE_FEEDBACK = Register("ESS Disable Feedback", 39, DataType.INT16, writable=True)
+    # ^ 0=Feed in allowed  1=Feed in disabled
+    ESS_SETPOINT_L2 = Register("ESS Setpoint L2", 40, DataType.INT16, writable=True)
+    ESS_SETPOINT_L3 = Register("ESS Setpoint L3", 41, DataType.INT16, writable=True)
 
     # Energy counters (kWh) - NOTE: These are volatile and reset on Multi/GX reboot
     ENERGY_AC_IN1_TO_AC_OUT = Register("Energy AC-In 1 to AC-Out", 74, DataType.UINT32, scale=100)

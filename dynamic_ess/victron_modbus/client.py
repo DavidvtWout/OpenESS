@@ -7,7 +7,7 @@ from pymodbus.exceptions import ModbusException
 
 from dynamic_ess.db import Database
 from .config import VictronConfig
-from .registers import Register, System, VEBus, GridMeter
+from .registers import Register, System, VEBus, GridMeter, Battery
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,8 @@ class VictronClient:
         for vebus_id in self._config.vebus_ids:
             self._phases_cache[vebus_id] = self.detect_phases(vebus_id)
             logger.info(f"VEBus {vebus_id}: detected {self._phases_cache[vebus_id]} phase(s)")
+
+        # self.write(self.system_id, System.ESS_MODE, 3)
 
         return True
 
@@ -224,6 +226,9 @@ class VictronClient:
 
     def collect_and_store_measurements(self) -> None:
         """Collect all measurements from Victron and store in database."""
+        # for vebus_id in self._config.vebus_ids:
+        #     self.write(vebus_id, VEBus.ESS_SETPOINT_L1, -3000)
+
         timestamp = datetime.now(timezone.utc)
 
         # Determine active phases from first VEBus device (or default to 3)
@@ -358,7 +363,16 @@ class VictronClient:
         #     grid_values = self.read_many(self._config.grid_id, grid_regs)
         #     logger.info(grid_values)
 
-        logger.debug(f"Stored measurements at {timestamp.isoformat()}")
+        # if self._config.bms_id:
+        #     bms_regs = [
+        #         Battery.DC_POWER,
+        #         Battery.DISCHARGED_ENERGY,
+        #         Battery.CHARGED_ENERGY,
+        #     ]
+        #
+        #     bms_values = self.read_many(self._config.bms_id, bms_regs)
+        #     logger.info(bms_values)
+        # logger.debug(f"Stored measurements at {timestamp.isoformat()}")
 
 
 def _to_int(value: float | None) -> int | None:

@@ -23,7 +23,12 @@ victron_gx:
 
 battery:
   capacity_kwh: 10.0
+  min_soc: 10   # Lowest State-of-Charge allowed
+  max_soc: 100  # Highest State-of-Charge allowed
+
+  # The charge and discharge power are measured on the AC side. The battery will
+  # charge slight slower than the max charge power due to losses in the charger.
+  # The load on the battery will be slightly higher than the max discharge power
+  # due to losses in inverter.
   max_charge_power_kw: 3.0
   max_discharge_power_kw: 3.0
-  min_soc: 10   # percentage
-  max_soc: 100  # percentage
