@@ -70,24 +70,24 @@ class BatteryConfig(BaseModel):
     max_soc: int = 100  # Maximum SOC in %
 
 
-def charger_loss_kw(battery_power_kw: float) -> float:
+def charger_loss(grid_power_kw: float) -> float:
     """Calculate charger loss in kW given battery charging power in kW.
 
     The charger loss is the additional power drawn from grid beyond what goes into the battery.
     grid_power = battery_power + charger_loss
     """
-    p = abs(battery_power_kw)
-    return 2.433263426e-2 * p + 1.410383326e-2 * p**2 + 4.163359504e-3 * p**3
+    p = abs(grid_power_kw)
+    return 4.033442157e-2 * p + 5.460366578e-3 * p**2 + 3.267407245e-3 * p**3
 
 
-def inverter_loss_kw(grid_power_kw: float) -> float:
+def inverter_loss(grid_power_kw: float) -> float:
     """Calculate inverter loss in kW given grid output power in kW.
 
     The inverter loss is the additional power drawn from battery beyond what goes to grid.
     battery_power = grid_power + inverter_loss
     """
     p = abs(grid_power_kw)
-    return 1.99219865628e-2 * p**2 + 8.1429669875e-4 * p**3
+    return 2.83094350e-2 * p + 9.31715095e-4 * p**2 + 3.82457032e-3 * p**3
 
 
 class Optimizer:
@@ -114,11 +114,9 @@ class Optimizer:
         sell_price_fn = self.prices.sell_price
 
         def cost_at_t(model, t):
-            charge_from_grid = model.charge_power[t] + charger_loss_kw(model.charge_power[t])
-            discharge_to_grid = model.discharge_power[t] + inverter_loss_kw(model.discharge_power[t])
-            return charge_from_grid * buy_price_fn(model.market_price[t]) - discharge_to_grid * sell_price_fn(
-                model.market_price[t]
-            )
+            buy_cost = model.charge_power[t] * buy_price_fn(model.market_price[t])
+            sell_profit = model.discharge_power[t] * sell_price_fn(model.market_price[t])
+            return buy_cost - sell_profit
 
         def soc_start_update_rule(model, t):
             if t == model.T.at(-1):
@@ -128,9 +126,11 @@ class Optimizer:
 
         def soc_end_update_rule(model, t):
             multiplus_base_power = 0.020
-            total_power = model.charge_power[t] - model.discharge_power[t] - multiplus_base_power
+            # TODO: think of a better way to implement battery RTT loss compensation
+            charge_power = (model.charge_power[t] + charger_loss(model.charge_power[t])) * 0.98
+            discharge_power = (model.discharge_power[t] + inverter_loss(model.discharge_power[t])) / 0.98
+            total_power = charge_power - discharge_power - multiplus_base_power
             soc_change = 100 * total_power / self._battery_config.capacity_kwh
-
             return model.soc_end[t] == model.soc_start[t] + soc_change
 
         # Get hourly prices for the planning horizon
@@ -149,7 +149,6 @@ class Optimizer:
             logger.warning("No future hours to optimize")
             return []
 
-        # Build Pyomo model
         model = pyo.ConcreteModel()
 
         # Create input parameters
@@ -197,10 +196,7 @@ class Optimizer:
             hour_end = hour_start + timedelta(hours=1)
 
             charge_power = pyo.value(model.charge_power[t])
-            charge_power = charge_power + charger_loss_kw(charge_power) if charge_power > 0 else 0
             discharge_power = pyo.value(model.discharge_power[t])
-            discharge_power = discharge_power + inverter_loss_kw(discharge_power) if discharge_power > 0 else 0
-
             power_w = int((charge_power - discharge_power) * 1000)
             expected_soc = int(pyo.value(model.soc_end[t]))
 

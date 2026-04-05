@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from dynamic_ess.db import Database, dt_to_ms, ms_to_dt
-from dynamic_ess.optimizer.optimizer import charger_loss_kw, inverter_loss_kw
+from dynamic_ess.optimizer.optimizer import charger_loss, inverter_loss
 from dynamic_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
@@ -141,23 +141,23 @@ async def get_schedule(
             power_kw = power_w / 1000.0
             if power_w > 0:
                 # Charging: charger draws more from grid than goes into battery
-                charger_loss = charger_loss_kw(power_kw) * 1000  # W
-                charger_input = power_w + charger_loss
+                charger_loss_w = charger_loss(power_kw) * 1000  # W
+                charger_input = power_w + charger_loss_w
                 inverter_output = 0
-                inverter_loss = 0
+                inverter_loss_w = 0
             elif power_w < 0:
                 # Discharging: battery provides more than goes to grid
                 # power_w is negative, so abs() for calculation
                 battery_power_kw = abs(power_kw)
-                inverter_loss = inverter_loss_kw(battery_power_kw) * 1000  # W
-                inverter_output = abs(power_w) - inverter_loss
+                inverter_loss_w = inverter_loss(battery_power_kw) * 1000  # W
+                inverter_output = abs(power_w) - inverter_loss_w
                 charger_input = 0
-                charger_loss = 0
+                charger_loss_w = 0
             else:
                 charger_input = 0
-                charger_loss = 0
+                charger_loss_w = 0
                 inverter_output = 0
-                inverter_loss = 0
+                inverter_loss_w = 0
 
             result.append(
                 SchedulePoint(
@@ -167,8 +167,8 @@ async def get_schedule(
                     expected_soc=expected_soc,
                     charger_input_w=round(charger_input, 1),
                     inverter_output_w=round(inverter_output, 1),
-                    charger_loss_w=round(charger_loss, 1),
-                    inverter_loss_w=round(inverter_loss, 1),
+                    charger_loss_w=round(charger_loss_w, 1),
+                    inverter_loss_w=round(inverter_loss_w, 1),
                 )
             )
         return result
