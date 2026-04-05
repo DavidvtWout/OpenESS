@@ -395,8 +395,7 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         const powerLabel = useKw ? 'Power (kW)' : 'Power (W)';
         const now = new Date();
 
-        // Build schedule step data with 0 for gaps (idle hours)
-        // Schedule line starts at "now", not the beginning of the view range
+        // Build schedule step data - only show actual schedule entries, no gap filling
         const scheduleInRange = schedule
             .map(entry => ({
                 start: new Date(entry.start_time),
@@ -409,42 +408,10 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         const scheduleTimes = [];
         const schedulePowers = [];
 
-        if (scheduleInRange.length > 0) {
-            // Start at "now" with 0 power (or current entry's power if we're in the middle of one)
-            const firstEntry = scheduleInRange[0];
-            const effectiveStart = firstEntry.start < now ? now : firstEntry.start;
-
-            // If there's a gap from now to first entry, show 0
-            if (effectiveStart > now) {
-                scheduleTimes.push(now, effectiveStart);
-                schedulePowers.push(0, 0);
-            } else {
-                // We're in the middle of an entry, start at now
-                scheduleTimes.push(now);
-                schedulePowers.push(firstEntry.power);
-            }
-
-            for (let i = 0; i < scheduleInRange.length; i++) {
-                const entry = scheduleInRange[i];
-                const entryStart = entry.start < now ? now : entry.start;
-
-                // Add the schedule entry (skip start if already added for first entry)
-                if (i > 0 || entryStart > now) {
-                    scheduleTimes.push(entryStart);
-                    schedulePowers.push(entry.power);
-                }
-                scheduleTimes.push(entry.end);
-                schedulePowers.push(entry.power);
-
-                // Add gap to next entry (or to end of view range)
-                const nextStart = i < scheduleInRange.length - 1
-                    ? scheduleInRange[i + 1].start
-                    : end;
-                if (entry.end < nextStart) {
-                    scheduleTimes.push(entry.end, nextStart);
-                    schedulePowers.push(0, 0);
-                }
-            }
+        for (const entry of scheduleInRange) {
+            const entryStart = entry.start < now ? now : entry.start;
+            scheduleTimes.push(entryStart, entry.end);
+            schedulePowers.push(entry.power, entry.power);
         }
 
         // Check if we have any data to show
@@ -573,7 +540,6 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
 
         // Build scheduled SoC line starting from "now"
         // expected_soc represents the SoC at the END of each schedule entry
-        // Gaps in the schedule mean zero power, so SoC stays constant
         const scheduleInRange = schedule
             .map(entry => ({
                 start: new Date(entry.start_time),
@@ -599,30 +565,10 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
                 scheduleSocs.push(currentSoc);
             }
 
-            let lastSoc = currentSoc;
-            let lastTime = now;
-
-            for (let i = 0; i < scheduleInRange.length; i++) {
-                const entry = scheduleInRange[i];
-                const effectiveStart = entry.start < now ? now : entry.start;
-
-                // If there's a gap from last point to this entry's start, SoC stays flat
-                if (lastSoc !== null && effectiveStart > lastTime) {
-                    scheduleTimes.push(effectiveStart);
-                    scheduleSocs.push(lastSoc);
-                }
-
-                // Add the end point with expected SoC (linear line to this point)
+            // Add each schedule entry's end point with expected SoC
+            for (const entry of scheduleInRange) {
                 scheduleTimes.push(entry.end);
                 scheduleSocs.push(entry.soc);
-                lastSoc = entry.soc;
-                lastTime = entry.end;
-            }
-
-            // Extend to end of view range with constant SoC if needed
-            if (lastSoc !== null && lastTime < end) {
-                scheduleTimes.push(end);
-                scheduleSocs.push(lastSoc);
             }
         }
 
@@ -1129,7 +1075,7 @@ async function loadPricesChartRange(elementId, start, end) {
                 y0: 0,
                 y1: 1,
                 yref: 'paper',
-                line: { color: '#9b59b6', width: 2, dash: 'dash' },
+                line: { color: '#e74c3c', width: 2, dash: 'dash' },
             }] : [],
         };
 

@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 def predict_next_week(
-        prices: list[tuple[datetime, float]],
-        smoothing_hours: int = 4,
+    prices: list[tuple[datetime, float]],
+    smoothing_hours: int = 4,
 ) -> list[tuple[datetime, float]]:
     """Predict future prices based on historical weekly patterns. The previous weeks are
     normalized to have the same average price as the last week. Then, the average week is
@@ -77,7 +77,7 @@ def charger_loss_kw(battery_power_kw: float) -> float:
     grid_power = battery_power + charger_loss
     """
     p = abs(battery_power_kw)
-    return 2.433263426e-2 * p + 1.410383326e-2 * p ** 2 + 4.163359504e-3 * p ** 3
+    return 2.433263426e-2 * p + 1.410383326e-2 * p**2 + 4.163359504e-3 * p**3
 
 
 def inverter_loss_kw(grid_power_kw: float) -> float:
@@ -87,7 +87,7 @@ def inverter_loss_kw(grid_power_kw: float) -> float:
     battery_power = grid_power + inverter_loss
     """
     p = abs(grid_power_kw)
-    return 1.99219865628e-2 * p ** 2 + 8.1429669875e-4 * p ** 3
+    return 1.99219865628e-2 * p**2 + 8.1429669875e-4 * p**3
 
 
 class Optimizer:
@@ -126,7 +126,6 @@ class Optimizer:
                 return pyo.Constraint.Skip
             return model.soc_start[t + 1] == model.soc_end[t]
 
-
         def soc_end_update_rule(model, t):
             multiplus_base_power = 0.020
             total_power = model.charge_power[t] - model.discharge_power[t] - multiplus_base_power
@@ -138,6 +137,7 @@ class Optimizer:
         now = datetime.now(timezone.utc)
         start_hour = now.replace(minute=0, second=0, microsecond=0)
         hourly_prices = self.db.get_hourly_prices(self.prices.area, start_hour - timedelta(weeks=6))
+        last_entoe_hour = hourly_prices[-1][0]
         next_week = predict_next_week(hourly_prices)
         hourly_prices.extend(next_week)
 
@@ -184,13 +184,16 @@ class Optimizer:
             logger.error(f"Optimization failed: {result.solver.termination_condition}")
             return []
 
-        total_cost = pyo.value(model.cost)
-        logger.info(f"Optimization solved: cost = {total_cost:.4f} EUR")
+        total_cost = 0
 
         # Extract schedule
         schedule = []
         for t in model.T:
             hour_start = hourly_prices[t][0]
+            if hour_start > last_entoe_hour:
+                break
+
+            total_cost += pyo.value(cost_at_t(model, t))
             hour_end = hour_start + timedelta(hours=1)
 
             charge_power = pyo.value(model.charge_power[t])
@@ -198,21 +201,16 @@ class Optimizer:
             discharge_power = pyo.value(model.discharge_power[t])
             discharge_power = discharge_power + inverter_loss_kw(discharge_power) if discharge_power > 0 else 0
 
-            if charge_power > 0.01:
-                power_kw = charge_power
-            elif discharge_power > 0.01:
-                power_kw = -discharge_power
-            else:
-                power_kw = 0
-
-            power_w = int(power_kw * 1000)
+            power_w = int((charge_power - discharge_power) * 1000)
             expected_soc = int(pyo.value(model.soc_end[t]))
 
             schedule.append((hour_start, hour_end, power_w, expected_soc))
-            logger.info(
+            logger.debug(
                 f"{hour_start.strftime('%H:%M')} "
                 f"C:{charge_power:.2f}kW  D:{discharge_power:.2f}kW  {pyo.value(model.market_price[t]):.4f} EUR/kWh -> SOC={pyo.value(model.soc_start[t]):.2f}-{pyo.value(model.soc_end[t]):.2f}%"
             )
+
+        logger.info(f"Optimization solved: cost = {total_cost:.2f} EUR")
 
         logger.info(f"Generated schedule with {len(schedule)} entries")
         return schedule
