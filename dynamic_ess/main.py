@@ -87,7 +87,7 @@ def main():
             config.db_path,
             battery=config.battery,
             prices=config.prices,
-            run_at_minute=55,
+            run_at_minute=59,
         ),
         DatabaseService(config.db_path),
     ]

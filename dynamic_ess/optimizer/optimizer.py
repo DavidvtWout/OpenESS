@@ -11,6 +11,57 @@ from dynamic_ess.pricing import PriceConfig
 logger = logging.getLogger(__name__)
 
 
+def predict_next_week(
+        prices: list[tuple[datetime, float]],
+        smoothing_hours: int = 4,
+) -> list[tuple[datetime, float]]:
+    """Predict future prices based on historical weekly patterns. The previous weeks are
+    normalized to have the same average price as the last week. Then, the average week is
+    calculated and the existing data is extended with this new average week.
+
+    Args:
+        prices:
+        smoothing_hours: Number of hours to blend predicted prices with last known price
+
+    Returns:
+        List of (hour_start, predicted_price_eur_per_kwh) tuples
+    """
+    first_time, _ = prices[0]
+    last_time, last_value = prices[-1]
+    delta = last_time - first_time
+    start_of_week = last_time - timedelta(weeks=delta.days // 7)
+
+    weeks = []
+    week = []
+    for t, p in prices:
+        if t > start_of_week:
+            start_of_week += timedelta(weeks=1)
+            if len(week) == 168:
+                weeks.append(week)
+            week = []
+        week.append((t, p))
+    weeks.append(week)
+
+    # Normalize weeks and "predict" next week
+    last_week_avg = sum(p for _, p in weeks[-1]) / len(weeks[-1])
+    next_week = [(t + timedelta(weeks=1), 0.0) for t, _ in weeks[-1]]
+    for week in weeks:
+        week_avg = sum(p for _, p in week) / len(week)
+        factor = last_week_avg / week_avg
+        for i, (t, p) in enumerate(week):
+            next_week[i] = (next_week[i][0], next_week[i][1] + p * factor)
+    for i, (t, p) in enumerate(next_week):
+        next_week[i] = (t, p / len(weeks))
+
+    # Smoothing
+    for i in range(smoothing_hours):
+        smoothing_factor = (i + 1) / smoothing_hours
+        t, p = next_week[i]
+        next_week[i] = (t, last_value * smoothing_factor + p * (1 - smoothing_factor))
+
+    return next_week
+
+
 class BatteryConfig(BaseModel):
     capacity_kwh: float  # Total battery capacity in kWh
     max_charge_power_kw: float  # Maximum charge power in kW
@@ -85,35 +136,23 @@ class Optimizer:
                     - multiplus_base_power
             )
 
-        now = datetime.now(timezone.utc)
-
-        # Get current SOC
-        current_soc = self.db.get_current_soc()
-        if current_soc is None:
-            logger.warning("No SOC data available, assuming 50%")
-            current_soc = 50
-
         # Get hourly prices for the planning horizon
+        now = datetime.now(timezone.utc)
         start_hour = now.replace(minute=0, second=0, microsecond=0)
-        end_hour = start_hour + timedelta(hours=36)
-        hourly_prices = self.db.get_hourly_prices(self.prices.area, start_hour, end_hour)
-
-        if not hourly_prices:
-            logger.warning("No future price data available")
-            return []
+        hourly_prices = self.db.get_hourly_prices(self.prices.area, start_hour - timedelta(weeks=6))
+        next_week = predict_next_week(hourly_prices)
+        hourly_prices.extend(next_week)
 
         # Filter out past hours
         hourly_prices = [(t, p) for t, p in hourly_prices if t + timedelta(hours=1) > now]
+        n_hours = len(hourly_prices)
 
         if not hourly_prices:
             logger.warning("No future hours to optimize")
             return []
 
-        n_hours = len(hourly_prices)
         times = [t for t, _ in hourly_prices]
-        prices = {t: p for t, (_, p) in enumerate(hourly_prices)}  # EUR/kWh
-
-        logger.info(f"Optimizing for {n_hours} hours starting at {times[0]}")
+        prices = [p for _, p in hourly_prices]  # EUR/kWh
 
         # Build Pyomo model
         model = pyo.ConcreteModel()
@@ -132,6 +171,10 @@ class Optimizer:
 
         # Make sure the battery SoC at the end is the same as the current SoC. Otherwise,
         # the battery will be drained to optimize costs which is not what we want.
+        current_soc = self.db.get_current_soc()
+        if current_soc is None:
+            logger.warning("No SOC data available, assuming 50%")
+            current_soc = 50
         battery_capacity_remaining = self._battery_config.capacity_kwh * current_soc / 100
         model.battery_charge[0].fix(battery_capacity_remaining)
         model.battery_charge[n_hours - 1].fix(battery_capacity_remaining)

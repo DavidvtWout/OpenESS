@@ -335,16 +335,19 @@ class Database:
         row = cursor.fetchone()
         return row["battery_soc"] if row else None
 
-    def get_hourly_prices(self, area: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
+    def get_hourly_prices(self, area: str, start: datetime, end: datetime | None = None) -> list[tuple[datetime, float]]:
         """Get hourly aggregated prices. Returns list of (hour_start, price_eur_per_kwh)."""
+        params = [area, dt_to_ms(start)]
+        if end is not None:
+            params.append(dt_to_ms(end))
         cursor = self._conn.execute(
-            """
+            f"""
             SELECT (start_time / 3600000) * 3600000 AS hour, AVG(price) / 1000.0 AS price
             FROM day_ahead_prices
-            WHERE area = ? AND start_time >= ? AND start_time < ?
+            WHERE area = ? AND start_time >= ?{" AND start_time < ?" if end is not None else ""}
             GROUP BY hour ORDER BY hour
             """,
-            (area, dt_to_ms(start), dt_to_ms(end)),
+            params
         )
         return [(ms_to_dt(row["hour"]), row["price"]) for row in cursor.fetchall()]
 
