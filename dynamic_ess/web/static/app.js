@@ -1,54 +1,4 @@
-// Get Plotly layout based on current theme
-function getPlotlyLayout() {
-    const settings = loadSettings();
-    const isDark = settings.theme === 'dark';
-
-    return {
-        margin: { t: 30, r: 30, b: 50, l: 60 },
-        paper_bgcolor: 'transparent',
-        plot_bgcolor: 'transparent',
-        font: {
-            family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            color: isDark ? '#e4e4e4' : '#333333',
-        },
-        hoverlabel: {
-            bgcolor: isDark ? '#2a2a4a' : '#ffffff',
-            bordercolor: isDark ? '#4a4a6a' : '#cccccc',
-            font: {
-                family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                color: isDark ? '#e4e4e4' : '#333333',
-            },
-        },
-        xaxis: {
-            gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
-            linecolor: isDark ? '#3a3a5a' : '#dddddd',
-        },
-        yaxis: {
-            gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
-            linecolor: isDark ? '#3a3a5a' : '#dddddd',
-        },
-    };
-}
-
-const defaultConfig = {
-    responsive: true,
-    displayModeBar: false,
-};
-
-// Helper to format dates for API
-function formatDate(date) {
-    return date.toISOString();
-}
-
-// Helper to show loading state
-function showLoading(elementId) {
-    document.getElementById(elementId).innerHTML = '<div class="loading">Loading...</div>';
-}
-
-// Helper to show error state
-function showError(elementId, message) {
-    document.getElementById(elementId).innerHTML = `<div class="error">${message}</div>`;
-}
+// Chart functions - depends on settings.js, utils.js, chart-utils.js
 
 // Load and display prices chart
 async function loadPricesChart(elementId, days = 7, showStats = false) {
@@ -148,19 +98,8 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
                 ...defaultLayout.yaxis,
                 title: priceLabel,
             },
-            legend: {
-                orientation: 'h',
-                y: -0.2,
-            },
-            shapes: currentPriceIdx >= 0 ? [{
-                type: 'line',
-                x0: now,
-                x1: now,
-                y0: 0,
-                y1: 1,
-                yref: 'paper',
-                line: { color: '#9b59b6', width: 2, dash: 'dash' },
-            }] : [],
+            legend: { orientation: 'h', y: -0.2 },
+            shapes: currentPriceIdx >= 0 ? getNowLineShape(now, start, end, '#9b59b6') : [],
         };
 
         document.getElementById(elementId).innerHTML = '';
@@ -254,9 +193,6 @@ async function loadBatteryChart(elementId, hours = 24) {
         };
 
         const defaultLayout = getPlotlyLayout();
-        const settings = loadSettings();
-        const isDark = settings.theme === 'dark';
-
         const layout = {
             ...defaultLayout,
             xaxis: { ...defaultLayout.xaxis },
@@ -271,13 +207,9 @@ async function loadBatteryChart(elementId, hours = 24) {
                 side: 'right',
                 range: [0, 100],
                 gridcolor: 'transparent',
-                linecolor: isDark ? '#3a3a5a' : '#dddddd',
+                linecolor: isDarkTheme() ? '#3a3a5a' : '#dddddd',
             },
-            legend: {
-                orientation: 'h',
-                y: -0.2,
-                font: { color: isDark ? '#e4e4e4' : '#333333' },
-            },
+            legend: getHorizontalLegend(-0.2),
         };
 
         document.getElementById(elementId).innerHTML = '';
@@ -341,9 +273,6 @@ async function loadGridChart(elementId, hours = 24) {
         }
 
         const defaultLayout = getPlotlyLayout();
-        const settings = loadSettings();
-        const isDark = settings.theme === 'dark';
-
         const layout = {
             ...defaultLayout,
             xaxis: { ...defaultLayout.xaxis },
@@ -351,11 +280,7 @@ async function loadGridChart(elementId, hours = 24) {
                 ...defaultLayout.yaxis,
                 title: 'Power (W)',
             },
-            legend: {
-                orientation: 'h',
-                y: -0.2,
-                font: { color: isDark ? '#e4e4e4' : '#333333' },
-            },
+            legend: getHorizontalLegend(-0.2),
         };
 
         document.getElementById(elementId).innerHTML = '';
@@ -389,7 +314,6 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         console.log('Power data:', data.length, 'points, Schedule:', schedule.length, 'entries');
 
         const settings = loadSettings();
-        const isDark = settings.theme === 'dark';
         const useKw = settings.powerUnit === 'kw';
         const divisor = useKw ? 1000 : 1;
         const powerLabel = useKw ? 'Power (kW)' : 'Power (W)';
@@ -402,7 +326,7 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
                 end: new Date(entry.end_time),
                 power: entry.power_w / divisor
             }))
-            .filter(e => e.end > now && e.start <= end)  // Only future entries
+            .filter(e => e.end > now && e.start <= end)
             .sort((a, b) => a.start - b.start);
 
         const scheduleTimes = [];
@@ -424,12 +348,19 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         const unit = useKw ? 'kW' : 'W';
         const traces = [];
 
+        // Gap threshold: 2x the aggregate interval
+        const gapThresholdMs = aggregateMinutes * 60 * 1000 * 2;
+
         // Add measurement traces only if we have measurement data
         if (data.length > 0) {
+            const gridData = insertGapNulls(times, data.map(d => d.grid_power / divisor), gapThresholdMs);
+            const batteryData = insertGapNulls(times, data.map(d => d.battery_power / divisor), gapThresholdMs);
+            const invChargerData = insertGapNulls(times, data.map(d => d.inverter_charger_power / divisor), gapThresholdMs);
+
             traces.push(
                 {
-                    x: times,
-                    y: data.map(d => d.grid_power / divisor),
+                    x: gridData.times,
+                    y: gridData.values,
                     type: 'scatter',
                     mode: 'lines',
                     name: 'Grid',
@@ -437,8 +368,8 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
                     hovertemplate: `%{y:.1f} ${unit}<extra>Grid</extra>`,
                 },
                 {
-                    x: times,
-                    y: data.map(d => d.battery_power / divisor),
+                    x: batteryData.times,
+                    y: batteryData.values,
                     type: 'scatter',
                     mode: 'lines',
                     name: 'Battery',
@@ -446,8 +377,8 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
                     hovertemplate: `%{y:.1f} ${unit}<extra>Battery</extra>`,
                 },
                 {
-                    x: times,
-                    y: data.map(d => d.inverter_charger_power / divisor),
+                    x: invChargerData.times,
+                    y: invChargerData.values,
                     type: 'scatter',
                     mode: 'lines',
                     name: 'Inverter/Charger',
@@ -471,18 +402,6 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         }
 
         const defaultLayout = getPlotlyLayout();
-
-        // Only show "now" line if within visible range
-        const shapes = (now >= start && now <= end) ? [{
-            type: 'line',
-            x0: now,
-            x1: now,
-            y0: 0,
-            y1: 1,
-            yref: 'paper',
-            line: { color: '#e74c3c', width: 2, dash: 'dash' },
-        }] : [];
-
         const layout = {
             ...defaultLayout,
             hovermode: 'x unified',
@@ -494,14 +413,10 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
                 ...defaultLayout.yaxis,
                 title: powerLabel,
                 zeroline: true,
-                zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
+                zerolinecolor: getZerolineColor(),
             },
-            legend: {
-                orientation: 'h',
-                y: -0.15,
-                font: { color: isDark ? '#e4e4e4' : '#333333' },
-            },
-            shapes: shapes,
+            legend: getHorizontalLegend(),
+            shapes: getNowLineShape(now, start, end),
         };
 
         document.getElementById(elementId).innerHTML = '';
@@ -534,8 +449,6 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
         const schedule = scheduleResponse.ok ? await scheduleResponse.json() : [];
         console.log('SoC data:', data.length, 'points, Schedule:', schedule.length, 'entries');
 
-        const settings = loadSettings();
-        const isDark = settings.theme === 'dark';
         const now = new Date();
 
         // Build scheduled SoC line starting from "now"
@@ -546,7 +459,7 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
                 end: new Date(entry.end_time),
                 soc: entry.expected_soc
             }))
-            .filter(e => e.end > now && e.start <= end)  // Only future entries
+            .filter(e => e.end > now && e.start <= end)
             .sort((a, b) => a.start - b.start);
 
         const scheduleTimes = [];
@@ -580,12 +493,16 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
 
         const traces = [];
 
+        // Gap threshold: 2x the aggregate interval
+        const gapThresholdMs = aggregateMinutes * 60 * 1000 * 2;
+
         // Add actual SoC trace if we have measurement data
         if (data.length > 0) {
             const times = data.map(d => new Date(d.time));
+            const socData = insertGapNulls(times, data.map(d => d.battery_soc), gapThresholdMs);
             traces.push({
-                x: times,
-                y: data.map(d => d.battery_soc),
+                x: socData.times,
+                y: socData.values,
                 type: 'scatter',
                 mode: 'lines',
                 name: 'SoC',
@@ -608,18 +525,6 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
         }
 
         const defaultLayout = getPlotlyLayout();
-
-        // Only show "now" line if within visible range
-        const shapes = (now >= start && now <= end) ? [{
-            type: 'line',
-            x0: now,
-            x1: now,
-            y0: 0,
-            y1: 1,
-            yref: 'paper',
-            line: { color: '#e74c3c', width: 2, dash: 'dash' },
-        }] : [];
-
         const layout = {
             ...defaultLayout,
             hovermode: 'x unified',
@@ -632,12 +537,8 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
                 title: 'SoC (%)',
                 range: [0, 100],
             },
-            legend: {
-                orientation: 'h',
-                y: -0.15,
-                font: { color: isDark ? '#e4e4e4' : '#333333' },
-            },
-            shapes: shapes,
+            legend: getHorizontalLegend(),
+            shapes: getNowLineShape(now, start, end),
         };
 
         document.getElementById(elementId).innerHTML = '';
@@ -659,7 +560,6 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
     const energyUnit = useKw ? 'kWh' : 'Wh';
 
     // Build scheduled energy data aligned with time buckets
-    // Schedule entries have power in W, we need to convert to Wh for each bucket
     const bucketMs = bucketMinutes * 60 * 1000;
 
     // Generate time buckets from data if available, otherwise from schedule range
@@ -671,7 +571,6 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
         times = [];
         const scheduleStart = Math.min(...schedule.map(s => new Date(s.start_time).getTime()));
         const scheduleEnd = Math.max(...schedule.map(s => new Date(s.end_time).getTime()));
-        // Align to bucket boundaries
         const bucketStartTime = Math.floor(scheduleStart / bucketMs) * bucketMs + bucketMs / 2;
         for (let t = bucketStartTime; t < scheduleEnd; t += bucketMs) {
             times.push(new Date(t));
@@ -685,7 +584,7 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
     const now = new Date().getTime();
 
     const scheduledData = times.map(t => {
-        const bucketStart = t.getTime() - bucketMs / 2;  // times are centered
+        const bucketStart = t.getTime() - bucketMs / 2;
         const bucketEnd = bucketStart + bucketMs;
         let chargerInputWh = 0;
         let chargerLossWh = 0;
@@ -695,24 +594,20 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
         // Only calculate scheduled energy for the future portion of the bucket
         const effectiveBucketStart = Math.max(bucketStart, now);
         if (effectiveBucketStart >= bucketEnd) {
-            // Bucket is entirely in the past, no scheduled data
             return { chargerInputWh, chargerLossWh, inverterOutputWh, inverterLossWh };
         }
 
         for (const entry of schedule) {
             const entryStart = new Date(entry.start_time).getTime();
             const entryEnd = new Date(entry.end_time).getTime();
-            // Calculate overlap between schedule entry and future portion of bucket
             const overlapStart = Math.max(effectiveBucketStart, entryStart);
             const overlapEnd = Math.min(bucketEnd, entryEnd);
             if (overlapEnd > overlapStart) {
                 const overlapHours = (overlapEnd - overlapStart) / 3600000;
                 if (entry.power_w > 0) {
-                    // Charging
                     chargerInputWh += entry.charger_input_w * overlapHours;
                     chargerLossWh += entry.charger_loss_w * overlapHours;
                 } else if (entry.power_w < 0) {
-                    // Discharging
                     inverterOutputWh += entry.inverter_output_w * overlapHours;
                     inverterLossWh += entry.inverter_loss_w * overlapHours;
                 }
@@ -749,7 +644,6 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
     let traces = [];
 
     if (frameOfReference === 'multiplus') {
-        // MultiPlus FoR: Top = Inverter output, Bottom = Inverter losses, Charger input, Charger losses
         if (hasData) {
             traces = [
                 {
@@ -795,7 +689,6 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
             ];
         }
 
-        // Add scheduled energy traces (with pattern fill to distinguish from actual)
         const hasScheduledData = scheduledData.some(d => d.chargerInputWh > 0 || d.inverterOutputWh > 0);
         if (hasScheduledData) {
             traces.push(
@@ -834,7 +727,6 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
             );
         }
     } else if (frameOfReference === 'grid') {
-        // Grid FoR: Top = Battery-to-grid (export), Bottom = Grid-to-battery, Losses
         if (hasData) {
             traces = [
                 {
@@ -870,7 +762,6 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
             ];
         }
     } else if (frameOfReference === 'consumption') {
-        // Consumption FoR: Consumption + Losses
         if (hasData) {
             traces = [
                 {
@@ -898,19 +789,6 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
     }
 
     const defaultLayout = getPlotlyLayout();
-    const isDark = settings.theme === 'dark';
-
-    // Only show "now" line if within visible range
-    const shapes = (now >= start && now <= end) ? [{
-        type: 'line',
-        x0: now,
-        x1: now,
-        y0: 0,
-        y1: 1,
-        yref: 'paper',
-        line: { color: '#e74c3c', width: 2, dash: 'dash' },
-    }] : [];
-
     const layout = {
         ...defaultLayout,
         barmode: 'relative',
@@ -923,14 +801,10 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
             ...defaultLayout.yaxis,
             title: `Energy (${energyUnit})`,
             zeroline: true,
-            zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
+            zerolinecolor: getZerolineColor(),
         },
-        legend: {
-            orientation: 'h',
-            y: -0.15,
-            font: { color: isDark ? '#e4e4e4' : '#333333' },
-        },
-        shapes: shapes,
+        legend: getHorizontalLegend(),
+        shapes: getNowLineShape(now, start, end),
     };
 
     document.getElementById(elementId).innerHTML = '';
@@ -1010,11 +884,6 @@ async function loadPricesChartRange(elementId, start, end) {
         }
 
         const now = new Date();
-        const currentTime = now.getTime();
-        let currentPriceIdx = times.findIndex((t, i) =>
-            t.getTime() <= currentTime &&
-            (i === times.length - 1 || times[i + 1].getTime() > currentTime)
-        );
 
         const marketTrace = {
             x: times,
@@ -1049,10 +918,6 @@ async function loadPricesChartRange(elementId, start, end) {
         };
 
         const defaultLayout = getPlotlyLayout();
-
-        // Only show "now" line if within visible range
-        const showNowLine = now >= start && now <= end;
-
         const layout = {
             ...defaultLayout,
             hovermode: 'x',
@@ -1064,19 +929,8 @@ async function loadPricesChartRange(elementId, start, end) {
                 ...defaultLayout.yaxis,
                 title: priceLabel,
             },
-            legend: {
-                orientation: 'h',
-                y: -0.2,
-            },
-            shapes: showNowLine ? [{
-                type: 'line',
-                x0: now,
-                x1: now,
-                y0: 0,
-                y1: 1,
-                yref: 'paper',
-                line: { color: '#e74c3c', width: 2, dash: 'dash' },
-            }] : [],
+            legend: { orientation: 'h', y: -0.2 },
+            shapes: getNowLineShape(now, start, end),
         };
 
         document.getElementById(elementId).innerHTML = '';

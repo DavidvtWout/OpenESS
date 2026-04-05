@@ -60,9 +60,9 @@
     }
 
     function getBucketMinutes(hours) {
-        if (hours <= 24) return 60;      // hourly
-        if (hours <= 168) return 360;    // 6-hourly
-        return 1440;                      // daily
+        if (hours <= 48) return 60;      // hourly for Today and Last 2 days
+        if (hours <= 168) return 120;    // 2-hourly for Last 7 days
+        return 360;                       // 6-hourly for Last 30 days
     }
 
     // Store timestamps for alignment
