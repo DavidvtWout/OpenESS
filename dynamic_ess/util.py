@@ -23,9 +23,7 @@ def plot_energy_prices(db: Database, area: str):
     for start_time, _, price in prices:
         # Find the Monday of this week
         days_since_monday = start_time.weekday()
-        week_start = (start_time - timedelta(days=days_since_monday)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        week_start = (start_time - timedelta(days=days_since_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
         iso_year, iso_week, _ = week_start.isocalendar()
         week_key = (iso_year, iso_week)
 

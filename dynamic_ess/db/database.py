@@ -159,7 +159,15 @@ class Database:
     def insert_system_measurements(self, timestamp: datetime, phases: dict[int, SystemMeasurement]) -> None:
         ts = dt_to_ms(timestamp)
         rows = [
-            (ts, 1, phase, m.get("ac_consumption"), m.get("grid_power"), m.get("grid_to_multiplus"), m.get("multiplus_output"))
+            (
+                ts,
+                1,
+                phase,
+                m.get("ac_consumption"),
+                m.get("grid_power"),
+                m.get("grid_to_multiplus"),
+                m.get("multiplus_output"),
+            )
             for phase, m in phases.items()
         ]
         self._conn.executemany(
@@ -196,9 +204,13 @@ class Database:
     # VEBus measurements
     # -------------------------------------------------------------------------
 
-    def insert_vebus_measurements(self, timestamp: datetime, modbus_id: int, phases: dict[int, VEBusMeasurement]) -> None:
+    def insert_vebus_measurements(
+        self, timestamp: datetime, modbus_id: int, phases: dict[int, VEBusMeasurement]
+    ) -> None:
         ts = dt_to_ms(timestamp)
-        rows = [(ts, 1, modbus_id, phase, m.get("ac_input_power"), m.get("ac_output_power")) for phase, m in phases.items()]
+        rows = [
+            (ts, 1, modbus_id, phase, m.get("ac_input_power"), m.get("ac_output_power")) for phase, m in phases.items()
+        ]
         self._conn.executemany(
             """
             INSERT INTO vebus_measurements (timestamp, sample_count, modbus_id, phase, ac_input_power, ac_output_power)
@@ -335,7 +347,24 @@ class Database:
         row = cursor.fetchone()
         return row["battery_soc"] if row else None
 
-    def get_hourly_prices(self, area: str, start: datetime, end: datetime | None = None) -> list[tuple[datetime, float]]:
+    def get_soc_at(self, timestamp: datetime):
+        """Get battery SOC reading at timestamp."""
+        cursor = self._conn.execute(
+            """
+            SELECT battery_soc
+            FROM system_battery
+            WHERE battery_soc IS NOT NULL AND timestamp < ?
+            ORDER BY timestamp
+            DESC LIMIT 1
+            """,
+            [dt_to_ms(timestamp)],
+        )
+        row = cursor.fetchone()
+        return row["battery_soc"] if row else None
+
+    def get_hourly_prices(
+        self, area: str, start: datetime, end: datetime | None = None
+    ) -> list[tuple[datetime, float]]:
         """Get hourly aggregated prices. Returns list of (hour_start, price_eur_per_kwh)."""
         params = [area, dt_to_ms(start)]
         if end is not None:
@@ -347,7 +376,7 @@ class Database:
             WHERE area = ? AND start_time >= ?{" AND start_time < ?" if end is not None else ""}
             GROUP BY hour ORDER BY hour
             """,
-            params
+            params,
         )
         return [(ms_to_dt(row["hour"]), row["price"]) for row in cursor.fetchall()]
 

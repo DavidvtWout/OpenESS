@@ -24,15 +24,15 @@ class ColoredFormatter(logging.Formatter):
     def format(self, record):
         timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
         msecs = f"{record.msecs:03.0f}"
-        time_str = f"\033[90m{timestamp}.{msecs}{self.RESET}" # grey
+        time_str = f"\033[90m{timestamp}.{msecs}{self.RESET}"  # grey
 
         level_color = self.LEVEL_COLORS.get(record.levelno, self.RESET)
         level_str = f"{level_color}{record.levelname:<8}{self.RESET}"
 
         location_str = (
             f"\033[34m{record.name}{self.RESET}:"  # blue
-            f"\033[36m{record.funcName}{self.RESET}:" # cyan
-            f"\033[32m{record.lineno}{self.RESET}" # green
+            f"\033[36m{record.funcName}{self.RESET}:"  # cyan
+            f"\033[32m{record.lineno}{self.RESET}"  # green
         )
 
         # Message with level color

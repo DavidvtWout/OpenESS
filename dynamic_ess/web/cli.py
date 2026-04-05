@@ -12,9 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Dynamic ESS web dashboard"
-    )
+    parser = argparse.ArgumentParser(description="Dynamic ESS web dashboard")
     parser.add_argument(
         "--config",
         type=Path,

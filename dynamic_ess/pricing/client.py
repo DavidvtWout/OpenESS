@@ -30,9 +30,9 @@ class EntsoeClient:
             set_config(security_token=config.entsoe_api_key)
 
     def fetch_day_ahead_prices(
-            self,
-            start: datetime,
-            end: datetime,
+        self,
+        start: datetime,
+        end: datetime,
     ) -> list[tuple[datetime, datetime, float]]:
         """
         Fetch day-ahead prices from ENTSO-E for a given area and time range.

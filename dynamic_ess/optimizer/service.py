@@ -14,11 +14,11 @@ class SchedulerService(Service):
     """Runs the charge optimizer before each hour."""
 
     def __init__(
-            self,
-            db_path: Path,
-            prices: PriceConfig,
-            battery: BatteryConfig,
-            run_at_minute: int = 55,
+        self,
+        db_path: Path,
+        prices: PriceConfig,
+        battery: BatteryConfig,
+        run_at_minute: int = 55,
     ):
         super().__init__("SchedulerService")
         self.db_path = db_path

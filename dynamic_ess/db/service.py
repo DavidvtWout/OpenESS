@@ -21,7 +21,7 @@ class DatabaseService(Service):
     - Data older than 1 week: compressed to 5-minute resolution
     """
 
-    def __init__(self, db_path: Path, run_interval_minutes = 10):
+    def __init__(self, db_path: Path, run_interval_minutes=10):
         super().__init__("DatabaseService")
         self.db_path = db_path
         self.run_interval = run_interval_minutes * 60

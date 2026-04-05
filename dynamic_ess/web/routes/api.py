@@ -19,11 +19,13 @@ MS_PER_HOUR = 3_600_000
 
 def get_db() -> Database:
     from dynamic_ess.web.dependencies import get_database
+
     return get_database()
 
 
 def get_prices() -> PriceConfig:
     from dynamic_ess.web.dependencies import get_price_config
+
     return get_price_config()
 
 
@@ -147,16 +149,18 @@ async def get_schedule(
                 inverter_output = 0
                 inverter_loss = 0
 
-            result.append(SchedulePoint(
-                start_time=start_time,
-                end_time=end_time,
-                power_w=power_w,
-                expected_soc=expected_soc,
-                charger_input_w=round(charger_input, 1),
-                inverter_output_w=round(inverter_output, 1),
-                charger_loss_w=round(charger_loss, 1),
-                inverter_loss_w=round(inverter_loss, 1),
-            ))
+            result.append(
+                SchedulePoint(
+                    start_time=start_time,
+                    end_time=end_time,
+                    power_w=power_w,
+                    expected_soc=expected_soc,
+                    charger_input_w=round(charger_input, 1),
+                    inverter_output_w=round(inverter_output, 1),
+                    charger_loss_w=round(charger_loss, 1),
+                    inverter_loss_w=round(inverter_loss, 1),
+                )
+            )
         return result
     except Exception as e:
         logger.exception("Failed to get schedule")
@@ -361,11 +365,17 @@ async def get_battery_cycles(
                     if soc_swing >= min_soc_swing and energy_charged > 0:
                         efficiency = (energy_discharged / energy_charged) * 100
                         duration = (time - cycle_start).total_seconds() / 3600.0
-                        cycles.append(BatteryCycle(
-                            start_time=cycle_start, end_time=time, duration_hours=round(duration, 2),
-                            min_soc=cycle_min_soc, energy_discharged_wh=round(energy_discharged, 1),
-                            energy_charged_wh=round(energy_charged, 1), efficiency=round(efficiency, 1),
-                        ))
+                        cycles.append(
+                            BatteryCycle(
+                                start_time=cycle_start,
+                                end_time=time,
+                                duration_hours=round(duration, 2),
+                                min_soc=cycle_min_soc,
+                                energy_discharged_wh=round(energy_discharged, 1),
+                                energy_charged_wh=round(energy_charged, 1),
+                                efficiency=round(efficiency, 1),
+                            )
+                        )
                     cycle_start = None
                     cycle_min_soc = 100
                     energy_discharged = 0.0
@@ -401,13 +411,22 @@ async def get_energy_flow(
             "SELECT timestamp, SUM(grid_power) as grid_power, SUM(ac_consumption) as consumption FROM system_measurements WHERE timestamp >= ? AND timestamp < ? GROUP BY timestamp ORDER BY timestamp",
             [start_ms, end_ms],
         )
-        grid_data = {row["timestamp"]: {"grid_power": row["grid_power"], "consumption": row["consumption"]} for row in grid_cursor.fetchall()}
+        grid_data = {
+            row["timestamp"]: {"grid_power": row["grid_power"], "consumption": row["consumption"]}
+            for row in grid_cursor.fetchall()
+        }
 
         battery_cursor = db._conn.execute(
             "SELECT timestamp, battery_power, inverter_charger_power FROM system_battery WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp",
             [start_ms, end_ms],
         )
-        battery_data = {row["timestamp"]: {"battery_power": row["battery_power"], "inverter_charger_power": row["inverter_charger_power"]} for row in battery_cursor.fetchall()}
+        battery_data = {
+            row["timestamp"]: {
+                "battery_power": row["battery_power"],
+                "inverter_charger_power": row["inverter_charger_power"],
+            }
+            for row in battery_cursor.fetchall()
+        }
 
         all_timestamps = sorted(set(grid_data.keys()) | set(battery_data.keys()))
         if len(all_timestamps) < 2:
@@ -430,8 +449,15 @@ async def get_energy_flow(
                 bucket_key = (ts // bucket_ms) * bucket_ms
 
                 if bucket_key not in buckets:
-                    buckets[bucket_key] = {"grid_import_wh": 0.0, "grid_export_wh": 0.0, "battery_charge_wh": 0.0,
-                                           "battery_discharge_wh": 0.0, "charger_input_wh": 0.0, "inverter_output_wh": 0.0, "consumption_wh": 0.0}
+                    buckets[bucket_key] = {
+                        "grid_import_wh": 0.0,
+                        "grid_export_wh": 0.0,
+                        "battery_charge_wh": 0.0,
+                        "battery_discharge_wh": 0.0,
+                        "charger_input_wh": 0.0,
+                        "inverter_output_wh": 0.0,
+                        "consumption_wh": 0.0,
+                    }
 
                 gd = grid_data.get(ts, {})
                 bd = battery_data.get(ts, {})
@@ -465,9 +491,13 @@ async def get_energy_flow(
         half_bucket_ms = bucket_ms // 2
         return [
             EnergyFlowPoint(
-                time=ms_to_dt(bk + half_bucket_ms), grid_import_wh=round(d["grid_import_wh"], 1), grid_export_wh=round(d["grid_export_wh"], 1),
-                battery_charge_wh=round(d["battery_charge_wh"], 1), battery_discharge_wh=round(d["battery_discharge_wh"], 1),
-                charger_input_wh=round(d["charger_input_wh"], 1), inverter_output_wh=round(d["inverter_output_wh"], 1),
+                time=ms_to_dt(bk + half_bucket_ms),
+                grid_import_wh=round(d["grid_import_wh"], 1),
+                grid_export_wh=round(d["grid_export_wh"], 1),
+                battery_charge_wh=round(d["battery_charge_wh"], 1),
+                battery_discharge_wh=round(d["battery_discharge_wh"], 1),
+                charger_input_wh=round(d["charger_input_wh"], 1),
+                inverter_output_wh=round(d["inverter_output_wh"], 1),
                 charger_losses_wh=round(max(0, d["charger_input_wh"] - d["battery_charge_wh"]), 1),
                 inverter_losses_wh=round(max(0, d["battery_discharge_wh"] - d["inverter_output_wh"]), 1),
                 consumption_wh=round(d["consumption_wh"], 1),
@@ -513,12 +543,22 @@ async def get_power(
                 FROM system_battery WHERE timestamp >= ? AND timestamp < ? GROUP BY bucket
             """
             battery_cursor = db._conn.execute(battery_query, [start_ms, end_ms])
-            battery_data = {row["bucket"]: {"battery_power": row["battery_power"], "inverter_charger_power": row["inverter_charger_power"]} for row in battery_cursor.fetchall()}
+            battery_data = {
+                row["bucket"]: {
+                    "battery_power": row["battery_power"],
+                    "inverter_charger_power": row["inverter_charger_power"],
+                }
+                for row in battery_cursor.fetchall()
+            }
 
             all_buckets = sorted(set(grid_data.keys()) | set(battery_data.keys()))
             return [
-                PowerPoint(time=ms_to_dt(b), grid_power=grid_data.get(b), battery_power=battery_data.get(b, {}).get("battery_power"),
-                           inverter_charger_power=battery_data.get(b, {}).get("inverter_charger_power"))
+                PowerPoint(
+                    time=ms_to_dt(b),
+                    grid_power=grid_data.get(b),
+                    battery_power=battery_data.get(b, {}).get("battery_power"),
+                    inverter_charger_power=battery_data.get(b, {}).get("inverter_charger_power"),
+                )
                 for b in all_buckets
             ]
         else:
@@ -537,8 +577,12 @@ async def get_power(
             """
             cursor = db._conn.execute(query, [start_ms, end_ms, start_ms, end_ms, start_ms, end_ms])
             return [
-                PowerPoint(time=ms_to_dt(row["timestamp"]), grid_power=row["grid_power"], battery_power=row["battery_power"],
-                           inverter_charger_power=row["inverter_charger_power"])
+                PowerPoint(
+                    time=ms_to_dt(row["timestamp"]),
+                    grid_power=row["grid_power"],
+                    battery_power=row["battery_power"],
+                    inverter_charger_power=row["inverter_charger_power"],
+                )
                 for row in cursor.fetchall()
             ]
     except Exception as e:
@@ -590,12 +634,17 @@ async def get_efficiency_scatter(
             elif category == "discharging" and battery_power < 0:
                 efficiency = (inverter_charger_power / battery_power) * 100
 
-            points.append(EfficiencyScatterPoint(
-                time=ms_to_dt(row["bucket"]), battery_power=round(abs(battery_power), 1),
-                inverter_charger_power=round(inverter_charger_power, 1), losses=round(losses, 1),
-                efficiency=round(efficiency, 1) if efficiency is not None else None,
-                soc=battery_soc, category=category,
-            ))
+            points.append(
+                EfficiencyScatterPoint(
+                    time=ms_to_dt(row["bucket"]),
+                    battery_power=round(abs(battery_power), 1),
+                    inverter_charger_power=round(inverter_charger_power, 1),
+                    losses=round(losses, 1),
+                    efficiency=round(efficiency, 1) if efficiency is not None else None,
+                    soc=battery_soc,
+                    category=category,
+                )
+            )
 
         return points
     except Exception as e:
