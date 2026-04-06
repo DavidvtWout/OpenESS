@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from pymodbus.client import ModbusTcpClient
@@ -7,7 +7,7 @@ from pymodbus.exceptions import ModbusException
 
 from dynamic_ess.db import Database
 from .config import VictronConfig
-from .registers import Register, System, VEBus, GridMeter, Battery
+from .registers import Register, System, VEBus
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,9 @@ class MultiPLusConfig:
     vebus_id: int
     phase_count: int
     ess_setpoint: int
+    node_ac_in1: int | None = field(default=None)
+    node_ac_in2: int | None = field(default=None)
+    node_ac_out: int | None = field(default=None)
 
 
 class VictronClient:
@@ -70,9 +73,13 @@ class VictronClient:
             return False
 
         for mp_config in self._mp_configs:
-            mp_config.phase_count = self.detect_phases(mp_config.vebus_id)
-            logger.info(f"VEBus {mp_config.vebus_id}: detected {mp_config.phase_count} phase(s)")
+            vid = mp_config.vebus_id
+            mp_config.phase_count = self.detect_phases(vid)
+            mp_config.node_ac_in1 = self._database.get_or_create_node(f"mp_{vid}_ac_in1", "multiplus")
+            mp_config.node_ac_in2 = self._database.get_or_create_node(f"mp_{vid}_ac_in2", "multiplus")
+            mp_config.node_ac_out = self._database.get_or_create_node(f"mp_{vid}_ac_out", "multiplus")
 
+        # Enable ESS mode 3 (external control)
         self.write(self.system_id, System.ESS_MODE, 3)
 
         return True
@@ -305,15 +312,15 @@ class VictronClient:
             VEBus.AC_OUTPUT_POWER_L3,
             # Energy counters
             VEBus.ENERGY_AC_IN1_TO_AC_OUT,
-            VEBus.ENERGY_AC_IN1_TO_INVERTER,
+            VEBus.ENERGY_AC_IN1_TO_BATTERY,
             VEBus.ENERGY_AC_IN2_TO_AC_OUT,
-            VEBus.ENERGY_AC_IN2_TO_INVERTER,
+            VEBus.ENERGY_AC_IN2_TO_BATTERY,
             VEBus.ENERGY_AC_OUT_TO_AC_IN1,
             VEBus.ENERGY_AC_OUT_TO_AC_IN2,
-            VEBus.ENERGY_INVERTER_TO_AC_IN1,
-            VEBus.ENERGY_INVERTER_TO_AC_IN2,
-            VEBus.ENERGY_INVERTER_TO_AC_OUT,
-            VEBus.ENERGY_AC_OUT_TO_INVERTER,
+            VEBus.ENERGY_BATTERY_TO_AC_IN1,
+            VEBus.ENERGY_BATTERY_TO_AC_IN2,
+            VEBus.ENERGY_BATTERY_TO_AC_OUT,
+            VEBus.ENERGY_AC_OUT_TO_BATTERY,
         ]
 
         for mp_config in self._mp_configs:
@@ -336,20 +343,38 @@ class VictronClient:
             filtered_vebus = {p: vebus_phase_data[p] for p in range(1, mp_config.phase_count + 1)}
             self._database.insert_vebus_measurements(timestamp, mp_config.vebus_id, filtered_vebus)
 
-            # Energy counters
+            # Energy counters (old table)
             energy_data = {
                 "energy_ac_in1_to_ac_out": vebus_values.get(VEBus.ENERGY_AC_IN1_TO_AC_OUT),
-                "energy_ac_in1_to_battery": vebus_values.get(VEBus.ENERGY_AC_IN1_TO_INVERTER),
+                "energy_ac_in1_to_battery": vebus_values.get(VEBus.ENERGY_AC_IN1_TO_BATTERY),
                 "energy_ac_in2_to_ac_out": vebus_values.get(VEBus.ENERGY_AC_IN2_TO_AC_OUT),
-                "energy_ac_in2_to_battery": vebus_values.get(VEBus.ENERGY_AC_IN2_TO_INVERTER),
+                "energy_ac_in2_to_battery": vebus_values.get(VEBus.ENERGY_AC_IN2_TO_BATTERY),
                 "energy_ac_out_to_ac_in1": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN1),
                 "energy_ac_out_to_ac_in2": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN2),
-                "energy_battery_to_ac_in1": vebus_values.get(VEBus.ENERGY_INVERTER_TO_AC_IN1),
-                "energy_battery_to_ac_in2": vebus_values.get(VEBus.ENERGY_INVERTER_TO_AC_IN2),
-                "energy_battery_to_ac_out": vebus_values.get(VEBus.ENERGY_INVERTER_TO_AC_OUT),
-                "energy_ac_out_to_battery": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_INVERTER),
+                "energy_battery_to_ac_in1": vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN1),
+                "energy_battery_to_ac_in2": vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN2),
+                "energy_battery_to_ac_out": vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_OUT),
+                "energy_ac_out_to_battery": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_BATTERY),
             }
             self._database.insert_vebus_energy(timestamp, mp_config.vebus_id, energy_data)
+
+            logger.info(energy_data)
+
+            # Energy flows
+            pool = self._database.get_pool_id()
+            ac1 = mp_config.node_ac_in1
+            ac2 = mp_config.node_ac_in2
+            out = mp_config.node_ac_out
+            self._database.insert_energy_flow(timestamp, ac1, out, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_AC_OUT))
+            self._database.insert_energy_flow(timestamp, pool, ac1, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_BATTERY))
+            self._database.insert_energy_flow(timestamp, ac1, out, vebus_values.get(VEBus.ENERGY_AC_IN2_TO_AC_OUT))
+            self._database.insert_energy_flow(timestamp, pool, ac2, vebus_values.get(VEBus.ENERGY_AC_IN2_TO_BATTERY))
+            self._database.insert_energy_flow(timestamp, out, ac1, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN1))
+            self._database.insert_energy_flow(timestamp, out, ac2, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN2))
+            self._database.insert_energy_flow(timestamp, ac1, pool, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN1))
+            self._database.insert_energy_flow(timestamp, ac2, pool, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN2))
+            self._database.insert_energy_flow(timestamp, out, pool, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_OUT))
+            self._database.insert_energy_flow(timestamp, pool, out, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_BATTERY))
 
         # if self._config.grid_id:
         #     grid_regs = [

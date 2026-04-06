@@ -63,6 +63,13 @@ class Database:
         if run_migrations:
             self._run_migrations()
 
+        self._pool_node_ids = [
+            self.get_or_create_node("pool", "pool"),
+            self.get_or_create_node("pool L1", "pool", 1),
+            self.get_or_create_node("pool L2", "pool", 2),
+            self.get_or_create_node("pool L3", "pool", 3),
+        ]
+
     def new_connection(self) -> "Database":
         """Create a new Database instance with its own connection (for use in other threads)."""
         return Database(self._db_path, run_migrations=False)
@@ -100,6 +107,74 @@ class Database:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    # -------------------------------------------------------------------------
+    # Nodes and energy flows
+    # -------------------------------------------------------------------------
+
+    _node_cache: dict[str, int] = {}  # name -> id cache
+
+    def get_pool_id(self, phase: int = None):
+        if phase is None:
+            phase = 0
+        return self._pool_node_ids[phase]
+
+    def get_or_create_node(self, name: str, node_type: str, phase: int | None = None) -> int:
+        """Get node ID by name, creating it if it doesn't exist."""
+        if name in self._node_cache:
+            return self._node_cache[name]
+
+        cursor = self._conn.execute("SELECT id FROM nodes WHERE name = ?", (name,))
+        row = cursor.fetchone()
+        if row:
+            self._node_cache[name] = row["id"]
+            return row["id"]
+
+        cursor = self._conn.execute(
+            "INSERT INTO nodes (name, type, phase) VALUES (?, ?, ?)",
+            (name, node_type, phase),
+        )
+        self._conn.commit()
+        node_id = cursor.lastrowid
+        self._node_cache[name] = node_id
+        return node_id
+
+    def insert_energy_flow(
+        self,
+        timestamp: datetime,
+        from_node_id: int,
+        to_node_id: int,
+        energy: float,
+    ) -> None:
+        """Insert energy flow if value changed from previous.
+
+        Uses SQL to check if the value differs from the most recent entry.
+        Skips insert if energy is zero or unchanged.
+
+        Args:
+            timestamp: Measurement timestamp
+            from_node_id: Source node ID
+            to_node_id: Destination node ID
+            energy: Cumulative energy value (kWh)
+        """
+        if energy == 0:
+            return
+
+        # Only insert if different from the previous value
+        self._conn.execute(
+            """
+            INSERT INTO energy_flows (timestamp, node_a, node_b, energy)
+            SELECT ?, ?, ?, ?
+            WHERE ? != COALESCE(
+                (SELECT energy FROM energy_flows
+                 WHERE node_a = ? AND node_b = ?
+                 ORDER BY timestamp DESC LIMIT 1),
+                -1
+            )
+            """,
+            (dt_to_ms(timestamp), from_node_id, to_node_id, energy, energy, from_node_id, to_node_id),
+        )
+        self._conn.commit()
 
     # -------------------------------------------------------------------------
     # Day-ahead prices

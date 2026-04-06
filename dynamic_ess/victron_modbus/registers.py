@@ -168,15 +168,15 @@ class VEBus:
 
     # Energy counters (kWh) - NOTE: These are volatile and reset on Multi/GX reboot
     ENERGY_AC_IN1_TO_AC_OUT = Register("Energy AC-In 1 to AC-Out", 74, DataType.UINT32, scale=100)
-    ENERGY_AC_IN1_TO_INVERTER = Register("Energy AC-In 1 to Battery", 76, DataType.UINT32, scale=100)
+    ENERGY_AC_IN1_TO_BATTERY = Register("Energy AC-In 1 to Battery", 76, DataType.UINT32, scale=100)
     ENERGY_AC_IN2_TO_AC_OUT = Register("Energy AC-In 2 to AC-Out", 78, DataType.UINT32, scale=100)
-    ENERGY_AC_IN2_TO_INVERTER = Register("Energy AC-In 2 to Battery", 80, DataType.UINT32, scale=100)
+    ENERGY_AC_IN2_TO_BATTERY = Register("Energy AC-In 2 to Battery", 80, DataType.UINT32, scale=100)
     ENERGY_AC_OUT_TO_AC_IN1 = Register("Energy AC-Out to AC-In 1", 82, DataType.UINT32, scale=100)
     ENERGY_AC_OUT_TO_AC_IN2 = Register("Energy AC-Out to AC-In 2", 84, DataType.UINT32, scale=100)
-    ENERGY_INVERTER_TO_AC_IN1 = Register("Energy Battery to AC-In 1", 86, DataType.UINT32, scale=100)
-    ENERGY_INVERTER_TO_AC_IN2 = Register("Energy Battery to AC-In 2", 88, DataType.UINT32, scale=100)
-    ENERGY_INVERTER_TO_AC_OUT = Register("Energy Battery to AC-Out", 90, DataType.UINT32, scale=100)
-    ENERGY_AC_OUT_TO_INVERTER = Register("Energy AC-Out to Battery", 92, DataType.UINT32, scale=100)
+    ENERGY_BATTERY_TO_AC_IN1 = Register("Energy Battery to AC-In 1", 86, DataType.UINT32, scale=100)
+    ENERGY_BATTERY_TO_AC_IN2 = Register("Energy Battery to AC-In 2", 88, DataType.UINT32, scale=100)
+    ENERGY_BATTERY_TO_AC_OUT = Register("Energy Battery to AC-Out", 90, DataType.UINT32, scale=100)
+    ENERGY_AC_OUT_TO_BATTERY = Register("Energy AC-Out to Battery", 92, DataType.UINT32, scale=100)
 
 
 # =============================================================================
