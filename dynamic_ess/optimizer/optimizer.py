@@ -126,9 +126,8 @@ class Optimizer:
 
         def soc_end_update_rule(model, t):
             multiplus_base_power = 0.020
-            # TODO: think of a better way to implement battery RTT loss compensation
-            charge_power = (model.charge_power[t] + charger_loss(model.charge_power[t])) * 0.98
-            discharge_power = (model.discharge_power[t] + inverter_loss(model.discharge_power[t])) / 0.98
+            charge_power = model.charge_power[t] - charger_loss(model.charge_power[t])
+            discharge_power = model.discharge_power[t] + inverter_loss(model.discharge_power[t])
             total_power = charge_power - discharge_power - multiplus_base_power
             soc_change = 100 * total_power / self._battery_config.capacity_kwh
             return model.soc_end[t] == model.soc_start[t] + soc_change
