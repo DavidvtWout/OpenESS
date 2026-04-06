@@ -403,23 +403,48 @@ def _calculate_dc_energy(rows: list, start_idx: int, end_idx: int) -> tuple[floa
     return energy_charged, energy_discharged
 
 
-def _get_vebus_energy_at(conn, timestamp_ms: int) -> dict | None:
-    """Get the vebus_energy counter values closest to the given timestamp."""
-    # Find the closest record at or before the timestamp
+def _get_energy_flow_at(conn, from_node_type: str, to_node_type: str, timestamp_ms: int) -> float:
+    """Get the latest energy flow value at or before the given timestamp.
+
+    Sums across all node pairs matching the given types (e.g., all ac_in → pool flows).
+    """
     cursor = conn.execute(
-        """SELECT energy_ac_in1_to_battery, energy_ac_out_to_battery, energy_battery_to_ac_in1, energy_battery_to_ac_out
-           FROM vebus_energy WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1""",
-        [timestamp_ms],
+        """
+        SELECT COALESCE(SUM(ef.energy), 0) as total
+        FROM (
+            SELECT node_a, node_b, energy
+            FROM energy_flows
+            WHERE timestamp <= ?
+              AND (node_a, node_b) IN (
+                  SELECT n1.id, n2.id
+                  FROM nodes n1, nodes n2
+                  WHERE n1.name LIKE ? AND n2.name LIKE ?
+              )
+            GROUP BY node_a, node_b
+            HAVING timestamp = MAX(timestamp)
+        ) ef
+        """,
+        [timestamp_ms, f"%{from_node_type}%", f"%{to_node_type}%"],
     )
     row = cursor.fetchone()
-    if row:
-        return {
-            "ac_in_to_battery": row["energy_ac_in1_to_battery"] or 0,
-            "ac_out_to_battery": row["energy_ac_out_to_battery"] or 0,
-            "battery_to_ac_in": row["energy_battery_to_ac_in1"] or 0,
-            "battery_to_ac_out": row["energy_battery_to_ac_out"] or 0,
-        }
-    return None
+    return row["total"] if row else 0
+
+
+def _get_vebus_energy_at(conn, timestamp_ms: int) -> dict | None:
+    """Get energy counter values at the given timestamp using energy_flows table."""
+    # Query energy flows between pool and ac nodes
+    # Based on client.py mappings:
+    # - ac_in_to_battery: pool → ac_in (charging from grid)
+    # - ac_out_to_battery: pool → ac_out (charging from loads/solar)
+    # - battery_to_ac_in: ac_in → pool (discharging to grid)
+    # - battery_to_ac_out: ac_out → pool (discharging to loads)
+
+    return {
+        "ac_in_to_battery": _get_energy_flow_at(conn, "pool", "ac_in", timestamp_ms),
+        "ac_out_to_battery": _get_energy_flow_at(conn, "pool", "ac_out", timestamp_ms),
+        "battery_to_ac_in": _get_energy_flow_at(conn, "ac_in", "pool", timestamp_ms),
+        "battery_to_ac_out": _get_energy_flow_at(conn, "ac_out", "pool", timestamp_ms),
+    }
 
 
 def _calculate_ac_energy_from_measurements(conn, start_ms: int, end_ms: int) -> tuple[float, float]:

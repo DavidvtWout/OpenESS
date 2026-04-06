@@ -343,23 +343,6 @@ class VictronClient:
             filtered_vebus = {p: vebus_phase_data[p] for p in range(1, mp_config.phase_count + 1)}
             self._database.insert_vebus_measurements(timestamp, mp_config.vebus_id, filtered_vebus)
 
-            # Energy counters (old table)
-            energy_data = {
-                "energy_ac_in1_to_ac_out": vebus_values.get(VEBus.ENERGY_AC_IN1_TO_AC_OUT),
-                "energy_ac_in1_to_battery": vebus_values.get(VEBus.ENERGY_AC_IN1_TO_BATTERY),
-                "energy_ac_in2_to_ac_out": vebus_values.get(VEBus.ENERGY_AC_IN2_TO_AC_OUT),
-                "energy_ac_in2_to_battery": vebus_values.get(VEBus.ENERGY_AC_IN2_TO_BATTERY),
-                "energy_ac_out_to_ac_in1": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN1),
-                "energy_ac_out_to_ac_in2": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN2),
-                "energy_battery_to_ac_in1": vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN1),
-                "energy_battery_to_ac_in2": vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN2),
-                "energy_battery_to_ac_out": vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_OUT),
-                "energy_ac_out_to_battery": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_BATTERY),
-            }
-            self._database.insert_vebus_energy(timestamp, mp_config.vebus_id, energy_data)
-
-            logger.info(energy_data)
-
             # Energy flows
             pool = self._database.get_pool_id()
             ac1 = mp_config.node_ac_in1

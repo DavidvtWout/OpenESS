@@ -297,63 +297,6 @@ class Database:
         )
         self._conn.commit()
 
-    def insert_vebus_energy(self, timestamp: datetime, modbus_id: int, energy: VEBusEnergy) -> None:
-        values = (
-            energy.get("energy_ac_in1_to_ac_out"),
-            energy.get("energy_ac_in1_to_battery"),
-            energy.get("energy_ac_in2_to_ac_out"),
-            energy.get("energy_ac_in2_to_battery"),
-            energy.get("energy_ac_out_to_ac_in1"),
-            energy.get("energy_ac_out_to_ac_in2"),
-            energy.get("energy_battery_to_ac_in1"),
-            energy.get("energy_battery_to_ac_in2"),
-            energy.get("energy_battery_to_ac_out"),
-            energy.get("energy_ac_out_to_battery"),
-        )
-
-        # Check if values are the same as the previous entry
-        cursor = self._conn.execute(
-            """
-            SELECT energy_ac_in1_to_ac_out, energy_ac_in1_to_battery,
-                   energy_ac_in2_to_ac_out, energy_ac_in2_to_battery,
-                   energy_ac_out_to_ac_in1, energy_ac_out_to_ac_in2,
-                   energy_battery_to_ac_in1, energy_battery_to_ac_in2,
-                   energy_battery_to_ac_out, energy_ac_out_to_battery
-            FROM vebus_energy
-            WHERE modbus_id = ?
-            ORDER BY timestamp DESC
-            LIMIT 1
-            """,
-            (modbus_id,),
-        )
-        prev = cursor.fetchone()
-        if prev and tuple(prev) == values:
-            return  # Skip insert, values unchanged
-
-        self._conn.execute(
-            """
-            INSERT INTO vebus_energy
-                (timestamp, modbus_id, energy_ac_in1_to_ac_out, energy_ac_in1_to_battery,
-                 energy_ac_in2_to_ac_out, energy_ac_in2_to_battery, energy_ac_out_to_ac_in1,
-                 energy_ac_out_to_ac_in2, energy_battery_to_ac_in1, energy_battery_to_ac_in2,
-                 energy_battery_to_ac_out, energy_ac_out_to_battery)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (timestamp, modbus_id) DO UPDATE SET
-                energy_ac_in1_to_ac_out = excluded.energy_ac_in1_to_ac_out,
-                energy_ac_in1_to_battery = excluded.energy_ac_in1_to_battery,
-                energy_ac_in2_to_ac_out = excluded.energy_ac_in2_to_ac_out,
-                energy_ac_in2_to_battery = excluded.energy_ac_in2_to_battery,
-                energy_ac_out_to_ac_in1 = excluded.energy_ac_out_to_ac_in1,
-                energy_ac_out_to_ac_in2 = excluded.energy_ac_out_to_ac_in2,
-                energy_battery_to_ac_in1 = excluded.energy_battery_to_ac_in1,
-                energy_battery_to_ac_in2 = excluded.energy_battery_to_ac_in2,
-                energy_battery_to_ac_out = excluded.energy_battery_to_ac_out,
-                energy_ac_out_to_battery = excluded.energy_ac_out_to_battery
-            """,
-            (dt_to_ms(timestamp), modbus_id) + values,
-        )
-        self._conn.commit()
-
     # -------------------------------------------------------------------------
     # Charge schedule
     # -------------------------------------------------------------------------
