@@ -249,5 +249,12 @@ class GridMeter:
     VOLTAGE_L3 = Register("Voltage L3", 2620, DataType.UINT16, scale=10)
     CURRENT_L3 = Register("Current L3", 2621, DataType.INT16, scale=10)
 
-    ENERGY_FORWARD = Register("Energy from net", 2634, DataType.UINT32, scale=100)
-    ENERGY_REVERSE = Register("Energy to net", 2636, DataType.UINT32, scale=100)
+    ENERGY_FROM_NET_L1 = Register("Energy from net L1", 2622, DataType.UINT32, scale=100)
+    ENERGY_TO_NET_L1 = Register("Energy to net L1", 2624, DataType.UINT32, scale=100)
+    ENERGY_FROM_NET_L2 = Register("Energy from net L2", 2626, DataType.UINT32, scale=100)
+    ENERGY_TO_NET_L2 = Register("Energy to net L2", 2628, DataType.UINT32, scale=100)
+    ENERGY_FROM_NET_L3 = Register("Energy from net L3", 2630, DataType.UINT32, scale=100)
+    ENERGY_TO_NET_L3 = Register("Energy to net L3", 2632, DataType.UINT32, scale=100)
+
+    ENERGY_FROM_NET_TOTAL = Register("Energy from net", 2634, DataType.UINT32, scale=100)
+    ENERGY_TO_NET_TOTAL = Register("Energy to net", 2636, DataType.UINT32, scale=100)

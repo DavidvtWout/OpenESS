@@ -2,8 +2,6 @@ import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TypedDict
-
 from .runner import get_migrations, run_migration
 
 logger = logging.getLogger(__name__)
@@ -17,37 +15,6 @@ def dt_to_ms(dt: datetime) -> int:
 def ms_to_dt(ms: int) -> datetime:
     """Convert Unix milliseconds to UTC datetime."""
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
-
-
-class SystemMeasurement(TypedDict, total=False):
-    ac_consumption: float | None
-    grid_power: float | None
-    grid_to_multiplus: float | None
-    multiplus_output: float | None
-
-
-class BatteryMeasurement(TypedDict, total=False):
-    battery_power: float | None
-    battery_soc: float | None
-    inverter_charger_power: float | None
-
-
-class VEBusMeasurement(TypedDict, total=False):
-    ac_input_power: float | None
-    ac_output_power: float | None
-
-
-class VEBusEnergy(TypedDict, total=False):
-    energy_ac_in1_to_ac_out: float | None
-    energy_ac_in1_to_battery: float | None
-    energy_ac_in2_to_ac_out: float | None
-    energy_ac_in2_to_battery: float | None
-    energy_ac_out_to_ac_in1: float | None
-    energy_ac_out_to_ac_in2: float | None
-    energy_battery_to_ac_in1: float | None
-    energy_battery_to_ac_in2: float | None
-    energy_battery_to_ac_out: float | None
-    energy_ac_out_to_battery: float | None
 
 
 class Database:
@@ -228,72 +195,55 @@ class Database:
         return None
 
     # -------------------------------------------------------------------------
-    # System measurements
+    # Power flows and battery SOC
     # -------------------------------------------------------------------------
 
-    def insert_system_measurements(self, timestamp: datetime, phases: dict[int, SystemMeasurement]) -> None:
-        ts = dt_to_ms(timestamp)
-        rows = [
-            (
-                ts,
-                1,
-                phase,
-                m.get("ac_consumption"),
-                m.get("grid_power"),
-                m.get("grid_to_multiplus"),
-                m.get("multiplus_output"),
-            )
-            for phase, m in phases.items()
-        ]
-        self._conn.executemany(
-            """
-            INSERT INTO system_measurements (timestamp, sample_count, phase, ac_consumption, grid_power, grid_to_multiplus, multiplus_output)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (timestamp, phase) DO UPDATE SET
-                ac_consumption = excluded.ac_consumption, grid_power = excluded.grid_power,
-                grid_to_multiplus = excluded.grid_to_multiplus, multiplus_output = excluded.multiplus_output
-            """,
-            rows,
-        )
-        self._conn.commit()
+    def insert_power_flow(
+        self,
+        timestamp: datetime,
+        from_node_id: int,
+        to_node_id: int,
+        power: float,
+    ) -> None:
+        """Insert a power flow measurement.
 
-    def insert_battery_measurement(self, timestamp: datetime, measurement: BatteryMeasurement) -> None:
+        Args:
+            timestamp: Measurement timestamp
+            from_node_id: Source node ID
+            to_node_id: Destination node ID
+            power: Power in watts
+        """
+        if power == 0:
+            return
+
         self._conn.execute(
             """
-            INSERT INTO system_battery (timestamp, sample_count, battery_power, battery_soc, inverter_charger_power)
+            INSERT INTO power_flows (start_time, sample_count, node_a, node_b, power)
             VALUES (?, 1, ?, ?, ?)
-            ON CONFLICT (timestamp) DO UPDATE SET
-                battery_power = excluded.battery_power, battery_soc = excluded.battery_soc,
-                inverter_charger_power = excluded.inverter_charger_power
+            ON CONFLICT (start_time, node_a, node_b) DO UPDATE SET
+                power = excluded.power
             """,
-            (
-                dt_to_ms(timestamp),
-                measurement.get("battery_power"),
-                measurement.get("battery_soc"),
-                measurement.get("inverter_charger_power"),
-            ),
+            (dt_to_ms(timestamp), from_node_id, to_node_id, power),
         )
         self._conn.commit()
 
-    # -------------------------------------------------------------------------
-    # VEBus measurements
-    # -------------------------------------------------------------------------
+    def insert_soc(self, timestamp: datetime, soc: int) -> None:
+        """Insert battery SOC if changed from previous value.
 
-    def insert_vebus_measurements(
-        self, timestamp: datetime, modbus_id: int, phases: dict[int, VEBusMeasurement]
-    ) -> None:
-        ts = dt_to_ms(timestamp)
-        rows = [
-            (ts, 1, modbus_id, phase, m.get("ac_input_power"), m.get("ac_output_power")) for phase, m in phases.items()
-        ]
-        self._conn.executemany(
+        Args:
+            timestamp: Measurement timestamp
+            soc: State of charge (0-100)
+        """
+        self._conn.execute(
             """
-            INSERT INTO vebus_measurements (timestamp, sample_count, modbus_id, phase, ac_input_power, ac_output_power)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT (timestamp, modbus_id, phase) DO UPDATE SET
-                ac_input_power = excluded.ac_input_power, ac_output_power = excluded.ac_output_power
+            INSERT INTO battery_soc (timestamp, soc)
+            SELECT ?, ?
+            WHERE ? != COALESCE(
+                (SELECT soc FROM battery_soc ORDER BY timestamp DESC LIMIT 1),
+                -1
+            )
             """,
-            rows,
+            (dt_to_ms(timestamp), soc, soc),
         )
         self._conn.commit()
 
@@ -359,26 +309,18 @@ class Database:
 
     def get_current_soc(self) -> int | None:
         """Get the most recent battery SOC reading."""
-        cursor = self._conn.execute(
-            "SELECT battery_soc FROM system_battery WHERE battery_soc IS NOT NULL ORDER BY timestamp DESC LIMIT 1"
-        )
+        cursor = self._conn.execute("SELECT soc FROM battery_soc ORDER BY timestamp DESC LIMIT 1")
         row = cursor.fetchone()
-        return row["battery_soc"] if row else None
+        return row["soc"] if row else None
 
-    def get_soc_at(self, timestamp: datetime):
-        """Get battery SOC reading at timestamp."""
+    def get_soc_at(self, timestamp: datetime) -> int | None:
+        """Get battery SOC reading at or before timestamp."""
         cursor = self._conn.execute(
-            """
-            SELECT battery_soc
-            FROM system_battery
-            WHERE battery_soc IS NOT NULL AND timestamp < ?
-            ORDER BY timestamp
-            DESC LIMIT 1
-            """,
+            "SELECT soc FROM battery_soc WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1",
             [dt_to_ms(timestamp)],
         )
         row = cursor.fetchone()
-        return row["battery_soc"] if row else None
+        return row["soc"] if row else None
 
     def get_hourly_prices(
         self, area: str, start: datetime, end: datetime | None = None
@@ -402,110 +344,35 @@ class Database:
     # Data compression
     # -------------------------------------------------------------------------
 
-    def compress_battery_data(self, older_than: datetime, bucket_ms: int) -> int:
-        """Compress raw battery measurements older than a given time into buckets.
+    def compress_power_flows(self, older_than: datetime, bucket_ms: int) -> int:
+        """Compress raw power flow measurements older than a given time into buckets.
 
-        Raw samples (end_timestamp IS NULL) are grouped into time buckets and replaced
-        with a single time-weighted average entry. If the bucket is "whole" (first sample
-        at bucket start, last sample at bucket end), timestamps are rounded to whole minutes.
+        Raw samples (end_time IS NULL) are grouped into time buckets per node pair and
+        replaced with a single time-weighted average entry.
 
         Args:
-            older_than: Only compress data with timestamp before this
+            older_than: Only compress data with start_time before this
             bucket_ms: Bucket size in milliseconds (e.g., 60000 for 1 minute)
 
         Returns:
             Number of rows compressed (removed)
-        """
-        return self._compress_table(
-            table="system_battery",
-            columns=["battery_power", "battery_soc", "inverter_charger_power"],
-            older_than=older_than,
-            bucket_ms=bucket_ms,
-            group_by=None,
-        )
-
-    def compress_system_measurements(self, older_than: datetime, bucket_ms: int) -> int:
-        """Compress raw system measurements older than a given time into buckets.
-
-        Args:
-            older_than: Only compress data with timestamp before this
-            bucket_ms: Bucket size in milliseconds (e.g., 60000 for 1 minute)
-
-        Returns:
-            Number of rows compressed (removed)
-        """
-        return self._compress_table(
-            table="system_measurements",
-            columns=["ac_consumption", "grid_power", "grid_to_multiplus", "multiplus_output"],
-            older_than=older_than,
-            bucket_ms=bucket_ms,
-            group_by="phase",
-        )
-
-    def compress_vebus_measurements(self, older_than: datetime, bucket_ms: int) -> int:
-        """Compress raw vebus measurements older than a given time into buckets.
-
-        Args:
-            older_than: Only compress data with timestamp before this
-            bucket_ms: Bucket size in milliseconds (e.g., 60000 for 1 minute)
-
-        Returns:
-            Number of rows compressed (removed)
-        """
-        return self._compress_table(
-            table="vebus_measurements",
-            columns=["ac_input_power", "ac_output_power"],
-            older_than=older_than,
-            bucket_ms=bucket_ms,
-            group_by=["modbus_id", "phase"],
-        )
-
-    def _compress_table(
-        self,
-        table: str,
-        columns: list[str],
-        older_than: datetime,
-        bucket_ms: int,
-        group_by: str | list[str] | None,
-    ) -> int:
-        """Generic compression for time-series tables with end_timestamp support.
-
-        Groups raw samples (end_timestamp IS NULL) into time buckets and replaces them
-        with a single time-weighted average entry. If the bucket is "whole" (samples
-        span from bucket start to bucket end), timestamps are rounded to whole minutes.
-
-        What about leap seconds?
-        Luckily unix time doesn't take leap seconds into account at all! This means that
-        aligning buckets with actual minutes is very easy. The only "problem" is that
-        buckets with leap seconds are a second longer or shorter than the unix time would
-        let you believe. But I don't care at all about this.
-
-        Args:
-            table: Table name to compress
-            columns: List of value columns to average
-            older_than: Only compress data with timestamp before this
-            bucket_ms: Bucket size in milliseconds
-            group_by: Optional column(s) to group by (e.g., "phase" or ["modbus_id", "phase"])
-
-        Returns:
-            Number of rows compressed
         """
         cutoff_ms = dt_to_ms(older_than)
-        group_cols = [group_by] if isinstance(group_by, str) else (group_by or [])
 
-        # Build query to find buckets with data to compress
-        # Include both raw samples and already-compressed data (for re-compression)
-        bucket_query = f"""
+        # Find buckets with data to compress, grouped by node pair
+        bucket_query = """
             SELECT
-                (timestamp / ?) * ? AS bucket,
-                {"".join(f"{col}, " for col in group_cols)}
-                MIN(timestamp) AS first_ts,
-                MAX(COALESCE(end_timestamp, timestamp)) AS last_ts,
+                (start_time / ?) * ? AS bucket,
+                node_a,
+                node_b,
+                MIN(start_time) AS first_ts,
+                MAX(COALESCE(end_time, start_time)) AS last_ts,
                 SUM(sample_count) AS total_samples,
                 COUNT(*) AS row_count
-            FROM {table}
-            WHERE timestamp < ?
-            GROUP BY {", ".join(["bucket"] + group_cols)}
+            FROM power_flows
+            WHERE start_time < ?
+            GROUP BY bucket, node_a, node_b
+            HAVING row_count > 1
             ORDER BY bucket
         """
 
@@ -516,82 +383,66 @@ class Database:
         for bucket_row in buckets:
             bucket_start = bucket_row["bucket"]
             bucket_end = bucket_start + bucket_ms
+            node_a = bucket_row["node_a"]
+            node_b = bucket_row["node_b"]
             first_ts = bucket_row["first_ts"]
             last_ts = bucket_row["last_ts"]
             total_samples = bucket_row["total_samples"]
 
-            # Build WHERE clause for this bucket
-            where_clause = " AND ".join(["timestamp >= ?", "timestamp < ?"] + [f"{col} = ?" for col in group_cols])
-            group_values = [bucket_row[col] for col in group_cols]
-            where_params = [bucket_start, bucket_end] + group_values
-
-            # Get all samples in this bucket, ordered by time
-            col_select = ", ".join(columns)
+            # Get all samples in this bucket for this node pair
             cursor = self._conn.execute(
-                f"SELECT timestamp, end_timestamp, sample_count, {col_select} FROM {table} WHERE {where_clause} ORDER BY timestamp",
-                where_params,
+                """
+                SELECT start_time, end_time, sample_count, power
+                FROM power_flows
+                WHERE start_time >= ? AND start_time < ? AND node_a = ? AND node_b = ?
+                ORDER BY start_time
+                """,
+                (bucket_start, bucket_end, node_a, node_b),
             )
             samples = cursor.fetchall()
             if len(samples) <= 1:
-                # Should never happen, but just to be sure.
                 continue
 
-            # Calculate time-weighted averages
-            # For raw samples (end_timestamp IS NULL), weight by duration to next sample
-            # For compressed samples, weight by their own duration (end_timestamp - timestamp)
+            # Calculate time-weighted average
             total_duration = 0
             total_sample_count = 0
-            weighted_sums = {col: 0.0 for col in columns}
+            weighted_sum = 0.0
 
             for i, sample in enumerate(samples):
-                if sample["end_timestamp"] is not None:
-                    # Already compressed: use its own duration
-                    duration = sample["end_timestamp"] - sample["timestamp"]
+                if sample["end_time"] is not None:
+                    duration = sample["end_time"] - sample["start_time"]
                 elif i < len(samples) - 1:
-                    # Raw sample: use duration to next sample
-                    duration = samples[i + 1]["timestamp"] - sample["timestamp"]
+                    duration = samples[i + 1]["start_time"] - sample["start_time"]
                 else:
-                    # Last raw sample: assume duration is equal to average sample duration.
-                    duration = total_duration / total_sample_count
+                    duration = total_duration / total_sample_count if total_sample_count > 0 else 0
                 total_sample_count += sample["sample_count"]
 
                 total_duration += duration
-                for col in columns:
-                    val = sample[col]
-                    if val is not None:
-                        weighted_sums[col] += val * duration
+                weighted_sum += sample["power"] * duration
 
             if total_duration <= 0:
-                # Should never happen, but just to be sure.
                 continue
 
-            # Calculate averages
-            averages = {}
-            for col in columns:
-                has_data = any(s[col] is not None for s in samples)
-                if has_data:
-                    averages[col] = weighted_sums[col] / total_duration
-                else:
-                    averages[col] = None
+            avg_power = weighted_sum / total_duration
 
-            # Determine timestamps: use whole minutes if bucket is "whole"
+            # Determine timestamps: use whole bucket boundaries if appropriate
             average_duration = total_duration / total_sample_count
             if first_ts <= bucket_start + 1.5 * average_duration:
                 first_ts = bucket_start
             if last_ts >= bucket_end - 1.5 * average_duration:
                 last_ts = bucket_end
 
-            # Delete original samples
-            self._conn.execute(f"DELETE FROM {table} WHERE {where_clause}", where_params)
+            # Delete original samples and insert compressed entry
+            self._conn.execute(
+                "DELETE FROM power_flows WHERE start_time >= ? AND start_time < ? AND node_a = ? AND node_b = ?",
+                (bucket_start, bucket_end, node_a, node_b),
+            )
             total_compressed += len(samples)
 
-            # Insert compressed entry with summed sample_count
-            all_cols = ["timestamp", "end_timestamp", "sample_count"] + group_cols + columns
-            placeholders = ", ".join("?" for _ in all_cols)
-            col_names = ", ".join(all_cols)
-            values = [first_ts, last_ts, total_samples] + group_values + [averages[col] for col in columns]
-
-            self._conn.execute(f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})", values)
+            self._conn.execute(
+                "INSERT INTO power_flows (start_time, end_time, sample_count, node_a, node_b, power) VALUES (?, ?, ?, ?, ?, ?)",
+                (first_ts, last_ts, total_samples, node_a, node_b, avg_power),
+            )
 
         self._conn.commit()
         return total_compressed

@@ -22,7 +22,7 @@ class SystemState:
 
 
 @dataclass
-class MultiPLusConfig:
+class MultiPlusConfig:
     vebus_id: int
     phase_count: int
     ess_setpoint: int
@@ -31,13 +31,32 @@ class MultiPLusConfig:
     node_ac_out: int | None = field(default=None)
 
 
+@dataclass
+class GridNodes:
+    grid_l1: int
+    grid_l2: int
+    grid_l3: int
+    pool_l1: int
+    pool_l2: int
+    pool_l3: int
+
+
+@dataclass
+class BatteryNodes:
+    pool: int
+    multiplus: int
+    battery: int
+
+
 class VictronClient:
     def __init__(self, config: VictronConfig, database: Database):
         self._config = config
         self._database = database
 
         self._client = ModbusTcpClient(config.host, port=config.port)
-        self._mp_configs: list[MultiPLusConfig] = [MultiPLusConfig(vebus_id, 0, 0) for vebus_id in config.vebus_ids]
+        self._mp_configs: list[MultiPlusConfig] = [MultiPlusConfig(vebus_id, 0, 0) for vebus_id in config.vebus_ids]
+        self._grid_nodes: GridNodes | None = None
+        self._battery_nodes: BatteryNodes | None = None
 
     @property
     def host(self) -> str:
@@ -78,6 +97,23 @@ class VictronClient:
             mp_config.node_ac_in1 = self._database.get_or_create_node(f"mp_{vid}_ac_in1", "multiplus")
             mp_config.node_ac_in2 = self._database.get_or_create_node(f"mp_{vid}_ac_in2", "multiplus")
             mp_config.node_ac_out = self._database.get_or_create_node(f"mp_{vid}_ac_out", "multiplus")
+
+        # Initialize grid nodes for per-phase power measurements
+        self._grid_nodes = GridNodes(
+            grid_l1=self._database.get_or_create_node("grid_l1", "grid", 1),
+            grid_l2=self._database.get_or_create_node("grid_l2", "grid", 2),
+            grid_l3=self._database.get_or_create_node("grid_l3", "grid", 3),
+            pool_l1=self._database.get_pool_id(1),
+            pool_l2=self._database.get_pool_id(2),
+            pool_l3=self._database.get_pool_id(3),
+        )
+
+        # Initialize battery nodes for battery power measurements
+        self._battery_nodes = BatteryNodes(
+            pool=self._database.get_pool_id(),
+            multiplus=self._database.get_or_create_node("multiplus", "multiplus"),
+            battery=self._database.get_or_create_node("battery", "battery"),
+        )
 
         # Enable ESS mode 3 (external control)
         self.write(self.system_id, System.ESS_MODE, 3)
@@ -248,59 +284,42 @@ class VictronClient:
 
         # Read System registers
         system_regs = [
-            # Per-phase
-            System.AC_CONSUMPTION_L1,
-            System.AC_CONSUMPTION_L2,
-            System.AC_CONSUMPTION_L3,
             System.GRID_L1,
             System.GRID_L2,
             System.GRID_L3,
-            System.GRID_TO_MULTIPLUS_POWER_L1,
-            System.GRID_TO_MULTIPLUS_POWER_L2,
-            System.GRID_TO_MULTIPLUS_POWER_L3,
-            System.MULTIPLUS_OUTPUT_POWER_L1,
-            System.MULTIPLUS_OUTPUT_POWER_L2,
-            System.MULTIPLUS_OUTPUT_POWER_L3,
-            # Non-phase (battery/system)
             System.BATTERY_POWER,
             System.BATTERY_SOC,
-            System.CHARGER_POWER,
-            System.DC_SYSTEM_POWER,
             System.INVERTER_CHARGER_POWER,
         ]
         system_values = self.read_many(self.system_id, system_regs)
 
-        # Build per-phase system measurements
-        phase_data = {
-            1: {
-                "ac_consumption": _to_int(system_values.get(System.AC_CONSUMPTION_L1)),
-                "grid_power": _to_int(system_values.get(System.GRID_L1)),
-                "grid_to_multiplus": _to_int(system_values.get(System.GRID_TO_MULTIPLUS_POWER_L1)),
-                "multiplus_output": _to_int(system_values.get(System.MULTIPLUS_OUTPUT_POWER_L1)),
-            },
-            2: {
-                "ac_consumption": _to_int(system_values.get(System.AC_CONSUMPTION_L2)),
-                "grid_power": _to_int(system_values.get(System.GRID_L2)),
-                "grid_to_multiplus": _to_int(system_values.get(System.GRID_TO_MULTIPLUS_POWER_L2)),
-                "multiplus_output": _to_int(system_values.get(System.MULTIPLUS_OUTPUT_POWER_L2)),
-            },
-            3: {
-                "ac_consumption": _to_int(system_values.get(System.AC_CONSUMPTION_L3)),
-                "grid_power": _to_int(system_values.get(System.GRID_L3)),
-                "grid_to_multiplus": _to_int(system_values.get(System.GRID_TO_MULTIPLUS_POWER_L3)),
-                "multiplus_output": _to_int(system_values.get(System.MULTIPLUS_OUTPUT_POWER_L3)),
-            },
-        }
-        filtered_phases = {p: phase_data[p] for p in [1, 2, 3]}
-        self._database.insert_system_measurements(timestamp, filtered_phases)
+        # Grid power per phase: grid_lX → pool LX
+        gn = self._grid_nodes
+        grid_l1 = system_values.get(System.GRID_L1)
+        grid_l2 = system_values.get(System.GRID_L2)
+        grid_l3 = system_values.get(System.GRID_L3)
+        if grid_l1 is not None:
+            self._database.insert_power_flow(timestamp, gn.grid_l1, gn.pool_l1, grid_l1)
+        if grid_l2 is not None:
+            self._database.insert_power_flow(timestamp, gn.grid_l2, gn.pool_l2, grid_l2)
+        if grid_l3 is not None:
+            self._database.insert_power_flow(timestamp, gn.grid_l3, gn.pool_l3, grid_l3)
 
-        # Battery measurements
-        battery_data = {
-            "battery_power": _to_int(system_values.get(System.BATTERY_POWER)),
-            "battery_soc": _to_int(system_values.get(System.BATTERY_SOC)),
-            "inverter_charger_power": _to_int(system_values.get(System.INVERTER_CHARGER_POWER)),
-        }
-        self._database.insert_battery_measurement(timestamp, battery_data)
+        # Battery power: multiplus → battery
+        bn = self._battery_nodes
+        battery_power = system_values.get(System.BATTERY_POWER)
+        if battery_power is not None:
+            self._database.insert_power_flow(timestamp, bn.multiplus, bn.battery, battery_power)
+
+        # Inverter/charger power: pool → multiplus
+        inverter_charger_power = system_values.get(System.INVERTER_CHARGER_POWER)
+        if inverter_charger_power is not None:
+            self._database.insert_power_flow(timestamp, bn.pool, bn.multiplus, inverter_charger_power)
+
+        # Battery SOC
+        soc = system_values.get(System.BATTERY_SOC)
+        if soc is not None:
+            self._database.insert_soc(timestamp, int(soc))
 
         # VEBus registers for each device
         vebus_regs = [
@@ -323,34 +342,32 @@ class VictronClient:
             VEBus.ENERGY_AC_OUT_TO_BATTERY,
         ]
 
+        pool = self._database.get_pool_id()
+
         for mp_config in self._mp_configs:
             vebus_values = self.read_many(mp_config.vebus_id, vebus_regs)
-            # Per-phase power measurements
-            vebus_phase_data = {
-                1: {
-                    "ac_input_power": vebus_values.get(VEBus.AC_INPUT_POWER_L1),
-                    "ac_output_power": vebus_values.get(VEBus.AC_OUTPUT_POWER_L1),
-                },
-                2: {
-                    "ac_input_power": vebus_values.get(VEBus.AC_INPUT_POWER_L2),
-                    "ac_output_power": vebus_values.get(VEBus.AC_OUTPUT_POWER_L2),
-                },
-                3: {
-                    "ac_input_power": vebus_values.get(VEBus.AC_INPUT_POWER_L3),
-                    "ac_output_power": vebus_values.get(VEBus.AC_OUTPUT_POWER_L3),
-                },
-            }
-            filtered_vebus = {p: vebus_phase_data[p] for p in range(1, mp_config.phase_count + 1)}
-            self._database.insert_vebus_measurements(timestamp, mp_config.vebus_id, filtered_vebus)
+
+            # Sum power across phases for ac_input and ac_output
+            ac_input_power = sum(
+                vebus_values.get(reg) or 0
+                for reg in [VEBus.AC_INPUT_POWER_L1, VEBus.AC_INPUT_POWER_L2, VEBus.AC_INPUT_POWER_L3]
+            )
+            ac_output_power = sum(
+                vebus_values.get(reg) or 0
+                for reg in [VEBus.AC_OUTPUT_POWER_L1, VEBus.AC_OUTPUT_POWER_L2, VEBus.AC_OUTPUT_POWER_L3]
+            )
+
+            # Power flows: pool → ac_in1, pool → ac_out
+            ac1 = mp_config.node_ac_in1
+            out = mp_config.node_ac_out
+            self._database.insert_power_flow(timestamp, pool, ac1, ac_input_power)
+            self._database.insert_power_flow(timestamp, pool, out, ac_output_power)
 
             # Energy flows
-            pool = self._database.get_pool_id()
-            ac1 = mp_config.node_ac_in1
             ac2 = mp_config.node_ac_in2
-            out = mp_config.node_ac_out
             self._database.insert_energy_flow(timestamp, ac1, out, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_AC_OUT))
             self._database.insert_energy_flow(timestamp, pool, ac1, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_BATTERY))
-            self._database.insert_energy_flow(timestamp, ac1, out, vebus_values.get(VEBus.ENERGY_AC_IN2_TO_AC_OUT))
+            self._database.insert_energy_flow(timestamp, ac2, out, vebus_values.get(VEBus.ENERGY_AC_IN2_TO_AC_OUT))
             self._database.insert_energy_flow(timestamp, pool, ac2, vebus_values.get(VEBus.ENERGY_AC_IN2_TO_BATTERY))
             self._database.insert_energy_flow(timestamp, out, ac1, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN1))
             self._database.insert_energy_flow(timestamp, out, ac2, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN2))
@@ -381,8 +398,3 @@ class VictronClient:
         #     bms_values = self.read_many(self._config.bms_id, bms_regs)
         #     logger.info(bms_values)
         # logger.debug(f"Stored measurements at {timestamp.isoformat()}")
-
-
-def _to_int(value: float | None) -> int | None:
-    """Convert float to int, preserving None."""
-    return int(value) if value is not None else None
