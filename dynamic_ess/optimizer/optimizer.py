@@ -93,10 +93,10 @@ def inverter_loss(grid_power_kw: float) -> float:
 class Optimizer:
     """Optimizes charge/discharge schedule based on prices and constraints using Pyomo."""
 
-    def __init__(self, db: Database, prices: PriceConfig, battery: BatteryConfig):
+    def __init__(self, db: Database, price_config: PriceConfig, battery_config: BatteryConfig):
         self.db = db
-        self.prices = prices
-        self._battery_config = battery
+        self._price_config = price_config
+        self._battery_config = battery_config
 
     def optimize(self) -> list[tuple[datetime, datetime, int, int]]:
         """Generate optimal charge schedule using linear programming.
@@ -110,8 +110,8 @@ class Optimizer:
             power_w > 0 means charging, < 0 means discharging.
         """
         # Capture price functions for use in nested function
-        buy_price_fn = self.prices.buy_price
-        sell_price_fn = self.prices.sell_price
+        buy_price_fn = self._price_config.buy_price
+        sell_price_fn = self._price_config.sell_price
 
         def cost_at_t(model, t):
             buy_cost = model.charge_power[t] * buy_price_fn(model.market_price[t])
@@ -135,7 +135,7 @@ class Optimizer:
         # Get hourly prices for the planning horizon
         now = datetime.now(timezone.utc)
         start_hour = now.replace(minute=0, second=0, microsecond=0)
-        hourly_prices = self.db.get_hourly_prices(self.prices.area, start_hour - timedelta(weeks=6))
+        hourly_prices = self.db.get_hourly_prices(self._price_config.area, start_hour - timedelta(weeks=6))
         last_entoe_hour = hourly_prices[-1][0]
         next_week = predict_next_week(hourly_prices)
         hourly_prices.extend(next_week)
@@ -205,7 +205,5 @@ class Optimizer:
                 f"C:{charge_power:.2f}kW  D:{discharge_power:.2f}kW  {pyo.value(model.market_price[t]):.4f} EUR/kWh -> SOC={pyo.value(model.soc_start[t]):.2f}-{pyo.value(model.soc_end[t]):.2f}%"
             )
 
-        logger.info(f"Optimization solved: cost = {total_cost:.2f} EUR")
-
-        logger.info(f"Generated schedule with {len(schedule)} entries")
+        logger.debug(f"Optimization solved: cost = {total_cost:.2f} EUR")
         return schedule

@@ -21,13 +21,20 @@ class SystemState:
     pv_power: float  # W
 
 
+@dataclass
+class MultiPLusConfig:
+    vebus_id: int
+    phase_count: int
+    ess_setpoint: int
+
+
 class VictronClient:
     def __init__(self, config: VictronConfig, database: Database):
         self._config = config
         self._database = database
 
         self._client = ModbusTcpClient(config.host, port=config.port)
-        self._phases_cache: dict[int, int] = {}  # vebus_id -> num_phases
+        self._mp_configs: list[MultiPLusConfig] = [MultiPLusConfig(vebus_id, 0, 0) for vebus_id in config.vebus_ids]
 
     @property
     def host(self) -> str:
@@ -51,16 +58,22 @@ class VictronClient:
     def close(self):
         self._client.close()
 
+    def set_ess_setpoint(self, power: float):
+        logger.info(f"Set ESS to {power} W")
+        power /= len(self._mp_configs)
+        for mp_config in self._mp_configs:
+            mp_config.ess_setpoint = round(power)
+
     def initialize(self) -> bool:
         """Connect and detect phases for all configured VEBus devices."""
         if not self.connect():
             return False
 
-        for vebus_id in self._config.vebus_ids:
-            self._phases_cache[vebus_id] = self.detect_phases(vebus_id)
-            logger.info(f"VEBus {vebus_id}: detected {self._phases_cache[vebus_id]} phase(s)")
+        for mp_config in self._mp_configs:
+            mp_config.phase_count = self.detect_phases(mp_config.vebus_id)
+            logger.info(f"VEBus {mp_config.vebus_id}: detected {mp_config.phase_count} phase(s)")
 
-        # self.write(self.system_id, System.ESS_MODE, 3)
+        self.write(self.system_id, System.ESS_MODE, 3)
 
         return True
 
@@ -74,11 +87,6 @@ class VictronClient:
             logger.warning(f"Could not detect phases for VEBus {vebus_id}, defaulting to 3")
             return 3
         return int(phases)
-
-    def get_active_phases(self, vebus_id: int) -> list[int]:
-        """Return list of active phase numbers [1], [1,2], or [1,2,3]."""
-        num = self._phases_cache.get(vebus_id, 3)
-        return list(range(1, num + 1))
 
     def read(self, unit_id: int, register: Register) -> float | None:
         """Read a register and return the scaled value."""
@@ -226,16 +234,10 @@ class VictronClient:
 
     def collect_and_store_measurements(self) -> None:
         """Collect all measurements from Victron and store in database."""
-        # for vebus_id in self._config.vebus_ids:
-        #     self.write(vebus_id, VEBus.ESS_SETPOINT_L1, -3000)
+        for mp_config in self._mp_configs:
+            self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, mp_config.ess_setpoint)
 
         timestamp = datetime.now(timezone.utc)
-
-        # Determine active phases from first VEBus device (or default to 3)
-        if self._config.vebus_ids:
-            active_phases = self.get_active_phases(self._config.vebus_ids[0])
-        else:
-            active_phases = [1, 2, 3]
 
         # Read System registers
         system_regs = [
@@ -282,7 +284,7 @@ class VictronClient:
                 "multiplus_output": _to_int(system_values.get(System.MULTIPLUS_OUTPUT_POWER_L3)),
             },
         }
-        filtered_phases = {p: phase_data[p] for p in active_phases}
+        filtered_phases = {p: phase_data[p] for p in [1, 2, 3]}
         self._database.insert_system_measurements(timestamp, filtered_phases)
 
         # Battery measurements
@@ -314,10 +316,8 @@ class VictronClient:
             VEBus.ENERGY_AC_OUT_TO_INVERTER,
         ]
 
-        for vebus_id in self._config.vebus_ids:
-            vebus_values = self.read_many(vebus_id, vebus_regs)
-            device_phases = self.get_active_phases(vebus_id)
-
+        for mp_config in self._mp_configs:
+            vebus_values = self.read_many(mp_config.vebus_id, vebus_regs)
             # Per-phase power measurements
             vebus_phase_data = {
                 1: {
@@ -333,8 +333,8 @@ class VictronClient:
                     "ac_output_power": vebus_values.get(VEBus.AC_OUTPUT_POWER_L3),
                 },
             }
-            filtered_vebus = {p: vebus_phase_data[p] for p in device_phases}
-            self._database.insert_vebus_measurements(timestamp, vebus_id, filtered_vebus)
+            filtered_vebus = {p: vebus_phase_data[p] for p in range(1, mp_config.phase_count + 1)}
+            self._database.insert_vebus_measurements(timestamp, mp_config.vebus_id, filtered_vebus)
 
             # Energy counters
             energy_data = {
@@ -349,7 +349,7 @@ class VictronClient:
                 "energy_battery_to_ac_out": vebus_values.get(VEBus.ENERGY_INVERTER_TO_AC_OUT),
                 "energy_ac_out_to_battery": vebus_values.get(VEBus.ENERGY_AC_OUT_TO_INVERTER),
             }
-            self._database.insert_vebus_energy(timestamp, vebus_id, energy_data)
+            self._database.insert_vebus_energy(timestamp, mp_config.vebus_id, energy_data)
 
         # if self._config.grid_id:
         #     grid_regs = [

@@ -5,53 +5,52 @@ from pathlib import Path
 from dynamic_ess.db import Database
 from dynamic_ess.pricing import PriceConfig
 from dynamic_ess.service import Service
+from dynamic_ess.victron_modbus import VictronService
 from .optimizer import BatteryConfig, Optimizer
 
 logger = logging.getLogger(__name__)
 
 
-class SchedulerService(Service):
-    """Runs the charge optimizer before each hour."""
+class OptimizerService(Service):
+    """Runs the charge optimizer at the start of each hour."""
 
     def __init__(
         self,
         db_path: Path,
-        prices: PriceConfig,
-        battery: BatteryConfig,
-        run_at_minute: int = 55,
+        victron_service: VictronService,
+        price_config: PriceConfig,
+        battery_config: BatteryConfig,
     ):
         super().__init__("SchedulerService")
         self.db_path = db_path
-        self.prices = prices
-        self.run_at_minute = run_at_minute
-        self.battery = battery
+        self.victron_service = victron_service
+        self.price_config = price_config
+        self.battery_config = battery_config
         self.db: Database | None = None
         self.optimizer: Optimizer | None = None
 
     def on_start(self):
         self.db = Database(self.db_path, run_migrations=False)
-        self.optimizer = Optimizer(self.db, prices=self.prices, battery=self.battery)
+        self.optimizer = Optimizer(self.db, price_config=self.price_config, battery_config=self.battery_config)
 
     def tick(self):
         now = datetime.now(timezone.utc)
         self.db.prune_old_schedule(now - timedelta(hours=1))
 
-        logger.info("Running charge optimizer")
+        logger.debug("Running charge optimizer")
         schedule = self.optimizer.optimize()
 
         if schedule:
+            _, _, power, _ = schedule[0]
+            self.victron_service.client.set_ess_setpoint(power)
             self.db.set_schedule(schedule)
-            logger.info(f"Updated schedule with {len(schedule)} entries")
+            logger.debug(f"Updated schedule with {len(schedule)} entries")
         else:
             logger.warning("Optimizer returned empty schedule")
 
     def wait_until_next(self):
-        """Wait until run_at_minute of the next hour."""
         now = datetime.now(timezone.utc)
-
-        next_run = now.replace(minute=self.run_at_minute, second=0, microsecond=0)
-        if now.minute >= self.run_at_minute:
-            next_run += timedelta(hours=1)
+        next_run = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
         wait_seconds = (next_run - now).total_seconds()
         logger.debug(f"Next optimizer run at {next_run} (in {wait_seconds:.0f}s)")
