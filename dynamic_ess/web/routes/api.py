@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -820,7 +821,7 @@ async def get_energy_flow(
 async def get_power(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
-    aggregate_minutes: int = Query(default=0),
+    aggregate_minutes: int = Query(default=1),
     db: Database = Depends(get_db),
 ):
     """Get power measurements: grid, battery, and inverter/charger."""
@@ -831,114 +832,41 @@ async def get_power(
         if end is None:
             end = now
 
-        start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
+        bucket_seconds = aggregate_minutes * 60
 
-        # Get node IDs
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE name = 'battery'")
-        row = cursor.fetchone()
-        battery_id = row["id"] if row else None
+        # Get mp_ac node IDs (e.g., mp_228_ac_in1, mp_228_ac_out)
+        mp_ac_pattern = re.compile(r"^mp_\d+_ac_.*$")
+        mp_ac_ids = [node_id for node_id, name, _, _ in db.get_nodes() if mp_ac_pattern.match(name)]
 
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE type = 'multiplus' AND name NOT LIKE 'mp_%_ac%'")
-        row = cursor.fetchone()
-        multiplus_id = row["id"] if row else None
+        battery_id = db.get_battery_id()
+        pool_id = db.get_pool_id()
 
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE name = 'pool'")
-        row = cursor.fetchone()
-        pool_id = row["id"] if row else None
+        # Grid power (sum across phases)
+        grid_data = {t: p for t, p in db.get_grid_power(start, end, bucket_seconds)}
 
-        if aggregate_minutes > 0:
-            bucket_ms = aggregate_minutes * MS_PER_MIN
+        # Battery power (multiplus → battery)
+        # Get flows where destination is battery, sum all sources
+        battery_flows = db.get_power_flow(start, end, bucket_seconds, to_node_ids=[battery_id])
+        battery_data: dict[datetime, int] = {}
+        for bucket_time, _, _, power in battery_flows:
+            battery_data[bucket_time] = battery_data.get(bucket_time, 0) + power
 
-            # Grid power (sum across phases)
-            grid_query = f"""
-                SELECT bucket, CAST(AVG(total_power) AS INTEGER) as grid_power FROM (
-                    SELECT (pf.start_time / {bucket_ms}) * {bucket_ms} as bucket,
-                           pf.start_time, SUM(pf.power) as total_power
-                    FROM power_flows pf
-                    JOIN nodes n ON pf.node_a = n.id
-                    WHERE n.type = 'grid' AND pf.start_time >= ? AND pf.start_time < ?
-                    GROUP BY bucket, pf.start_time
-                ) GROUP BY bucket
-            """
-            cursor = db._conn.execute(grid_query, [start_ms, end_ms])
-            grid_data = {row["bucket"]: row["grid_power"] for row in cursor.fetchall()}
+        # Inverter/charger power (pool → mp_ac nodes, sum all)
+        inverter_flows = db.get_power_flow(start, end, bucket_seconds, from_node_ids=[pool_id], to_node_ids=mp_ac_ids)
+        inverter_data: dict[datetime, int] = {}
+        for bucket_time, _, _, power in inverter_flows:
+            inverter_data[bucket_time] = inverter_data.get(bucket_time, 0) + power
 
-            # Battery power (multiplus → battery)
-            battery_data = {}
-            if multiplus_id and battery_id:
-                battery_query = f"""
-                    SELECT (start_time / {bucket_ms}) * {bucket_ms} as bucket,
-                           CAST(AVG(power) AS INTEGER) as battery_power
-                    FROM power_flows
-                    WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ?
-                    GROUP BY bucket
-                """
-                cursor = db._conn.execute(battery_query, [multiplus_id, battery_id, start_ms, end_ms])
-                battery_data = {row["bucket"]: row["battery_power"] for row in cursor.fetchall()}
-
-            # Inverter/charger power (pool → multiplus)
-            inverter_data = {}
-            if pool_id and multiplus_id:
-                inverter_query = f"""
-                    SELECT (start_time / {bucket_ms}) * {bucket_ms} as bucket,
-                           CAST(AVG(power) AS INTEGER) as inverter_charger_power
-                    FROM power_flows
-                    WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ?
-                    GROUP BY bucket
-                """
-                cursor = db._conn.execute(inverter_query, [pool_id, multiplus_id, start_ms, end_ms])
-                inverter_data = {row["bucket"]: row["inverter_charger_power"] for row in cursor.fetchall()}
-
-            all_buckets = sorted(set(grid_data.keys()) | set(battery_data.keys()) | set(inverter_data.keys()))
-            return [
-                PowerPoint(
-                    time=ms_to_dt(b),
-                    grid_power=grid_data.get(b),
-                    battery_power=battery_data.get(b),
-                    inverter_charger_power=inverter_data.get(b),
-                )
-                for b in all_buckets
-            ]
-        else:
-            # Grid power
-            grid_query = """
-                SELECT pf.start_time as timestamp, CAST(SUM(pf.power) AS INTEGER) as grid_power
-                FROM power_flows pf
-                JOIN nodes n ON pf.node_a = n.id
-                WHERE n.type = 'grid' AND pf.start_time >= ? AND pf.start_time < ?
-                GROUP BY pf.start_time
-            """
-            cursor = db._conn.execute(grid_query, [start_ms, end_ms])
-            grid_data = {row["timestamp"]: row["grid_power"] for row in cursor.fetchall()}
-
-            # Battery power
-            battery_data = {}
-            if multiplus_id and battery_id:
-                cursor = db._conn.execute(
-                    "SELECT start_time as timestamp, CAST(power AS INTEGER) as battery_power FROM power_flows WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ?",
-                    [multiplus_id, battery_id, start_ms, end_ms],
-                )
-                battery_data = {row["timestamp"]: row["battery_power"] for row in cursor.fetchall()}
-
-            # Inverter/charger power
-            inverter_data = {}
-            if pool_id and multiplus_id:
-                cursor = db._conn.execute(
-                    "SELECT start_time as timestamp, CAST(power AS INTEGER) as inverter_charger_power FROM power_flows WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ?",
-                    [pool_id, multiplus_id, start_ms, end_ms],
-                )
-                inverter_data = {row["timestamp"]: row["inverter_charger_power"] for row in cursor.fetchall()}
-
-            all_timestamps = sorted(set(grid_data.keys()) | set(battery_data.keys()) | set(inverter_data.keys()))
-            return [
-                PowerPoint(
-                    time=ms_to_dt(ts),
-                    grid_power=grid_data.get(ts),
-                    battery_power=battery_data.get(ts),
-                    inverter_charger_power=inverter_data.get(ts),
-                )
-                for ts in all_timestamps
-            ]
+        all_buckets = sorted(set(grid_data.keys()) | set(battery_data.keys()) | set(inverter_data.keys()))
+        return [
+            PowerPoint(
+                time=b,
+                grid_power=grid_data.get(b),
+                battery_power=battery_data.get(b),
+                inverter_charger_power=inverter_data.get(b),
+            )
+            for b in all_buckets
+        ]
     except Exception as e:
         logger.exception("Failed to get power data")
         raise HTTPException(status_code=500, detail=str(e))

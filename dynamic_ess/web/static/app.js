@@ -471,7 +471,7 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
                 type: 'scatter',
                 mode: 'lines',
                 name: 'SoC',
-                line: { color: '#3498db', width: 2, shape: 'hv' },
+                line: { color: '#3498db', width: 2 },
                 hovertemplate: '%{y}%<extra>SoC</extra>',
             });
         }

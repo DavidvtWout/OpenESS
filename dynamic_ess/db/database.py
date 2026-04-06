@@ -30,6 +30,12 @@ class Database:
         if run_migrations:
             self._run_migrations()
 
+        self._grid_node_ids = [
+            self.get_or_create_node("grid", "grid"),
+            self.get_or_create_node("grid_l1", "grid", 1),
+            self.get_or_create_node("grid_l2", "grid", 2),
+            self.get_or_create_node("grid_l3", "grid", 3),
+        ]
         self._pool_node_ids = [
             self.get_or_create_node("pool", "pool"),
             self.get_or_create_node("pool_l1", "pool", 1),
@@ -76,15 +82,23 @@ class Database:
         self.close()
 
     # -------------------------------------------------------------------------
-    # Nodes and energy flows
+    # Nodes
     # -------------------------------------------------------------------------
 
     _node_cache: dict[str, int] = {}  # name -> id cache
+
+    def get_grid_id(self, phase: int = None):
+        if phase is None:
+            phase = 0
+        return self._grid_node_ids[phase]
 
     def get_pool_id(self, phase: int = None):
         if phase is None:
             phase = 0
         return self._pool_node_ids[phase]
+
+    def get_battery_id(self) -> int:
+        return self.get_or_create_node("battery", "battery")
 
     def get_or_create_node(self, name: str, node_type: str, phase: int | None = None) -> int:
         """Get node ID by name, creating it if it doesn't exist."""
@@ -105,6 +119,14 @@ class Database:
         node_id = cursor.lastrowid
         self._node_cache[name] = node_id
         return node_id
+
+    def get_nodes(self) -> list[tuple[int, str, str, int | None]]:
+        cursor = self._conn.execute("SELECT id, name, type, phase FROM nodes;")
+        return [(row["id"], row["name"], row["type"], row["phase"]) for row in cursor.fetchall()]
+
+    # -------------------------------------------------------------------------
+    # Energy flows
+    # -------------------------------------------------------------------------
 
     def insert_energy_flow(
         self,
@@ -226,6 +248,87 @@ class Database:
             (dt_to_ms(timestamp), from_node_id, to_node_id, power),
         )
         self._conn.commit()
+
+    def get_power_flow(
+        self,
+        start: datetime,
+        end: datetime,
+        bucket_seconds: float,
+        from_node_ids: list[int] | None = None,
+        to_node_ids: list[int] | None = None,
+    ) -> list[tuple[datetime, int, int, int]]:
+        """Get power flow data grouped by time bucket and node pair.
+
+        Args:
+            start: Start of time range
+            end: End of time range
+            bucket_seconds: Bucket size for aggregation
+            from_node_ids: Filter by source node IDs (None = all)
+            to_node_ids: Filter by destination node IDs (None = all)
+
+        Returns:
+            List of (bucket_time, node_a, node_b, avg_power) tuples
+        """
+        bucket_ms = round(bucket_seconds * 1000)
+        start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
+
+        # Build WHERE clause and params
+        conditions = ["start_time >= ?", "start_time < ?"]
+        params: list = [bucket_ms, bucket_ms, start_ms, end_ms]
+
+        if from_node_ids:
+            placeholders = ",".join("?" * len(from_node_ids))
+            conditions.append(f"node_a IN ({placeholders})")
+            params.extend(from_node_ids)
+
+        if to_node_ids:
+            placeholders = ",".join("?" * len(to_node_ids))
+            conditions.append(f"node_b IN ({placeholders})")
+            params.extend(to_node_ids)
+
+        where_clause = " AND ".join(conditions)
+
+        query = f"""
+            SELECT (start_time / ?) * ? as bucket, node_a, node_b,
+                   CAST(AVG(power) AS INTEGER) as avg_power
+            FROM power_flows
+            WHERE {where_clause}
+            GROUP BY bucket, node_a, node_b
+            ORDER BY bucket, node_a, node_b
+        """
+        cursor = self._conn.execute(query, params)
+        return [(ms_to_dt(row[0]), row[1], row[2], row[3]) for row in cursor.fetchall()]
+
+    def get_grid_power(
+        self,
+        start: datetime,
+        end: datetime,
+        bucket_seconds: float,
+    ) -> list[tuple[datetime, int]]:
+        """Get total grid power (sum across all phases) as a single time series.
+
+        Args:
+            start: Start of time range
+            end: End of time range
+            bucket_seconds: Bucket size for aggregation
+
+        Returns:
+            List of (bucket_time, total_power) tuples
+        """
+        # Get power flows from grid nodes (all phases)
+        power_flows = self.get_power_flow(
+            start,
+            end,
+            bucket_seconds,
+            from_node_ids=self._grid_node_ids,
+        )
+
+        # Sum power across all node pairs per bucket
+        totals: dict[datetime, int] = {}
+        for bucket_time, _, _, power in power_flows:
+            totals[bucket_time] = totals.get(bucket_time, 0) + power
+
+        return sorted(totals.items())
 
     # -------------------------------------------------------------------------
     # Battery SOC

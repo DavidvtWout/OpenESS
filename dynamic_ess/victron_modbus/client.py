@@ -4,10 +4,11 @@ from datetime import datetime, timezone
 
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
+import pprint
 
 from dynamic_ess.db import Database
 from .config import VictronConfig
-from .registers import Register, System, VEBus
+from .registers import Register, System, VEBus, GridMeter, Battery
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +330,8 @@ class VictronClient:
             VEBus.AC_OUTPUT_POWER_L1,
             VEBus.AC_OUTPUT_POWER_L2,
             VEBus.AC_OUTPUT_POWER_L3,
+            VEBus.DC_CURRENT,
+            VEBus.DC_VOLTAGE,
             # Energy counters
             VEBus.ENERGY_AC_IN1_TO_AC_OUT,
             VEBus.ENERGY_AC_IN1_TO_BATTERY,
@@ -346,6 +349,7 @@ class VictronClient:
 
         for mp_config in self._mp_configs:
             vebus_values = self.read_many(mp_config.vebus_id, vebus_regs)
+            # logger.info(pprint.pformat(vebus_values))
 
             # Sum power across phases for ac_input and ac_output
             ac_input_power = sum(
@@ -376,25 +380,31 @@ class VictronClient:
             self._database.insert_energy_flow(timestamp, out, pool, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_OUT))
             self._database.insert_energy_flow(timestamp, pool, out, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_BATTERY))
 
-        # if self._config.grid_id:
-        #     grid_regs = [
-        #         GridMeter.POWER_L1,
-        #         GridMeter.POWER_L2,
-        #         GridMeter.POWER_L3,
-        #         GridMeter.ENERGY_FORWARD,
-        #         GridMeter.ENERGY_REVERSE,
-        #     ]
-        #
-        #     grid_values = self.read_many(self._config.grid_id, grid_regs)
-        #     logger.info(grid_values)
+        if self._config.grid_id:
+            # TODO: check if grid meter delivers data per phase or not
+            grid_values = self.read_many(
+                self._config.grid_id,
+                [
+                    GridMeter.ENERGY_TO_NET_TOTAL,
+                    GridMeter.ENERGY_FROM_NET_TOTAL,
+                ],
+            )
+            gid = self._database.get_grid_id()
+            pid = self._database.get_pool_id()
+            self._database.insert_energy_flow(timestamp, gid, pid, grid_values.get(GridMeter.ENERGY_FROM_NET_TOTAL))
+            self._database.insert_energy_flow(timestamp, pid, gid, grid_values.get(GridMeter.ENERGY_FROM_NET_TOTAL))
 
-        # if self._config.bms_id:
-        #     bms_regs = [
-        #         Battery.DC_POWER,
-        #         Battery.DISCHARGED_ENERGY,
-        #         Battery.CHARGED_ENERGY,
-        #     ]
-        #
-        #     bms_values = self.read_many(self._config.bms_id, bms_regs)
-        #     logger.info(bms_values)
-        # logger.debug(f"Stored measurements at {timestamp.isoformat()}")
+        if self._config.bms_id:
+            # TODO: check if bms reports energy
+            bms_regs = [
+                Battery.DC_POWER,
+                # Battery.DISCHARGED_ENERGY,
+                # Battery.CHARGED_ENERGY,
+            ]
+
+            bms_values = self.read_many(self._config.bms_id, bms_regs)
+            # TODO: support null ids
+            # self._database.insert_power_flow(timestamp, battery_id, None, bms_values.get(Battery.DC_POWER))
+
+            # logger.info(pprint.pformat(bms_values))
+        logger.debug(f"Stored measurements at {timestamp.isoformat()}")
