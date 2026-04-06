@@ -431,91 +431,56 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
 async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
     showLoading(elementId);
 
-    const batteryUrl = `/api/battery?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
-    const scheduleUrl = `/api/schedule?start=${formatDate(start)}`;
-    console.log('Fetching SoC:', batteryUrl);
+    const batterySocUrl = `/api/battery-soc?start=${formatDate(start)}&end=${formatDate(end)}`;
+    console.log('Fetching SoC:', batterySocUrl);
 
     try {
-        const [batteryResponse, scheduleResponse] = await Promise.all([
-            fetch(batteryUrl),
-            fetch(scheduleUrl)
-        ]);
-
-        if (!batteryResponse.ok) {
-            throw new Error(`Failed to fetch battery data: ${batteryResponse.status}`);
+        const response = await fetch(batterySocUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch battery SoC: ${response.status}`);
         }
 
-        const data = await batteryResponse.json();
-        const schedule = scheduleResponse.ok ? await scheduleResponse.json() : [];
-        console.log('SoC data:', data.length, 'points, Schedule:', schedule.length, 'entries');
+        const data = await response.json();
+        console.log('SoC data:', data.actual.length, 'actual,', data.scheduled.length, 'scheduled');
 
         const now = new Date();
 
-        // Build scheduled SoC line starting from "now"
-        // expected_soc represents the SoC at the END of each schedule entry
-        const scheduleInRange = schedule
-            .map(entry => ({
-                start: new Date(entry.start_time),
-                end: new Date(entry.end_time),
-                soc: entry.expected_soc
-            }))
-            .filter(e => e.end > now && e.start <= end)
-            .sort((a, b) => a.start - b.start);
-
-        const scheduleTimes = [];
-        const scheduleSocs = [];
-
-        if (scheduleInRange.length > 0) {
-            // Get current SoC from latest battery data as starting point
-            let currentSoc = null;
-            if (data.length > 0) {
-                currentSoc = data[data.length - 1].battery_soc;
-            }
-
-            // Start at "now" with current SoC
-            if (currentSoc !== null) {
-                scheduleTimes.push(now);
-                scheduleSocs.push(currentSoc);
-            }
-
-            // Add each schedule entry's end point with expected SoC
-            for (const entry of scheduleInRange) {
-                scheduleTimes.push(entry.end);
-                scheduleSocs.push(entry.soc);
-            }
-        }
-
         // Check if we have any data to show
-        if (data.length === 0 && scheduleInRange.length === 0) {
+        if (data.actual.length === 0 && data.scheduled.length === 0) {
             showError(elementId, 'No SoC data available');
             return;
         }
 
         const traces = [];
 
-        // Gap threshold: 2x the aggregate interval
-        const gapThresholdMs = aggregateMinutes * 60 * 1000 * 2;
+        // Add actual SoC trace with step interpolation
+        if (data.actual.length > 0) {
+            const times = data.actual.map(d => new Date(d.time));
+            const socs = data.actual.map(d => d.soc);
 
-        // Add actual SoC trace if we have measurement data
-        if (data.length > 0) {
-            const times = data.map(d => new Date(d.time));
-            const socData = insertGapNulls(times, data.map(d => d.battery_soc), gapThresholdMs);
+            // Extend the line to "now" with the last known SOC value
+            const lastTime = times[times.length - 1];
+            if (now > lastTime) {
+                times.push(now);
+                socs.push(socs[socs.length - 1]);
+            }
+
             traces.push({
-                x: socData.times,
-                y: socData.values,
+                x: times,
+                y: socs,
                 type: 'scatter',
                 mode: 'lines',
                 name: 'SoC',
-                line: { color: '#3498db', width: 2 },
+                line: { color: '#3498db', width: 2, shape: 'hv' },
                 hovertemplate: '%{y}%<extra>SoC</extra>',
             });
         }
 
         // Add scheduled SoC trace
-        if (scheduleTimes.length > 0) {
+        if (data.scheduled.length > 0) {
             traces.push({
-                x: scheduleTimes,
-                y: scheduleSocs,
+                x: data.scheduled.map(d => new Date(d.time)),
+                y: data.scheduled.map(d => d.soc),
                 type: 'scatter',
                 mode: 'lines',
                 name: 'Scheduled',

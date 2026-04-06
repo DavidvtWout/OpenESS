@@ -32,9 +32,9 @@ class Database:
 
         self._pool_node_ids = [
             self.get_or_create_node("pool", "pool"),
-            self.get_or_create_node("pool L1", "pool", 1),
-            self.get_or_create_node("pool L2", "pool", 2),
-            self.get_or_create_node("pool L3", "pool", 3),
+            self.get_or_create_node("pool_l1", "pool", 1),
+            self.get_or_create_node("pool_l2", "pool", 2),
+            self.get_or_create_node("pool_l3", "pool", 3),
         ]
 
     def new_connection(self) -> "Database":
@@ -195,7 +195,7 @@ class Database:
         return None
 
     # -------------------------------------------------------------------------
-    # Power flows and battery SOC
+    # Power flows
     # -------------------------------------------------------------------------
 
     def insert_power_flow(
@@ -227,6 +227,10 @@ class Database:
         )
         self._conn.commit()
 
+    # -------------------------------------------------------------------------
+    # Battery SOC
+    # -------------------------------------------------------------------------
+
     def insert_soc(self, timestamp: datetime, soc: int) -> None:
         """Insert battery SOC if changed from previous value.
 
@@ -246,6 +250,28 @@ class Database:
             (dt_to_ms(timestamp), soc, soc),
         )
         self._conn.commit()
+
+    def get_battery_soc(self, start: datetime, end: datetime) -> list[tuple[datetime, int]]:
+        """Select rows from battery_soc, extending range to include boundary values for step rendering."""
+        start_ms = dt_to_ms(start)
+        end_ms = dt_to_ms(end)
+        cursor = self._conn.execute(
+            """
+            SELECT timestamp, soc
+            FROM battery_soc
+            WHERE timestamp >= COALESCE(
+                (SELECT MAX(timestamp) FROM battery_soc WHERE timestamp < ?),
+                ?
+            )
+            AND timestamp <= COALESCE(
+                (SELECT MIN(timestamp) FROM battery_soc WHERE timestamp >= ?),
+                ?
+            )
+            ORDER BY timestamp
+            """,
+            [start_ms, start_ms, end_ms, end_ms],
+        )
+        return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]
 
     # -------------------------------------------------------------------------
     # Charge schedule

@@ -293,7 +293,7 @@ class VictronClient:
         ]
         system_values = self.read_many(self.system_id, system_regs)
 
-        # Grid power per phase: grid_lX → pool LX
+        # Grid power per phase: grid_lX → pool_lX
         gn = self._grid_nodes
         grid_l1 = system_values.get(System.GRID_L1)
         grid_l2 = system_values.get(System.GRID_L2)
