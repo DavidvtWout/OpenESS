@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Debug - Dynamic ESS{% endblock %}
+
+{% block content %}
+<h1>Debug: Power & Energy Flows</h1>
+
+<div class="controls">
+    <label>
+        Time range:
+        <select id="hours-select">
+            <option value="6">Last 6 hours</option>
+            <option value="12">Last 12 hours</option>
+            <option value="24" selected>Last 24 hours</option>
+            <option value="48">Last 48 hours</option>
+            <option value="168">Last 7 days</option>
+        </select>
+    </label>
+    <label>
+        Aggregation:
+        <select id="aggregate-select">
+            <option value="1" selected>1 minute</option>
+            <option value="5">5 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="60">1 hour</option>
+        </select>
+    </label>
+</div>
+
+<div class="chart-container">
+    <h2>Power Flows</h2>
+    <div id="power-chart" class="chart chart-large"></div>
+</div>
+
+<div class="chart-container">
+    <h2>Energy Flows (normalized)</h2>
+    <div id="energy-chart" class="chart chart-large"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/app.js"></script>
+<script src="/static/debug.js"></script>
+{% endblock %}

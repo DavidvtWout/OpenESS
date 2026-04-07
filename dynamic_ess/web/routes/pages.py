@@ -32,3 +32,9 @@ async def settings_page(request: Request):
 async def cycles_page(request: Request):
     """Battery cycles efficiency page."""
     return templates.TemplateResponse("cycles.html", {"request": request})
+
+
+@router.get("/debug", response_class=HTMLResponse)
+async def debug_page(request: Request):
+    """Debug page showing all power and energy flows."""
+    return templates.TemplateResponse("debug.html", {"request": request})

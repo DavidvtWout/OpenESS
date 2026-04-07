@@ -116,6 +116,20 @@ class EfficiencyScatterPoint(BaseModel):
     category: str
 
 
+class DebugPowerFlowPoint(BaseModel):
+    time: datetime
+    from_node: str
+    to_node: str
+    power: int
+
+
+class DebugEnergyFlowPoint(BaseModel):
+    time: datetime
+    from_node: str
+    to_node: str
+    energy: float  # Normalized (starts at 0)
+
+
 class SchedulePoint(BaseModel):
     start_time: datetime
     end_time: datetime
@@ -977,4 +991,102 @@ async def get_efficiency_scatter(
         return points
     except Exception as e:
         logger.exception("Failed to get efficiency scatter data")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/debug/power-flows", response_model=list[DebugPowerFlowPoint])
+async def get_debug_power_flows(
+    start: datetime | None = Query(default=None),
+    end: datetime | None = Query(default=None),
+    aggregate_minutes: int = Query(default=1),
+    db: Database = Depends(get_db),
+):
+    """Get all power flows with node names for debugging."""
+    try:
+        now = datetime.now(timezone.utc)
+        if start is None:
+            start = now - timedelta(hours=24)
+        if end is None:
+            end = now
+
+        bucket_ms = aggregate_minutes * MS_PER_MIN
+        start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
+
+        # Get node name mapping
+        cursor = db._conn.execute("SELECT id, name FROM nodes")
+        node_names = {row["id"]: row["name"] for row in cursor.fetchall()}
+
+        # Get all power flows
+        query = f"""
+            SELECT (start_time / {bucket_ms}) * {bucket_ms} as bucket, node_a, node_b,
+                   CAST(AVG(power) AS INTEGER) as avg_power
+            FROM power_flows
+            WHERE start_time >= ? AND start_time < ?
+            GROUP BY bucket, node_a, node_b
+            ORDER BY bucket, node_a, node_b
+        """
+        cursor = db._conn.execute(query, [start_ms, end_ms])
+
+        return [
+            DebugPowerFlowPoint(
+                time=ms_to_dt(row["bucket"]),
+                from_node=node_names.get(row["node_a"], f"unknown_{row['node_a']}"),
+                to_node=node_names.get(row["node_b"], f"unknown_{row['node_b']}"),
+                power=row["avg_power"],
+            )
+            for row in cursor.fetchall()
+        ]
+    except Exception as e:
+        logger.exception("Failed to get debug power flows")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/debug/energy-flows", response_model=list[DebugEnergyFlowPoint])
+async def get_debug_energy_flows(
+    start: datetime | None = Query(default=None),
+    end: datetime | None = Query(default=None),
+    db: Database = Depends(get_db),
+):
+    """Get all energy flows with node names, normalized so each flow starts at 0."""
+    try:
+        now = datetime.now(timezone.utc)
+        if start is None:
+            start = now - timedelta(hours=24)
+        if end is None:
+            end = now
+
+        start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
+
+        # Get node name mapping
+        cursor = db._conn.execute("SELECT id, name FROM nodes")
+        node_names = {row["id"]: row["name"] for row in cursor.fetchall()}
+
+        # Get all energy flows in the time range
+        query = """
+            SELECT timestamp, node_a, node_b, energy
+            FROM energy_flows
+            WHERE timestamp >= ? AND timestamp < ?
+            ORDER BY node_a, node_b, timestamp
+        """
+        cursor = db._conn.execute(query, [start_ms, end_ms])
+        rows = cursor.fetchall()
+
+        # Get the first value for each node pair to normalize
+        first_values: dict[tuple[int, int], float] = {}
+        for row in rows:
+            key = (row["node_a"], row["node_b"])
+            if key not in first_values:
+                first_values[key] = row["energy"]
+
+        return [
+            DebugEnergyFlowPoint(
+                time=ms_to_dt(row["timestamp"]),
+                from_node=node_names.get(row["node_a"], f"unknown_{row['node_a']}"),
+                to_node=node_names.get(row["node_b"], f"unknown_{row['node_b']}"),
+                energy=round(row["energy"] - first_values[(row["node_a"], row["node_b"])], 3),
+            )
+            for row in rows
+        ]
+    except Exception as e:
+        logger.exception("Failed to get debug energy flows")
         raise HTTPException(status_code=500, detail=str(e))

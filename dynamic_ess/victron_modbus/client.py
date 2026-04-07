@@ -279,6 +279,7 @@ class VictronClient:
     def collect_and_store_measurements(self) -> None:
         """Collect all measurements from Victron and store in database."""
         for mp_config in self._mp_configs:
+            # TODO: if SoC is >99% enable charger to balance cells.
             threshold = 50
             if mp_config.ess_setpoint >= threshold:
                 self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, mp_config.ess_setpoint)
