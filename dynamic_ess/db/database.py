@@ -381,14 +381,16 @@ class Database:
     # -------------------------------------------------------------------------
 
     def set_schedule(self, entries: list[tuple[datetime, datetime, int, int]]) -> None:
-        """Replace entire schedule with new entries.
+        """Insert or update schedule entries.
+
+        Existing entries with matching start_time are overwritten.
+        Past entries are preserved for comparison with actual data.
 
         Args:
             entries: List of (start_time, end_time, power_w, expected_soc)
         """
-        self._conn.execute("DELETE FROM charge_schedule")
         self._conn.executemany(
-            "INSERT INTO charge_schedule (start_time, end_time, power, expected_soc) VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO charge_schedule (start_time, end_time, power, expected_soc) VALUES (?, ?, ?, ?)",
             [(dt_to_ms(start), dt_to_ms(end), power, soc) for start, end, power, soc in entries],
         )
         self._conn.commit()
