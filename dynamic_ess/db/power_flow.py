@@ -43,9 +43,6 @@ def insert_power_flow(
         to_node_id: Destination node ID
         power: Power in watts
     """
-    if power == 0:
-        return
-
     conn.execute(
         """
         INSERT INTO power_flows (start_time, sample_count, node_a, node_b, power)

@@ -86,6 +86,11 @@ class EnergyFlowPoint(BaseModel):
     consumption_wh: float
 
 
+class EnergyFlowResponse(BaseModel):
+    energy: list[EnergyFlowPoint]
+    schedule: list["SchedulePoint"]
+
+
 class GridEnergyFlowPoint(BaseModel):
     time: datetime
     grid_import_wh: float
@@ -102,6 +107,11 @@ class PowerPoint(BaseModel):
     grid_power: int | None
     battery_power: int | None
     inverter_charger_power: int | None
+
+
+class PowerResponse(BaseModel):
+    power: list[PowerPoint]
+    schedule: list["SchedulePoint"]
 
 
 class EfficiencyScatterPoint(BaseModel):
@@ -151,50 +161,42 @@ async def health_check(db: Database = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/schedule", response_model=list[SchedulePoint])
-async def get_schedule(
-    start: datetime | None = Query(default=None),
-    db: Database = Depends(get_db),
-):
-    """Get the charge/discharge schedule with predicted losses."""
-    try:
-        schedule = db.get_schedule(start)
-        result = []
-        for start_time, end_time, power_w, expected_soc in schedule:
-            power_kw = power_w / 1000.0
-            if power_w > 0:
-                charger_loss_w = charger_loss(power_kw) * 1000
-                charger_input = power_w + charger_loss_w
-                inverter_output = 0
-                inverter_loss_w = 0
-            elif power_w < 0:
-                battery_power_kw = abs(power_kw)
-                inverter_loss_w = inverter_loss(battery_power_kw) * 1000
-                inverter_output = abs(power_w) - inverter_loss_w
-                charger_input = 0
-                charger_loss_w = 0
-            else:
-                charger_input = 0
-                charger_loss_w = 0
-                inverter_output = 0
-                inverter_loss_w = 0
+def _build_schedule_points(db: Database, start: datetime | None) -> list[SchedulePoint]:
+    """Build schedule points with predicted losses."""
+    schedule = db.get_schedule(start)
+    result = []
+    for start_time, end_time, power_w, expected_soc in schedule:
+        power_kw = power_w / 1000.0
+        if power_w > 0:
+            charger_loss_w = charger_loss(power_kw) * 1000
+            charger_input = power_w + charger_loss_w
+            inverter_output = 0
+            inverter_loss_w = 0
+        elif power_w < 0:
+            battery_power_kw = abs(power_kw)
+            inverter_loss_w = inverter_loss(battery_power_kw) * 1000
+            inverter_output = abs(power_w) - inverter_loss_w
+            charger_input = 0
+            charger_loss_w = 0
+        else:
+            charger_input = 0
+            charger_loss_w = 0
+            inverter_output = 0
+            inverter_loss_w = 0
 
-            result.append(
-                SchedulePoint(
-                    start_time=start_time,
-                    end_time=end_time,
-                    power_w=power_w,
-                    expected_soc=expected_soc,
-                    charger_input_w=round(charger_input, 1),
-                    inverter_output_w=round(inverter_output, 1),
-                    charger_loss_w=round(charger_loss_w, 1),
-                    inverter_loss_w=round(inverter_loss_w, 1),
-                )
+        result.append(
+            SchedulePoint(
+                start_time=start_time,
+                end_time=end_time,
+                power_w=power_w,
+                expected_soc=expected_soc,
+                charger_input_w=round(charger_input, 1),
+                inverter_output_w=round(inverter_output, 1),
+                charger_loss_w=round(charger_loss_w, 1),
+                inverter_loss_w=round(inverter_loss_w, 1),
             )
-        return result
-    except Exception as e:
-        logger.exception("Failed to get schedule")
-        raise HTTPException(status_code=500, detail=str(e))
+        )
+    return result
 
 
 @router.get("/prices", response_model=list[PricePoint])
@@ -461,7 +463,7 @@ async def get_grid_energy(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/energy-flow", response_model=list[EnergyFlowPoint])
+@router.get("/energy-flow", response_model=EnergyFlowResponse)
 async def get_energy_flow_endpoint(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
@@ -469,7 +471,7 @@ async def get_energy_flow_endpoint(
     max_gap_seconds: int = Query(default=300),
     db: Database = Depends(get_db),
 ):
-    """Get energy flow data by integrating power over time."""
+    """Get energy flow data by integrating power over time, plus schedule."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -515,86 +517,88 @@ async def get_energy_flow_endpoint(
 
         all_timestamps = sorted(set(grid_data.keys()) | set(battery_data.keys()) | set(inverter_data.keys()))
 
-        if len(all_timestamps) < 2:
-            return []
+        energy_points = []
+        if len(all_timestamps) >= 2:
+            bucket_ms = bucket_minutes * MS_PER_MIN
+            max_gap_ms = max_gap_seconds * 1000
+            buckets: dict[int, dict] = {}
 
-        bucket_ms = bucket_minutes * MS_PER_MIN
-        max_gap_ms = max_gap_seconds * 1000
-        buckets: dict[int, dict] = {}
+            prev_ts = None
+            for ts in all_timestamps:
+                if prev_ts is not None:
+                    gap_ms = ts - prev_ts
+                    if gap_ms <= max_gap_ms:
+                        dt_hours = gap_ms / 3_600_000.0
+                        bucket_key = (ts // bucket_ms) * bucket_ms
 
-        prev_ts = None
-        for ts in all_timestamps:
-            if prev_ts is not None:
-                gap_ms = ts - prev_ts
-                if gap_ms <= max_gap_ms:
-                    dt_hours = gap_ms / 3_600_000.0
-                    bucket_key = (ts // bucket_ms) * bucket_ms
+                        if bucket_key not in buckets:
+                            buckets[bucket_key] = {
+                                "grid_import_wh": 0.0,
+                                "grid_export_wh": 0.0,
+                                "charger_input_wh": 0.0,
+                                "charger_losses_wh": 0.0,
+                                "inverter_output_wh": 0.0,
+                                "inverter_losses_wh": 0.0,
+                            }
 
-                    if bucket_key not in buckets:
-                        buckets[bucket_key] = {
-                            "grid_import_wh": 0.0,
-                            "grid_export_wh": 0.0,
-                            "charger_input_wh": 0.0,
-                            "charger_losses_wh": 0.0,
-                            "inverter_output_wh": 0.0,
-                            "inverter_losses_wh": 0.0,
-                        }
+                        b = buckets[bucket_key]
 
-                    b = buckets[bucket_key]
+                        grid_power = grid_data.get(prev_ts, 0)
+                        if grid_power > 0:
+                            b["grid_import_wh"] += grid_power * dt_hours
+                        else:
+                            b["grid_export_wh"] += abs(grid_power) * dt_hours
 
-                    grid_power = grid_data.get(prev_ts, 0)
-                    if grid_power > 0:
-                        b["grid_import_wh"] += grid_power * dt_hours
-                    else:
-                        b["grid_export_wh"] += abs(grid_power) * dt_hours
+                        battery_power = battery_data.get(prev_ts, 0)
+                        inverter_power = inverter_data.get(prev_ts, 0)
 
-                    battery_power = battery_data.get(prev_ts, 0)
-                    inverter_power = inverter_data.get(prev_ts, 0)
+                        if battery_power > 0:
+                            b["charger_input_wh"] += abs(inverter_power) * dt_hours
+                            b["charger_losses_wh"] += max(0, abs(inverter_power) - battery_power) * dt_hours
+                        elif battery_power < 0:
+                            battery_discharge = abs(battery_power)
+                            inverter_out = abs(inverter_power)
+                            b["inverter_output_wh"] += inverter_out * dt_hours
+                            b["inverter_losses_wh"] += max(0, battery_discharge - inverter_out) * dt_hours
 
-                    if battery_power > 0:
-                        b["charger_input_wh"] += abs(inverter_power) * dt_hours
-                        b["charger_losses_wh"] += max(0, abs(inverter_power) - battery_power) * dt_hours
-                    elif battery_power < 0:
-                        battery_discharge = abs(battery_power)
-                        inverter_out = abs(inverter_power)
-                        b["inverter_output_wh"] += inverter_out * dt_hours
-                        b["inverter_losses_wh"] += max(0, battery_discharge - inverter_out) * dt_hours
+                prev_ts = ts
 
-            prev_ts = ts
-
-        half_bucket_ms = bucket_ms // 2
-        result = []
-        for bk, d in sorted(buckets.items()):
-            consumption = d["grid_import_wh"] + d["inverter_output_wh"] - d["charger_input_wh"] - d["grid_export_wh"]
-            consumption = max(0, consumption)
-
-            result.append(
-                EnergyFlowPoint(
-                    time=ms_to_dt(bk + half_bucket_ms),
-                    inverter_output_wh=round(d["inverter_output_wh"], 1),
-                    inverter_losses_wh=round(d["inverter_losses_wh"], 1),
-                    charger_input_wh=round(d["charger_input_wh"], 1),
-                    charger_losses_wh=round(d["charger_losses_wh"], 1),
-                    grid_export_wh=round(d["grid_export_wh"], 1),
-                    grid_import_wh=round(d["grid_import_wh"], 1),
-                    consumption_wh=round(consumption, 1),
+            half_bucket_ms = bucket_ms // 2
+            for bk, d in sorted(buckets.items()):
+                consumption = (
+                    d["grid_import_wh"] + d["inverter_output_wh"] - d["charger_input_wh"] - d["grid_export_wh"]
                 )
-            )
+                consumption = max(0, consumption)
 
-        return result
+                energy_points.append(
+                    EnergyFlowPoint(
+                        time=ms_to_dt(bk + half_bucket_ms),
+                        inverter_output_wh=round(d["inverter_output_wh"], 1),
+                        inverter_losses_wh=round(d["inverter_losses_wh"], 1),
+                        charger_input_wh=round(d["charger_input_wh"], 1),
+                        charger_losses_wh=round(d["charger_losses_wh"], 1),
+                        grid_export_wh=round(d["grid_export_wh"], 1),
+                        grid_import_wh=round(d["grid_import_wh"], 1),
+                        consumption_wh=round(consumption, 1),
+                    )
+                )
+
+        schedule_points = _build_schedule_points(db, start)
+
+        return EnergyFlowResponse(energy=energy_points, schedule=schedule_points)
     except Exception as e:
         logger.exception("Failed to get energy flow")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/power", response_model=list[PowerPoint])
+@router.get("/power", response_model=PowerResponse)
 async def get_power(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     aggregate_minutes: int = Query(default=1),
     db: Database = Depends(get_db),
 ):
-    """Get power measurements: grid, battery, and inverter/charger."""
+    """Get power measurements: grid, battery, and inverter/charger, plus schedule."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -623,7 +627,7 @@ async def get_power(
             inverter_data[bucket_time] = inverter_data.get(bucket_time, 0) + pwr
 
         all_buckets = sorted(set(grid_data.keys()) | set(battery_data.keys()) | set(inverter_data.keys()))
-        return [
+        power_points = [
             PowerPoint(
                 time=b,
                 grid_power=grid_data.get(b),
@@ -632,6 +636,10 @@ async def get_power(
             )
             for b in all_buckets
         ]
+
+        schedule_points = _build_schedule_points(db, start)
+
+        return PowerResponse(power=power_points, schedule=schedule_points)
     except Exception as e:
         logger.exception("Failed to get power data")
         raise HTTPException(status_code=500, detail=str(e))

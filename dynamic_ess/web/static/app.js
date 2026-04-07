@@ -141,176 +141,23 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
     }
 }
 
-// Load and display battery chart
-async function loadBatteryChart(elementId, hours = 24) {
-    showLoading(elementId);
-
-    const now = new Date();
-    const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
-
-    const url = `/api/battery?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=5`;
-    console.log('Fetching battery:', url);
-
-    try {
-        const response = await fetch(url);
-        console.log('Battery response:', response.status);
-        if (!response.ok) {
-            const text = await response.text();
-            console.error('Battery error:', text);
-            throw new Error(`Failed to fetch battery data: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('Battery data:', data.length, 'points');
-
-        if (data.length === 0) {
-            showError(elementId, 'No battery data available');
-            return;
-        }
-
-        const times = data.map(d => new Date(d.time));
-        const power = data.map(d => d.battery_power);
-        const soc = data.map(d => d.battery_soc);
-
-        const powerTrace = {
-            x: times,
-            y: power,
-            type: 'scatter',
-            mode: 'lines',
-            name: 'Power (W)',
-            line: { color: '#3498db', width: 2 },
-            yaxis: 'y',
-        };
-
-        const socTrace = {
-            x: times,
-            y: soc,
-            type: 'scatter',
-            mode: 'lines',
-            name: 'SOC (%)',
-            line: { color: '#2ecc71', width: 2 },
-            yaxis: 'y2',
-        };
-
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            xaxis: { ...defaultLayout.xaxis },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: 'Power (W)',
-                side: 'left',
-            },
-            yaxis2: {
-                title: 'SOC (%)',
-                overlaying: 'y',
-                side: 'right',
-                range: [0, 100],
-                gridcolor: 'transparent',
-                linecolor: isDarkTheme() ? '#3a3a5a' : '#dddddd',
-            },
-            legend: getHorizontalLegend(-0.2),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, [powerTrace, socTrace], layout, defaultConfig);
-    } catch (error) {
-        console.error('Error loading battery data:', error);
-        showError(elementId, 'Failed to load battery data');
-    }
-}
-
-// Load and display grid power chart
-async function loadGridChart(elementId, hours = 24) {
-    showLoading(elementId);
-
-    const now = new Date();
-    const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
-
-    const url = `/api/system?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=5`;
-    console.log('Fetching system:', url);
-
-    try {
-        const response = await fetch(url);
-        console.log('System response:', response.status);
-        if (!response.ok) {
-            const text = await response.text();
-            console.error('System error:', text);
-            throw new Error(`Failed to fetch system data: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('System data:', data.length, 'points');
-
-        if (data.length === 0) {
-            showError(elementId, 'No system data available');
-            return;
-        }
-
-        // Group by phase
-        const phases = {};
-        for (const d of data) {
-            if (!phases[d.phase]) {
-                phases[d.phase] = { times: [], grid: [], consumption: [] };
-            }
-            phases[d.phase].times.push(new Date(d.time));
-            phases[d.phase].grid.push(d.grid_power);
-            phases[d.phase].consumption.push(d.ac_consumption);
-        }
-
-        const colors = { 1: '#e74c3c', 2: '#f39c12', 3: '#9b59b6' };
-        const traces = [];
-
-        for (const [phase, values] of Object.entries(phases)) {
-            traces.push({
-                x: values.times,
-                y: values.grid,
-                type: 'scatter',
-                mode: 'lines',
-                name: `Grid L${phase}`,
-                line: { color: colors[phase], width: 2 },
-            });
-        }
-
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            xaxis: { ...defaultLayout.xaxis },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: 'Power (W)',
-            },
-            legend: getHorizontalLegend(-0.2),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, traces, layout, defaultConfig);
-    } catch (error) {
-        console.error('Error loading system data:', error);
-        showError(elementId, 'Failed to load system data');
-    }
-}
-
 // Load and display combined power chart (grid, battery, inverter/charger, scheduled)
 async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
     showLoading(elementId);
 
     const powerUrl = `/api/power?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
-    const scheduleUrl = `/api/schedule?start=${formatDate(start)}`;
     console.log('Fetching power:', powerUrl);
 
     try {
-        const [powerResponse, scheduleResponse] = await Promise.all([
-            fetch(powerUrl),
-            fetch(scheduleUrl)
-        ]);
+        const response = await fetch(powerUrl);
 
-        if (!powerResponse.ok) {
-            throw new Error(`Failed to fetch power data: ${powerResponse.status}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch power data: ${response.status}`);
         }
 
-        const data = await powerResponse.json();
-        const schedule = scheduleResponse.ok ? await scheduleResponse.json() : [];
+        const result = await response.json();
+        const data = result.power;
+        const schedule = result.schedule;
         console.log('Power data:', data.length, 'points, Schedule:', schedule.length, 'entries');
 
         const settings = loadSettings();
@@ -781,21 +628,18 @@ async function loadEnergyFlowChart(elementId, start, end, bucketMinutes = 60, fr
     showLoading(elementId);
 
     const energyUrl = `/api/energy-flow?start=${formatDate(start)}&end=${formatDate(end)}&bucket_minutes=${bucketMinutes}`;
-    const scheduleUrl = `/api/schedule?start=${formatDate(start)}`;
     console.log('Fetching energy flow:', energyUrl);
 
     try {
-        const [energyResponse, scheduleResponse] = await Promise.all([
-            fetch(energyUrl),
-            fetch(scheduleUrl)
-        ]);
+        const response = await fetch(energyUrl);
 
-        if (!energyResponse.ok) {
-            throw new Error(`Failed to fetch energy flow: ${energyResponse.status}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch energy flow: ${response.status}`);
         }
 
-        const data = await energyResponse.json();
-        const schedule = scheduleResponse.ok ? await scheduleResponse.json() : [];
+        const result = await response.json();
+        const data = result.energy;
+        const schedule = result.schedule;
         console.log('Energy flow data:', data.length, 'buckets, Schedule:', schedule.length, 'entries');
 
         renderEnergyFlowChart(elementId, data, start, end, frameOfReference, schedule, bucketMinutes);

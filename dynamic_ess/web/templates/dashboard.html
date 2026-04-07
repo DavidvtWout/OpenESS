@@ -195,19 +195,16 @@
 
     async function loadAndCacheEnergyData(start, end, bucketMinutes) {
         const energyUrl = `/api/energy-flow?start=${start.toISOString()}&end=${end.toISOString()}&bucket_minutes=${bucketMinutes}`;
-        const scheduleUrl = `/api/schedule?start=${start.toISOString()}`;
 
         try {
-            const [energyResponse, scheduleResponse] = await Promise.all([
-                fetch(energyUrl),
-                fetch(scheduleUrl)
-            ]);
+            const response = await fetch(energyUrl);
 
-            if (!energyResponse.ok) {
-                throw new Error(`Failed to fetch energy flow: ${energyResponse.status}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch energy flow: ${response.status}`);
             }
-            cachedEnergyData = await energyResponse.json();
-            cachedScheduleData = scheduleResponse.ok ? await scheduleResponse.json() : [];
+            const result = await response.json();
+            cachedEnergyData = result.energy;
+            cachedScheduleData = result.schedule;
         } catch (error) {
             console.error('Error fetching energy data:', error);
             cachedEnergyData = null;
