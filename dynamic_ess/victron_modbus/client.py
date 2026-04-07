@@ -361,11 +361,11 @@ class VictronClient:
                 for reg in [VEBus.AC_OUTPUT_POWER_L1, VEBus.AC_OUTPUT_POWER_L2, VEBus.AC_OUTPUT_POWER_L3]
             )
 
-            # Power flows: pool → ac_in1, pool → ac_out
+            # Power flows: pool → ac_in1, pool → ac_out (ac_out is negative)
             ac1 = mp_config.node_ac_in1
             out = mp_config.node_ac_out
             self._database.insert_power_flow(timestamp, pool, ac1, ac_input_power)
-            self._database.insert_power_flow(timestamp, pool, out, ac_output_power)
+            self._database.insert_power_flow(timestamp, pool, out, -ac_output_power)
 
             # Energy flows
             ac2 = mp_config.node_ac_in2
