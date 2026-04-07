@@ -1,7 +1,6 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from collections.abc import Callable
 
 from dynamic_ess.service import Service
 from .database import Database
@@ -17,7 +16,7 @@ class DatabaseService(Service):
     """Periodically compresses time series data to reduce storage.
 
     Compression rules:
-    - Data older than 1 day: compressed to 1-minute resolution
+    - Data older than 2 minutes: compressed to 1-minute resolution
     - Data older than 1 week: compressed to 5-minute resolution
     """
 
@@ -38,24 +37,17 @@ class DatabaseService(Service):
         now = datetime.now(timezone.utc)
         total_removed = 0
 
-        compress_funcs: dict[str, Callable[[datetime, int], int]] = {
-            "battery": self.db.compress_battery_data,
-            "system": self.db.compress_system_measurements,
-            "vebus": self.db.compress_vebus_measurements,
-        }
-
-        for name, func in compress_funcs.items():
-            removed = func(now - timedelta(minutes=2), ONE_MINUTE_MS)
-            if removed > 0:
-                logger.info(f"Compressed {removed} {name} samples to 1-minute resolution")
-                total_removed += removed
+        # Compress recent data to 1-minute resolution
+        removed = self.db.compress_power_flows(now - timedelta(minutes=2), ONE_MINUTE_MS)
+        if removed > 0:
+            logger.info(f"Compressed {removed} power_flows samples to 1-minute resolution")
+            total_removed += removed
 
         # Compress data older than 1 week to 5-minute resolution
-        for name, func in compress_funcs.items():
-            removed = func(now - timedelta(days=7), FIVE_MINUTES_MS)
-            if removed > 0:
-                logger.info(f"Compressed {removed} {name} samples to 5-minute resolution")
-                total_removed += removed
+        removed = self.db.compress_power_flows(now - timedelta(days=7), FIVE_MINUTES_MS)
+        if removed > 0:
+            logger.info(f"Compressed {removed} power_flows samples to 5-minute resolution")
+            total_removed += removed
 
         # Reclaim disk space if any compression happened
         if total_removed > 0:
