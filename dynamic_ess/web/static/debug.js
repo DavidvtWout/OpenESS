@@ -133,12 +133,13 @@ async function loadEnergyFlowsChart() {
         const energyUnit = useKw ? 'kWh' : 'Wh';
         const multiplier = useKw ? 1 : 1000;  // API returns kWh
 
-        // Group data by flow (from_node -> to_node)
+        // Group data by flow (from_node -> to_node) and source (counter vs integrated)
         const flows = {};
         for (const d of data) {
-            const key = `${d.from_node} -> ${d.to_node}`;
+            const suffix = d.source === 'integrated' ? ' [int]' : '';
+            const key = `${d.from_node} -> ${d.to_node}${suffix}`;
             if (!flows[key]) {
-                flows[key] = { times: [], energies: [] };
+                flows[key] = { times: [], energies: [], source: d.source };
             }
             flows[key].times.push(new Date(d.time));
             flows[key].energies.push(d.energy * multiplier);
@@ -150,13 +151,18 @@ async function loadEnergyFlowsChart() {
         for (let i = 0; i < sortedKeys.length; i++) {
             const key = sortedKeys[i];
             const flow = flows[key];
+            const isIntegrated = flow.source === 'integrated';
             traces.push({
                 x: flow.times,
                 y: flow.energies,
                 type: 'scatter',
                 mode: 'lines',
                 name: key,
-                line: { color: getFlowColor(i), width: 1.5 },
+                line: {
+                    color: getFlowColor(i),
+                    width: isIntegrated ? 1.5 : 2,
+                    dash: isIntegrated ? 'dot' : 'solid',
+                },
                 hovertemplate: `%{y:.2f} ${energyUnit}<extra>${key}</extra>`,
             });
         }

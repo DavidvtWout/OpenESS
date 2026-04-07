@@ -11,14 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 class VictronService(Service):
-    """Collects measurements from Victron GX at regular intervals."""
+    """Collects measurements from Victron GX every second."""
 
     def __init__(self, config: VictronConfig, db_path: Path):
         super().__init__("VictronService")
         self.config = config
         self.db_path = db_path
-        self.poll_interval = config.poll_interval
-        self._last_poll = 0.0
         self.client: VictronClient | None = None
 
     def on_start(self):
@@ -29,13 +27,13 @@ class VictronService(Service):
         logger.info(f"Connected to Victron GX at {self.client.address}")
 
     def tick(self):
-        now = time.monotonic()
-        if now - self._last_poll >= self.poll_interval:
-            self.client.collect_and_store_measurements()
-            self._last_poll = now
+        self.client.collect_and_store_measurements()
 
     def wait_until_next(self):
-        self.wait_seconds(0.1)
+        # Sleep until the start of the next second
+        now = time.time()
+        sleep_duration = 1.0 - (now % 1.0)
+        self._stop_event.wait(timeout=sleep_duration)
 
     def stop(self):
         super().stop()

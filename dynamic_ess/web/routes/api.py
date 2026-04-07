@@ -128,6 +128,7 @@ class DebugEnergyFlowPoint(BaseModel):
     from_node: str
     to_node: str
     energy: float  # Normalized (starts at 0)
+    source: str  # "counter" or "integrated"
 
 
 class SchedulePoint(BaseModel):
@@ -1047,7 +1048,10 @@ async def get_debug_energy_flows(
     end: datetime | None = Query(default=None),
     db: Database = Depends(get_db),
 ):
-    """Get all energy flows with node names, normalized so each flow starts at 0."""
+    """Get all energy flows with node names, normalized so each flow starts at 0.
+
+    Includes both counter-based energy flows and integrated power flows.
+    """
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -1061,7 +1065,9 @@ async def get_debug_energy_flows(
         cursor = db._conn.execute("SELECT id, name FROM nodes")
         node_names = {row["id"]: row["name"] for row in cursor.fetchall()}
 
-        # Get all energy flows in the time range
+        result: list[DebugEnergyFlowPoint] = []
+
+        # Get counter-based energy flows
         query = """
             SELECT timestamp, node_a, node_b, energy
             FROM energy_flows
@@ -1071,22 +1077,70 @@ async def get_debug_energy_flows(
         cursor = db._conn.execute(query, [start_ms, end_ms])
         rows = cursor.fetchall()
 
-        # Get the first value for each node pair to normalize
+        # Normalize counter-based flows (subtract first value)
         first_values: dict[tuple[int, int], float] = {}
         for row in rows:
             key = (row["node_a"], row["node_b"])
             if key not in first_values:
                 first_values[key] = row["energy"]
 
-        return [
-            DebugEnergyFlowPoint(
-                time=ms_to_dt(row["timestamp"]),
-                from_node=node_names.get(row["node_a"], f"unknown_{row['node_a']}"),
-                to_node=node_names.get(row["node_b"], f"unknown_{row['node_b']}"),
-                energy=round(row["energy"] - first_values[(row["node_a"], row["node_b"])], 3),
+        for row in rows:
+            result.append(
+                DebugEnergyFlowPoint(
+                    time=ms_to_dt(row["timestamp"]),
+                    from_node=node_names.get(row["node_a"], f"unknown_{row['node_a']}"),
+                    to_node=node_names.get(row["node_b"], f"unknown_{row['node_b']}"),
+                    energy=round(row["energy"] - first_values[(row["node_a"], row["node_b"])], 3),
+                    source="counter",
+                )
             )
-            for row in rows
-        ]
+
+        # Integrate power flows to get energy
+        power_query = """
+            SELECT start_time, node_a, node_b, power
+            FROM power_flows
+            WHERE start_time >= ? AND start_time < ?
+            ORDER BY node_a, node_b, start_time
+        """
+        cursor = db._conn.execute(power_query, [start_ms, end_ms])
+        power_rows = cursor.fetchall()
+
+        # Group by node pair and integrate
+        power_by_pair: dict[tuple[int, int], list[tuple[int, float]]] = {}
+        for row in power_rows:
+            key = (row["node_a"], row["node_b"])
+            if key not in power_by_pair:
+                power_by_pair[key] = []
+            power_by_pair[key].append((row["start_time"], row["power"]))
+
+        # Integrate each power flow series
+        for (node_a, node_b), measurements in power_by_pair.items():
+            cumulative_wh = 0.0
+            prev_ts = None
+            prev_power = None
+
+            for ts, power in measurements:
+                if prev_ts is not None and prev_power is not None:
+                    # Time difference in hours
+                    dt_hours = (ts - prev_ts) / 3_600_000.0
+                    # Only integrate if gap is reasonable (< 5 minutes)
+                    if dt_hours < 5 / 60:
+                        cumulative_wh += prev_power * dt_hours
+
+                result.append(
+                    DebugEnergyFlowPoint(
+                        time=ms_to_dt(ts),
+                        from_node=node_names.get(node_a, f"unknown_{node_a}"),
+                        to_node=node_names.get(node_b, f"unknown_{node_b}"),
+                        energy=round(cumulative_wh / 1000, 3),  # Convert Wh to kWh
+                        source="integrated",
+                    )
+                )
+
+                prev_ts = ts
+                prev_power = power
+
+        return result
     except Exception as e:
         logger.exception("Failed to get debug energy flows")
         raise HTTPException(status_code=500, detail=str(e))
