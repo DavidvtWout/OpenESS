@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
-import pprint
 
 from dynamic_ess.db import Database
 from .config import VictronConfig
@@ -30,6 +29,14 @@ class MultiPlusConfig:
     node_ac_in1: int | None = field(default=None)
     node_ac_in2: int | None = field(default=None)
     node_ac_out: int | None = field(default=None)
+    node_dc: int | None = field(default=None)
+
+
+@dataclass
+class BmsConfig:
+    bms_id: int
+    node_bms: int | None = field(default=None)
+    node_battery: int | None = field(default=None)
 
 
 @dataclass
@@ -56,6 +63,7 @@ class VictronClient:
 
         self._client = ModbusTcpClient(config.host, port=config.port)
         self._mp_configs: list[MultiPlusConfig] = [MultiPlusConfig(vebus_id, 0, 0) for vebus_id in config.vebus_ids]
+        self._bms_config: BmsConfig | None = BmsConfig(config.bms_id) if config.bms_id else None
         self._grid_nodes: GridNodes | None = None
         self._battery_nodes: BatteryNodes | None = None
 
@@ -98,6 +106,13 @@ class VictronClient:
             mp_config.node_ac_in1 = self._database.get_or_create_node(f"mp_{vid}_ac_in1", "multiplus")
             mp_config.node_ac_in2 = self._database.get_or_create_node(f"mp_{vid}_ac_in2", "multiplus")
             mp_config.node_ac_out = self._database.get_or_create_node(f"mp_{vid}_ac_out", "multiplus")
+            mp_config.node_dc = self._database.get_or_create_node(f"mp_{vid}_dc", "multiplus")
+
+        # Initialize BMS nodes
+        if self._bms_config:
+            bid = self._bms_config.bms_id
+            self._bms_config.node_bms = self._database.get_or_create_node(f"bms_{bid}", "bms")
+            self._bms_config.node_battery = self._database.get_or_create_node(f"battery_{bid}", "battery")
 
         # Initialize grid nodes for per-phase power measurements
         self._grid_nodes = GridNodes(
@@ -376,6 +391,13 @@ class VictronClient:
             self._database.insert_power_flow(timestamp, pool, ac1, ac_input_power)
             self._database.insert_power_flow(timestamp, pool, out, -ac_output_power)
 
+            # DC power from MultiPlus: mp_dc → battery
+            dc_current = vebus_values.get(VEBus.DC_CURRENT)
+            dc_voltage = vebus_values.get(VEBus.DC_VOLTAGE)
+            if dc_current is not None and dc_voltage is not None:
+                dc_power = dc_current * dc_voltage
+                self._database.insert_power_flow(timestamp, mp_config.node_dc, bn.battery, dc_power)
+
             # Energy flows
             ac2 = mp_config.node_ac_in2
             self._database.insert_energy_flow(timestamp, ac1, out, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_AC_OUT))
@@ -403,17 +425,14 @@ class VictronClient:
             self._database.insert_energy_flow(timestamp, gid, pid, grid_values.get(GridMeter.ENERGY_FROM_NET_TOTAL))
             self._database.insert_energy_flow(timestamp, pid, gid, grid_values.get(GridMeter.ENERGY_FROM_NET_TOTAL))
 
-        if self._config.bms_id:
-            # TODO: check if bms reports energy
-            bms_regs = [
-                Battery.DC_POWER,
-                # Battery.DISCHARGED_ENERGY,
-                # Battery.CHARGED_ENERGY,
-            ]
+        if self._bms_config:
+            bms_regs = [Battery.DC_POWER]
+            bms_values = self.read_many(self._bms_config.bms_id, bms_regs)
 
-            bms_values = self.read_many(self._config.bms_id, bms_regs)
-            # TODO: support null ids
-            # self._database.insert_power_flow(timestamp, battery_id, None, bms_values.get(Battery.DC_POWER))
-
-            # logger.info(pprint.pformat(bms_values))
+            # BMS DC power: bms → battery
+            bms_dc_power = bms_values.get(Battery.DC_POWER)
+            if bms_dc_power is not None:
+                self._database.insert_power_flow(
+                    timestamp, self._bms_config.node_bms, self._bms_config.node_battery, bms_dc_power
+                )
         logger.debug(f"Stored measurements at {timestamp.isoformat()}")
