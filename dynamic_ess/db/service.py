@@ -51,7 +51,7 @@ class DatabaseService(Service):
 
         # Reclaim disk space if any compression happened
         if total_removed > 0:
-            self.db._conn.execute("PRAGMA incremental_vacuum")
+            self.db.conn.execute("PRAGMA incremental_vacuum")
             logger.debug("Ran incremental vacuum")
         else:
             logger.debug("No data to compress")

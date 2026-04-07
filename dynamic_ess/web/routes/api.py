@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from dynamic_ess.db import Database, dt_to_ms, ms_to_dt
+from dynamic_ess.db import Database, dt_to_ms, ms_to_dt, power_flow, energy_flow
 from dynamic_ess.optimizer.optimizer import charger_loss, inverter_loss
 from dynamic_ess.pricing import PriceConfig
 
@@ -70,11 +70,9 @@ class BatteryCycle(BaseModel):
     end_time: datetime
     duration_hours: float
     min_soc: int
-    # AC side from energy_flows counters
-    ac_energy_in_wh: float  # energy drawn from grid for charging (counter)
-    ac_energy_out_wh: float  # energy delivered to grid/loads (counter)
-    # Efficiency
-    system_efficiency: float | None  # AC out / AC in from counters
+    ac_energy_in_wh: float
+    ac_energy_out_wh: float
+    system_efficiency: float | None
 
 
 class EnergyFlowPoint(BaseModel):
@@ -127,18 +125,17 @@ class DebugEnergyFlowPoint(BaseModel):
     time: datetime
     from_node: str
     to_node: str
-    energy: float  # Normalized (starts at 0)
-    source: str  # "counter" or "integrated"
+    energy: float
+    source: str
 
 
 class SchedulePoint(BaseModel):
     start_time: datetime
     end_time: datetime
-    power_w: int  # positive = charging, negative = discharging
+    power_w: int
     expected_soc: int
-    # Predicted values based on loss formulas
-    charger_input_w: float  # power drawn from grid when charging
-    inverter_output_w: float  # power delivered to grid when discharging
+    charger_input_w: float
+    inverter_output_w: float
     charger_loss_w: float
     inverter_loss_w: float
 
@@ -146,7 +143,7 @@ class SchedulePoint(BaseModel):
 @router.get("/health", response_model=HealthResponse)
 async def health_check(db: Database = Depends(get_db)):
     try:
-        cursor = db._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        cursor = db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = [row["name"] for row in cursor.fetchall()]
         return HealthResponse(status="ok", database="connected", tables=tables)
     except Exception as e:
@@ -166,16 +163,13 @@ async def get_schedule(
         for start_time, end_time, power_w, expected_soc in schedule:
             power_kw = power_w / 1000.0
             if power_w > 0:
-                # Charging: charger draws more from grid than goes into battery
-                charger_loss_w = charger_loss(power_kw) * 1000  # W
+                charger_loss_w = charger_loss(power_kw) * 1000
                 charger_input = power_w + charger_loss_w
                 inverter_output = 0
                 inverter_loss_w = 0
             elif power_w < 0:
-                # Discharging: battery provides more than goes to grid
-                # power_w is negative, so abs() for calculation
                 battery_power_kw = abs(power_kw)
-                inverter_loss_w = inverter_loss(battery_power_kw) * 1000  # W
+                inverter_loss_w = inverter_loss(battery_power_kw) * 1000
                 inverter_output = abs(power_w) - inverter_loss_w
                 charger_input = 0
                 charger_loss_w = 0
@@ -217,22 +211,15 @@ async def get_price_data(
         if end is None:
             end = now + timedelta(days=2)
 
-        # Aggregate to hourly - bucket by hour
-        query = """
-            SELECT (start_time / ?) * ? as hour, AVG(price) / 1000.0 as price
-            FROM day_ahead_prices
-            WHERE area = ? AND start_time >= ? AND start_time < ?
-            GROUP BY hour ORDER BY hour
-        """
-        cursor = db._conn.execute(query, [MS_PER_HOUR, MS_PER_HOUR, price_config.area, dt_to_ms(start), dt_to_ms(end)])
+        prices = db.get_hourly_prices(price_config.area, start, end)
         return [
             PricePoint(
-                time=ms_to_dt(row["hour"]),
-                market_price=row["price"],
-                buy_price=price_config.buy_price(row["price"]),
-                sell_price=price_config.sell_price(row["price"]),
+                time=hour,
+                market_price=price,
+                buy_price=price_config.buy_price(price),
+                sell_price=price_config.sell_price(price),
             )
-            for row in cursor.fetchall()
+            for hour, price in prices
         ]
     except Exception as e:
         logger.exception("Failed to get prices")
@@ -240,7 +227,7 @@ async def get_price_data(
 
 
 @router.get("/grid-power", response_model=list[GridPowerPoint])
-async def get_grid_power(
+async def get_grid_power_endpoint(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     phase: int | None = Query(default=None),
@@ -255,46 +242,10 @@ async def get_grid_power(
         if end is None:
             end = now
 
-        phase_filter = "AND n.phase = ?" if phase else ""
-        params: list = []
+        bucket_seconds = aggregate_minutes * 60 if aggregate_minutes > 0 else None
+        data = power_flow.get_grid_power_by_phase(db.conn, start, end, bucket_seconds, phase)
 
-        if aggregate_minutes > 0:
-            bucket_ms = aggregate_minutes * MS_PER_MIN
-            params = [bucket_ms, bucket_ms, dt_to_ms(start), dt_to_ms(end)]
-            if phase:
-                params.append(phase)
-
-            query = f"""
-                SELECT (pf.start_time / ?) * ? as bucket, n.phase,
-                       CAST(AVG(pf.power) AS INTEGER) as grid_power
-                FROM power_flows pf
-                JOIN nodes n ON pf.node_a = n.id
-                WHERE n.type = 'grid' AND pf.start_time >= ? AND pf.start_time < ? {phase_filter}
-                GROUP BY bucket, n.phase ORDER BY bucket
-            """
-            cursor = db._conn.execute(query, params)
-        else:
-            params = [dt_to_ms(start), dt_to_ms(end)]
-            if phase:
-                params.append(phase)
-
-            query = f"""
-                SELECT pf.start_time as timestamp, n.phase, CAST(pf.power AS INTEGER) as grid_power
-                FROM power_flows pf
-                JOIN nodes n ON pf.node_a = n.id
-                WHERE n.type = 'grid' AND pf.start_time >= ? AND pf.start_time < ? {phase_filter}
-                ORDER BY pf.start_time
-            """
-            cursor = db._conn.execute(query, params)
-
-        return [
-            GridPowerPoint(
-                time=ms_to_dt(row["bucket"] if aggregate_minutes > 0 else row["timestamp"]),
-                phase=row["phase"],
-                grid_power=row["grid_power"],
-            )
-            for row in cursor.fetchall()
-        ]
+        return [GridPowerPoint(time=t, phase=p, grid_power=power) for t, p, power in data]
     except Exception as e:
         logger.exception("Failed to get grid power")
         raise HTTPException(status_code=500, detail=str(e))
@@ -336,84 +287,33 @@ async def get_battery_measurements(
         if end is None:
             end = now
 
-        start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
-
-        # Get battery node IDs
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE name = 'multiplus'")
-        row = cursor.fetchone()
-        if not row:
+        multiplus_id = db.get_multiplus_id()
+        battery_id = db.get_battery_id()
+        if not multiplus_id:
             return []
-        multiplus_id = row["id"]
 
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE name = 'battery'")
-        row = cursor.fetchone()
-        if not row:
-            return []
-        battery_id = row["id"]
+        bucket_seconds = aggregate_minutes * 60 if aggregate_minutes > 0 else None
+        power_data = power_flow.get_battery_measurements(db.conn, start, end, multiplus_id, battery_id, bucket_seconds)
+        soc_data = db.get_soc_by_bucket(start, end, bucket_seconds) if bucket_seconds else {}
 
-        if aggregate_minutes > 0:
-            bucket_ms = aggregate_minutes * MS_PER_MIN
-            # Get battery power from power_flows
-            power_query = f"""
-                SELECT (start_time / {bucket_ms}) * {bucket_ms} as bucket,
-                       CAST(AVG(power) AS INTEGER) as battery_power
-                FROM power_flows
-                WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ?
-                GROUP BY bucket
-            """
-            cursor = db._conn.execute(power_query, [multiplus_id, battery_id, start_ms, end_ms])
-            power_data = {row["bucket"]: row["battery_power"] for row in cursor.fetchall()}
-
-            # Get SOC - use last value in each bucket
-            soc_query = f"""
-                SELECT (timestamp / {bucket_ms}) * {bucket_ms} as bucket,
-                       soc as battery_soc
-                FROM battery_soc
-                WHERE timestamp >= ? AND timestamp < ?
-                GROUP BY bucket
-                HAVING timestamp = MAX(timestamp)
-            """
-            cursor = db._conn.execute(soc_query, [start_ms, end_ms])
-            soc_data = {row["bucket"]: row["battery_soc"] for row in cursor.fetchall()}
-
-            all_buckets = sorted(set(power_data.keys()) | set(soc_data.keys()))
-            return [
-                BatteryMeasurementPoint(
-                    time=ms_to_dt(b),
-                    battery_power=power_data.get(b),
-                    battery_soc=soc_data.get(b),
-                )
-                for b in all_buckets
-            ]
-        else:
-            # Get battery power from power_flows
-            cursor = db._conn.execute(
-                """
-                SELECT start_time as timestamp, CAST(power AS INTEGER) as battery_power
-                FROM power_flows
-                WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ?
-                ORDER BY start_time
-                """,
-                [multiplus_id, battery_id, start_ms, end_ms],
-            )
-            power_data = {row["timestamp"]: row["battery_power"] for row in cursor.fetchall()}
-
-            # Get SOC
-            cursor = db._conn.execute(
-                "SELECT timestamp, soc as battery_soc FROM battery_soc WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp",
+        if not bucket_seconds:
+            # Get raw SOC data
+            start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
+            cursor = db.conn.execute(
+                "SELECT timestamp, soc FROM battery_soc WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp",
                 [start_ms, end_ms],
             )
-            soc_data = {row["timestamp"]: row["battery_soc"] for row in cursor.fetchall()}
+            soc_data = {row["timestamp"]: row["soc"] for row in cursor.fetchall()}
 
-            all_timestamps = sorted(set(power_data.keys()) | set(soc_data.keys()))
-            return [
-                BatteryMeasurementPoint(
-                    time=ms_to_dt(ts),
-                    battery_power=power_data.get(ts),
-                    battery_soc=soc_data.get(ts),
-                )
-                for ts in all_timestamps
-            ]
+        all_keys = sorted(set(power_data.keys()) | set(soc_data.keys()))
+        return [
+            BatteryMeasurementPoint(
+                time=ms_to_dt(k),
+                battery_power=power_data.get(k),
+                battery_soc=soc_data.get(k),
+            )
+            for k in all_keys
+        ]
     except Exception as e:
         logger.exception("Failed to get battery measurements")
         raise HTTPException(status_code=500, detail=str(e))
@@ -425,25 +325,10 @@ def _find_cycles_recursive(
     end: int,
     min_soc_swing: int,
 ) -> list[dict]:
-    """
-    Find battery cycles using divide-and-conquer.
-
-    Algorithm:
-    1. Find the global minimum SoC in the range
-    2. Find the peak (max SoC) on the left and right sides
-    3. If min(left_peak, right_peak) - min_soc >= threshold, it's a valid cycle
-    4. Recursively process data before left peak and after right peak
-    5. If no valid cycle, split at minimum and recurse both sides
-
-    rows: list of (timestamp_ms, soc) tuples
-    start, end: range indices (end exclusive)
-
-    Returns cycle boundaries only; energy is calculated separately.
-    """
+    """Find battery cycles using divide-and-conquer."""
     if end - start < 3:
         return []
 
-    # Find minimum SoC in range
     min_idx = start
     min_soc = rows[start][1]
     for i in range(start + 1, end):
@@ -451,7 +336,6 @@ def _find_cycles_recursive(
             min_soc = rows[i][1]
             min_idx = i
 
-    # Find peak on left side (start to min_idx inclusive)
     left_peak_idx = start
     left_peak = rows[start][1]
     for i in range(start, min_idx + 1):
@@ -459,7 +343,6 @@ def _find_cycles_recursive(
             left_peak = rows[i][1]
             left_peak_idx = i
 
-    # Find peak on right side (min_idx to end exclusive)
     right_peak_idx = min_idx
     right_peak = rows[min_idx][1]
     for i in range(min_idx, end):
@@ -467,7 +350,6 @@ def _find_cycles_recursive(
             right_peak = rows[i][1]
             right_peak_idx = i
 
-    # Calculate effective peak (lower of the two) and swing
     effective_peak = min(left_peak, right_peak)
     swing = effective_peak - min_soc
 
@@ -491,43 +373,6 @@ def _find_cycles_recursive(
         )
 
 
-def _get_energy_flow_at(conn, from_node_type: str, to_node_type: str, timestamp_ms: int) -> float:
-    """Get the latest energy flow value at or before the given timestamp.
-
-    Sums across all node pairs matching the given types (e.g., all ac_in → pool flows).
-    """
-    cursor = conn.execute(
-        """
-        SELECT COALESCE(SUM(ef.energy), 0) as total
-        FROM (
-            SELECT node_a, node_b, energy
-            FROM energy_flows
-            WHERE timestamp <= ?
-              AND (node_a, node_b) IN (
-                  SELECT n1.id, n2.id
-                  FROM nodes n1, nodes n2
-                  WHERE n1.name LIKE ? AND n2.name LIKE ?
-              )
-            GROUP BY node_a, node_b
-            HAVING timestamp = MAX(timestamp)
-        ) ef
-        """,
-        [timestamp_ms, f"%{from_node_type}%", f"%{to_node_type}%"],
-    )
-    row = cursor.fetchone()
-    return row["total"] if row else 0
-
-
-def _get_vebus_energy_at(conn, timestamp_ms: int) -> dict:
-    """Get energy counter values at the given timestamp using energy_flows table."""
-    return {
-        "ac_in_to_battery": _get_energy_flow_at(conn, "pool", "ac_in", timestamp_ms),
-        "ac_out_to_battery": _get_energy_flow_at(conn, "pool", "ac_out", timestamp_ms),
-        "battery_to_ac_in": _get_energy_flow_at(conn, "ac_in", "pool", timestamp_ms),
-        "battery_to_ac_out": _get_energy_flow_at(conn, "ac_out", "pool", timestamp_ms),
-    }
-
-
 @router.get("/cycles", response_model=list[BatteryCycle])
 async def get_battery_cycles(
     start: datetime | None = Query(default=None),
@@ -543,42 +388,32 @@ async def get_battery_cycles(
         if end is None:
             end = now
 
-        cursor = db._conn.execute(
-            "SELECT timestamp, soc FROM battery_soc WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp",
-            [dt_to_ms(start), dt_to_ms(end)],
-        )
-        rows = [(row["timestamp"], row["soc"]) for row in cursor.fetchall()]
+        rows = db.get_soc_series(start, end)
 
         if len(rows) < 3:
             return []
 
-        # Find cycles using divide-and-conquer (boundaries only)
         raw_cycles = _find_cycles_recursive(rows, 0, len(rows), min_soc_swing)
 
-        # Calculate energy for each cycle and convert to response format
         cycles = []
         for c in sorted(raw_cycles, key=lambda x: x["start_ms"]):
             start_time = ms_to_dt(c["start_ms"])
             end_time = ms_to_dt(c["end_ms"])
             duration = (end_time - start_time).total_seconds() / 3600.0
 
-            # AC energy from energy_flows counters (cumulative, so take delta)
-            vebus_start = _get_vebus_energy_at(db._conn, c["start_ms"])
-            vebus_end = _get_vebus_energy_at(db._conn, c["end_ms"])
+            vebus_start = energy_flow.get_vebus_energy_at(db.conn, start_time)
+            vebus_end = energy_flow.get_vebus_energy_at(db.conn, end_time)
 
-            # Energy drawn from grid for charging (kWh -> Wh)
             ac_energy_in = (
                 vebus_end["ac_in_to_battery"]
                 - vebus_start["ac_in_to_battery"]
                 + (vebus_end["ac_out_to_battery"] - vebus_start["ac_out_to_battery"])
             ) * 1000
-            # Energy delivered from battery to grid and loads (kWh -> Wh)
             ac_energy_out = (
                 (vebus_end["battery_to_ac_in"] - vebus_start["battery_to_ac_in"])
                 + (vebus_end["battery_to_ac_out"] - vebus_start["battery_to_ac_out"])
             ) * 1000
 
-            # System efficiency from counters: AC out / AC in
             system_eff = (ac_energy_out / ac_energy_in) * 100 if ac_energy_in > 0 else None
 
             cycles.append(
@@ -615,62 +450,11 @@ async def get_grid_energy(
         if end is None:
             end = now
 
-        start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
+        data = energy_flow.get_grid_energy_by_bucket(db.conn, start, end, bucket_minutes * 60, max_gap_seconds)
 
-        # Get total grid power (sum across phases) from power_flows
-        cursor = db._conn.execute(
-            """
-            SELECT pf.start_time as timestamp, SUM(pf.power) as grid_power
-            FROM power_flows pf
-            JOIN nodes n ON pf.node_a = n.id
-            WHERE n.type = 'grid' AND pf.start_time >= ? AND pf.start_time < ?
-            GROUP BY pf.start_time
-            ORDER BY pf.start_time
-            """,
-            [start_ms, end_ms],
-        )
-        rows = cursor.fetchall()
-
-        if len(rows) < 2:
-            return []
-
-        bucket_ms = bucket_minutes * MS_PER_MIN
-        max_gap_ms = max_gap_seconds * 1000
-        buckets: dict[int, dict] = {}
-
-        prev_ts = None
-        prev_power = None
-        for row in rows:
-            ts = row["timestamp"]
-            grid_power = row["grid_power"]
-
-            if prev_ts is not None:
-                gap_ms = ts - prev_ts
-                if gap_ms <= max_gap_ms:
-                    dt_hours = gap_ms / 3_600_000.0
-                    bucket_key = (ts // bucket_ms) * bucket_ms
-
-                    if bucket_key not in buckets:
-                        buckets[bucket_key] = {"grid_import_wh": 0.0, "grid_export_wh": 0.0}
-
-                    if prev_power is not None:
-                        if prev_power > 0:
-                            buckets[bucket_key]["grid_import_wh"] += prev_power * dt_hours
-                        else:
-                            buckets[bucket_key]["grid_export_wh"] += abs(prev_power) * dt_hours
-
-            prev_ts = ts
-            prev_power = grid_power
-
-        # Center the time in the middle of each bucket
-        half_bucket_ms = bucket_ms // 2
         return [
-            GridEnergyFlowPoint(
-                time=ms_to_dt(bk + half_bucket_ms),
-                grid_import_wh=round(d["grid_import_wh"], 1),
-                grid_export_wh=round(d["grid_export_wh"], 1),
-            )
-            for bk, d in sorted(buckets.items())
+            GridEnergyFlowPoint(time=t, grid_import_wh=round(imp, 1), grid_export_wh=round(exp, 1))
+            for t, imp, exp in data
         ]
     except Exception as e:
         logger.exception("Failed to get grid energy")
@@ -678,23 +462,14 @@ async def get_grid_energy(
 
 
 @router.get("/energy-flow", response_model=list[EnergyFlowPoint])
-async def get_energy_flow(
+async def get_energy_flow_endpoint(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     bucket_minutes: int = Query(default=60),
     max_gap_seconds: int = Query(default=300),
     db: Database = Depends(get_db),
 ):
-    """Get energy flow data by integrating power over time.
-
-    Returns per-bucket breakdown of:
-    - charger_input_wh: energy drawn from grid for charging
-    - charger_losses_wh: losses during charging
-    - inverter_output_wh: energy delivered from battery
-    - inverter_losses_wh: losses during discharging
-    - grid_import_wh / grid_export_wh: total grid energy
-    - consumption_wh: energy consumed by loads
-    """
+    """Get energy flow data by integrating power over time."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -704,22 +479,12 @@ async def get_energy_flow(
 
         start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
 
-        # Get node IDs
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE name = 'battery'")
-        row = cursor.fetchone()
-        battery_id = row["id"] if row else None
+        battery_id = db.get_battery_id()
+        multiplus_id = db.get_multiplus_id()
+        pool_id = db.get_pool_id()
 
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE type = 'multiplus' AND name NOT LIKE 'mp_%_ac%'")
-        row = cursor.fetchone()
-        multiplus_id = row["id"] if row else None
-
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE name = 'pool'")
-        row = cursor.fetchone()
-        pool_id = row["id"] if row else None
-
-        # Get all power measurements at each timestamp
-        # Grid power (sum across phases)
-        cursor = db._conn.execute(
+        # Get power data
+        cursor = db.conn.execute(
             """
             SELECT pf.start_time as timestamp, SUM(pf.power) as grid_power
             FROM power_flows pf
@@ -732,25 +497,22 @@ async def get_energy_flow(
         )
         grid_data = {row["timestamp"]: row["grid_power"] for row in cursor.fetchall()}
 
-        # Battery power (multiplus → battery)
         battery_data = {}
         if multiplus_id and battery_id:
-            cursor = db._conn.execute(
-                "SELECT start_time as timestamp, power as battery_power FROM power_flows WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ? ORDER BY start_time",
+            cursor = db.conn.execute(
+                "SELECT start_time as timestamp, power FROM power_flows WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ? ORDER BY start_time",
                 [multiplus_id, battery_id, start_ms, end_ms],
             )
-            battery_data = {row["timestamp"]: row["battery_power"] for row in cursor.fetchall()}
+            battery_data = {row["timestamp"]: row["power"] for row in cursor.fetchall()}
 
-        # Inverter/charger power (pool → multiplus)
         inverter_data = {}
         if pool_id and multiplus_id:
-            cursor = db._conn.execute(
-                "SELECT start_time as timestamp, power as inverter_charger_power FROM power_flows WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ? ORDER BY start_time",
+            cursor = db.conn.execute(
+                "SELECT start_time as timestamp, power FROM power_flows WHERE node_a = ? AND node_b = ? AND start_time >= ? AND start_time < ? ORDER BY start_time",
                 [pool_id, multiplus_id, start_ms, end_ms],
             )
-            inverter_data = {row["timestamp"]: row["inverter_charger_power"] for row in cursor.fetchall()}
+            inverter_data = {row["timestamp"]: row["power"] for row in cursor.fetchall()}
 
-        # Merge all timestamps
         all_timestamps = sorted(set(grid_data.keys()) | set(battery_data.keys()) | set(inverter_data.keys()))
 
         if len(all_timestamps) < 2:
@@ -780,23 +542,19 @@ async def get_energy_flow(
 
                     b = buckets[bucket_key]
 
-                    # Grid energy
                     grid_power = grid_data.get(prev_ts, 0)
                     if grid_power > 0:
                         b["grid_import_wh"] += grid_power * dt_hours
                     else:
                         b["grid_export_wh"] += abs(grid_power) * dt_hours
 
-                    # Battery and inverter energy
                     battery_power = battery_data.get(prev_ts, 0)
                     inverter_power = inverter_data.get(prev_ts, 0)
 
                     if battery_power > 0:
-                        # Charging: inverter_power is input, battery_power is what gets stored
                         b["charger_input_wh"] += abs(inverter_power) * dt_hours
                         b["charger_losses_wh"] += max(0, abs(inverter_power) - battery_power) * dt_hours
                     elif battery_power < 0:
-                        # Discharging: battery provides power, inverter outputs less due to losses
                         battery_discharge = abs(battery_power)
                         inverter_out = abs(inverter_power)
                         b["inverter_output_wh"] += inverter_out * dt_hours
@@ -804,14 +562,11 @@ async def get_energy_flow(
 
             prev_ts = ts
 
-        # Calculate consumption and center time in buckets
         half_bucket_ms = bucket_ms // 2
         result = []
         for bk, d in sorted(buckets.items()):
-            # Consumption = grid_import + inverter_output - charger_input
-            # (energy that went to loads, not back to grid or battery)
             consumption = d["grid_import_wh"] + d["inverter_output_wh"] - d["charger_input_wh"] - d["grid_export_wh"]
-            consumption = max(0, consumption)  # Clip negative values
+            consumption = max(0, consumption)
 
             result.append(
                 EnergyFlowPoint(
@@ -849,28 +604,23 @@ async def get_power(
 
         bucket_seconds = aggregate_minutes * 60
 
-        # Get mp_ac node IDs (e.g., mp_228_ac_in1, mp_228_ac_out)
         mp_ac_pattern = re.compile(r"^mp_\d+_ac_.*$")
         mp_ac_ids = [node_id for node_id, name, _, _ in db.get_nodes() if mp_ac_pattern.match(name)]
 
         battery_id = db.get_battery_id()
         pool_id = db.get_pool_id()
 
-        # Grid power (sum across phases)
         grid_data = {t: p for t, p in db.get_grid_power(start, end, bucket_seconds)}
 
-        # Battery power (multiplus → battery)
-        # Get flows where destination is battery, sum all sources
         battery_flows = db.get_power_flow(start, end, bucket_seconds, to_node_ids=[battery_id])
         battery_data: dict[datetime, int] = {}
-        for bucket_time, _, _, power in battery_flows:
-            battery_data[bucket_time] = battery_data.get(bucket_time, 0) + power
+        for bucket_time, _, _, pwr in battery_flows:
+            battery_data[bucket_time] = battery_data.get(bucket_time, 0) + pwr
 
-        # Inverter/charger power (pool → mp_ac nodes, sum all)
         inverter_flows = db.get_power_flow(start, end, bucket_seconds, from_node_ids=[pool_id], to_node_ids=mp_ac_ids)
         inverter_data: dict[datetime, int] = {}
-        for bucket_time, _, _, power in inverter_flows:
-            inverter_data[bucket_time] = inverter_data.get(bucket_time, 0) + power
+        for bucket_time, _, _, pwr in inverter_flows:
+            inverter_data[bucket_time] = inverter_data.get(bucket_time, 0) + pwr
 
         all_buckets = sorted(set(grid_data.keys()) | set(battery_data.keys()) | set(inverter_data.keys()))
         return [
@@ -897,69 +647,22 @@ async def get_efficiency_scatter(
 ):
     """Get efficiency scatter data for battery power vs inverter/charger power."""
     try:
-        bucket_ms = aggregate_minutes * MS_PER_MIN
+        multiplus_id = db.get_multiplus_id()
+        battery_id = db.get_battery_id()
+        pool_id = db.get_pool_id()
 
-        # Get node IDs
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE name = 'battery'")
-        row = cursor.fetchone()
-        if not row:
+        if not multiplus_id:
             return []
-        battery_id = row["id"]
 
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE type = 'multiplus' AND name NOT LIKE 'mp_%_ac%'")
-        row = cursor.fetchone()
-        if not row:
-            return []
-        multiplus_id = row["id"]
-
-        cursor = db._conn.execute("SELECT id FROM nodes WHERE name = 'pool'")
-        row = cursor.fetchone()
-        if not row:
-            return []
-        pool_id = row["id"]
-
-        # Get battery power (multiplus → battery) grouped by bucket
-        battery_query = f"""
-            SELECT (start_time / {bucket_ms}) * {bucket_ms} as bucket,
-                   AVG(power) as battery_power
-            FROM power_flows
-            WHERE node_a = ? AND node_b = ?
-            GROUP BY bucket
-            ORDER BY bucket DESC
-            LIMIT ?
-        """
-        cursor = db._conn.execute(battery_query, [multiplus_id, battery_id, limit])
-        battery_data = {row["bucket"]: row["battery_power"] for row in cursor.fetchall()}
-
-        # Get inverter/charger power (pool → multiplus) grouped by bucket
-        inverter_query = f"""
-            SELECT (start_time / {bucket_ms}) * {bucket_ms} as bucket,
-                   AVG(power) as inverter_charger_power
-            FROM power_flows
-            WHERE node_a = ? AND node_b = ?
-            GROUP BY bucket
-        """
-        cursor = db._conn.execute(inverter_query, [pool_id, multiplus_id])
-        inverter_data = {row["bucket"]: row["inverter_charger_power"] for row in cursor.fetchall()}
-
-        # Get SOC grouped by bucket
-        soc_query = f"""
-            SELECT (timestamp / {bucket_ms}) * {bucket_ms} as bucket,
-                   CAST(ROUND(AVG(soc)) AS INTEGER) as battery_soc
-            FROM battery_soc
-            GROUP BY bucket
-        """
-        cursor = db._conn.execute(soc_query)
-        soc_data = {row["bucket"]: row["battery_soc"] for row in cursor.fetchall()}
+        data = power_flow.get_efficiency_scatter_data(
+            db.conn, multiplus_id, battery_id, pool_id, aggregate_minutes * 60, limit
+        )
 
         points = []
-        for bucket in battery_data.keys():
-            battery_power = battery_data.get(bucket)
-            inverter_charger_power = inverter_data.get(bucket)
-            battery_soc = soc_data.get(bucket)
-
-            if battery_power is None or inverter_charger_power is None:
-                continue
+        for d in data:
+            battery_power = d["battery_power"]
+            inverter_charger_power = d["inverter_charger_power"]
+            battery_soc = d["battery_soc"]
 
             if abs(battery_power) < idle_threshold:
                 category = "idling"
@@ -979,7 +682,7 @@ async def get_efficiency_scatter(
 
             points.append(
                 EfficiencyScatterPoint(
-                    time=ms_to_dt(bucket),
+                    time=ms_to_dt(d["bucket"]),
                     battery_power=round(abs(battery_power), 1),
                     inverter_charger_power=round(inverter_charger_power, 1),
                     losses=round(losses, 1),
@@ -1010,32 +713,16 @@ async def get_debug_power_flows(
         if end is None:
             end = now
 
-        bucket_ms = aggregate_minutes * MS_PER_MIN
-        start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
-
-        # Get node name mapping
-        cursor = db._conn.execute("SELECT id, name FROM nodes")
-        node_names = {row["id"]: row["name"] for row in cursor.fetchall()}
-
-        # Get all power flows
-        query = f"""
-            SELECT (start_time / {bucket_ms}) * {bucket_ms} as bucket, node_a, node_b,
-                   CAST(AVG(power) AS INTEGER) as avg_power
-            FROM power_flows
-            WHERE start_time >= ? AND start_time < ?
-            GROUP BY bucket, node_a, node_b
-            ORDER BY bucket, node_a, node_b
-        """
-        cursor = db._conn.execute(query, [start_ms, end_ms])
+        data = power_flow.get_all_power_flows(db.conn, start, end, aggregate_minutes * 60)
 
         return [
             DebugPowerFlowPoint(
-                time=ms_to_dt(row["bucket"]),
-                from_node=node_names.get(row["node_a"], f"unknown_{row['node_a']}"),
-                to_node=node_names.get(row["node_b"], f"unknown_{row['node_b']}"),
-                power=row["avg_power"],
+                time=d.time,
+                from_node=d.from_node,
+                to_node=d.to_node,
+                power=d.power,
             )
-            for row in cursor.fetchall()
+            for d in data
         ]
     except Exception as e:
         logger.exception("Failed to get debug power flows")
@@ -1048,10 +735,7 @@ async def get_debug_energy_flows(
     end: datetime | None = Query(default=None),
     db: Database = Depends(get_db),
 ):
-    """Get all energy flows with node names, normalized so each flow starts at 0.
-
-    Includes both counter-based energy flows and integrated power flows.
-    """
+    """Get all energy flows with node names, normalized so each flow starts at 0."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -1059,86 +743,22 @@ async def get_debug_energy_flows(
         if end is None:
             end = now
 
-        start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
-
-        # Get node name mapping
-        cursor = db._conn.execute("SELECT id, name FROM nodes")
-        node_names = {row["id"]: row["name"] for row in cursor.fetchall()}
-
-        result: list[DebugEnergyFlowPoint] = []
-
         # Get counter-based energy flows
-        query = """
-            SELECT timestamp, node_a, node_b, energy
-            FROM energy_flows
-            WHERE timestamp >= ? AND timestamp < ?
-            ORDER BY node_a, node_b, timestamp
-        """
-        cursor = db._conn.execute(query, [start_ms, end_ms])
-        rows = cursor.fetchall()
+        counter_flows = energy_flow.get_all_energy_flows_with_names(db.conn, start, end, normalize=True)
 
-        # Normalize counter-based flows (subtract first value)
-        first_values: dict[tuple[int, int], float] = {}
-        for row in rows:
-            key = (row["node_a"], row["node_b"])
-            if key not in first_values:
-                first_values[key] = row["energy"]
+        # Get integrated power flows
+        integrated_flows = energy_flow.integrate_power_flows(db.conn, start, end)
 
-        for row in rows:
-            result.append(
-                DebugEnergyFlowPoint(
-                    time=ms_to_dt(row["timestamp"]),
-                    from_node=node_names.get(row["node_a"], f"unknown_{row['node_a']}"),
-                    to_node=node_names.get(row["node_b"], f"unknown_{row['node_b']}"),
-                    energy=round(row["energy"] - first_values[(row["node_a"], row["node_b"])], 3),
-                    source="counter",
-                )
+        result = [
+            DebugEnergyFlowPoint(
+                time=f.time,
+                from_node=f.from_node,
+                to_node=f.to_node,
+                energy=f.energy,
+                source=f.source,
             )
-
-        # Integrate power flows to get energy
-        power_query = """
-            SELECT start_time, node_a, node_b, power
-            FROM power_flows
-            WHERE start_time >= ? AND start_time < ?
-            ORDER BY node_a, node_b, start_time
-        """
-        cursor = db._conn.execute(power_query, [start_ms, end_ms])
-        power_rows = cursor.fetchall()
-
-        # Group by node pair and integrate
-        power_by_pair: dict[tuple[int, int], list[tuple[int, float]]] = {}
-        for row in power_rows:
-            key = (row["node_a"], row["node_b"])
-            if key not in power_by_pair:
-                power_by_pair[key] = []
-            power_by_pair[key].append((row["start_time"], row["power"]))
-
-        # Integrate each power flow series
-        for (node_a, node_b), measurements in power_by_pair.items():
-            cumulative_wh = 0.0
-            prev_ts = None
-            prev_power = None
-
-            for ts, power in measurements:
-                if prev_ts is not None and prev_power is not None:
-                    # Time difference in hours
-                    dt_hours = (ts - prev_ts) / 3_600_000.0
-                    # Only integrate if gap is reasonable (< 5 minutes)
-                    if dt_hours < 5 / 60:
-                        cumulative_wh += prev_power * dt_hours
-
-                result.append(
-                    DebugEnergyFlowPoint(
-                        time=ms_to_dt(ts),
-                        from_node=node_names.get(node_a, f"unknown_{node_a}"),
-                        to_node=node_names.get(node_b, f"unknown_{node_b}"),
-                        energy=round(cumulative_wh / 1000, 3),  # Convert Wh to kWh
-                        source="integrated",
-                    )
-                )
-
-                prev_ts = ts
-                prev_power = power
+            for f in counter_flows + integrated_flows
+        ]
 
         return result
     except Exception as e:
