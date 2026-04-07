@@ -279,7 +279,15 @@ class VictronClient:
     def collect_and_store_measurements(self) -> None:
         """Collect all measurements from Victron and store in database."""
         for mp_config in self._mp_configs:
-            self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, mp_config.ess_setpoint)
+            threshold = 50
+            if mp_config.ess_setpoint >= threshold:
+                self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, mp_config.ess_setpoint)
+                self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 0)
+                self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 0)
+            else:
+                self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, 0)
+                self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 1)
+                self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 1)
 
         timestamp = datetime.now(timezone.utc)
 
