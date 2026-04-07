@@ -296,7 +296,7 @@ class VictronClient:
         for mp_config in self._mp_configs:
             # TODO: if SoC is >99% enable charger to balance cells.
             threshold = 50
-            if mp_config.ess_setpoint >= threshold:
+            if abs(mp_config.ess_setpoint) >= threshold:
                 self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, mp_config.ess_setpoint)
                 self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 0)
                 self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 0)

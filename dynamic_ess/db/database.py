@@ -351,9 +351,11 @@ class Database:
         return row["soc"] if row else None
 
     def get_soc_at(self, timestamp: datetime) -> int | None:
-        """Get battery SOC reading at or before timestamp."""
+        """Get battery SOC reading at or after timestamp.
+        Before would seemingly make more sense but might return a very out of data SoC value after a
+        cold-start which would mess with the optimizer."""
         cursor = self._conn.execute(
-            "SELECT soc FROM battery_soc WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1",
+            "SELECT soc FROM battery_soc WHERE timestamp >= ? ORDER BY timestamp ASC LIMIT 1",
             [dt_to_ms(timestamp)],
         )
         row = cursor.fetchone()
