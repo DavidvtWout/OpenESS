@@ -8,6 +8,7 @@ from pyomo.opt import SolverFactory
 
 from dynamic_ess.db import Database
 from dynamic_ess.pricing import PriceConfig
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ def inverter_loss(power_kw: float) -> float:
 
 def build_piecewise_loss_points(
     max_power_kw: float,
-    loss_fn: callable,
+    loss_fn: Callable[[float], float],
     n_segments: int = 30,
 ) -> tuple[list[float], list[float]]:
     """Build piecewise linear breakpoints for a loss function.
@@ -185,6 +186,7 @@ class Optimizer:
 
         # Sets and parameters
         model.T = pyo.RangeSet(0, n_hours - 1)
+        # TODO: add duration var. Or maybe simply use timestamps and calculate the timedelta in the rules?
         price_dict = {t: hourly_prices[t][1] for t in range(n_hours)}
         model.market_price = pyo.Param(model.T, initialize=price_dict)
 

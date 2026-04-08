@@ -34,9 +34,6 @@ class OptimizerService(Service):
         self.optimizer = Optimizer(self.db, price_config=self.price_config, battery_config=self.battery_config)
 
     def tick(self):
-        now = datetime.now(timezone.utc)
-        self.db.prune_old_schedule(now - timedelta(hours=1))
-
         logger.debug("Running charge optimizer")
         schedule = self.optimizer.optimize()
 
@@ -51,8 +48,4 @@ class OptimizerService(Service):
     def wait_until_next(self):
         now = datetime.now(timezone.utc)
         next_run = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-
-        wait_seconds = (next_run - now).total_seconds()
-        logger.debug(f"Next optimizer run at {next_run} (in {wait_seconds:.0f}s)")
-
-        self.wait_seconds(wait_seconds)
+        self.wait_seconds((next_run - now).total_seconds())

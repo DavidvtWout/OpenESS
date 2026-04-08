@@ -33,19 +33,6 @@ class Database:
         if run_migrations:
             self._run_migrations()
 
-        self._grid_node_ids = [
-            self.get_or_create_node("grid", "grid"),
-            self.get_or_create_node("grid_l1", "grid", 1),
-            self.get_or_create_node("grid_l2", "grid", 2),
-            self.get_or_create_node("grid_l3", "grid", 3),
-        ]
-        self._pool_node_ids = [
-            self.get_or_create_node("pool", "pool"),
-            self.get_or_create_node("pool_l1", "pool", 1),
-            self.get_or_create_node("pool_l2", "pool", 2),
-            self.get_or_create_node("pool_l3", "pool", 3),
-        ]
-
     @property
     def conn(self) -> sqlite3.Connection:
         """Get the underlying database connection."""
@@ -89,130 +76,225 @@ class Database:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
+    def _get_labels(self, table_name, start: datetime | None = None, end: datetime | None = None) -> list[str]:
+        conditions = []
+        params = []
+        if start is not None:
+            conditions.append("start_time >= ?")
+            params.append(dt_to_ms(start))
+        if end is not None:
+            conditions.append("start_time < ?")
+            params.append(dt_to_ms(end))
+
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
+        else:
+            where_clause = ""
+        query = f"""
+            SELECT DISTINCT label
+            FROM {table_name}
+            {where_clause}
+        """
+        cursor = self.conn.execute(query, params)
+        return [row[0] for row in cursor.fetchall()]
+
     # -------------------------------------------------------------------------
-    # Nodes
+    # Power
     # -------------------------------------------------------------------------
 
-    _node_cache: dict[str, int] = {}  # name -> id cache
-
-    def get_grid_id(self, phase: int = None):
-        if phase is None:
-            phase = 0
-        return self._grid_node_ids[phase]
-
-    def get_pool_id(self, phase: int = None):
-        if phase is None:
-            phase = 0
-        return self._pool_node_ids[phase]
-
-    def get_battery_id(self) -> int:
-        return self.get_or_create_node("battery", "battery")
-
-    def get_multiplus_id(self) -> int | None:
-        """Get the main multiplus node ID (not ac_in/ac_out nodes)."""
-        cursor = self._conn.execute(
-            "SELECT id FROM nodes WHERE type = 'multiplus' AND name NOT LIKE 'mp_%_ac%' LIMIT 1"
+    def insert_power(self, label: str, timestamp: datetime, power: float):
+        if power is None:
+            return
+        self.conn.execute(
+            "INSERT INTO power (label, start_time, sample_count, value) VALUES (?, ?, 1, ?)",
+            (label, dt_to_ms(timestamp), power),
         )
-        row = cursor.fetchone()
-        return row["id"] if row else None
+        self.conn.commit()
 
-    def get_or_create_node(self, name: str, node_type: str, phase: int | None = None) -> int:
-        """Get node ID by name, creating it if it doesn't exist."""
-        if name in self._node_cache:
-            return self._node_cache[name]
-
-        cursor = self._conn.execute("SELECT id FROM nodes WHERE name = ?", (name,))
-        row = cursor.fetchone()
-        if row:
-            self._node_cache[name] = row["id"]
-            return row["id"]
-
-        cursor = self._conn.execute(
-            "INSERT INTO nodes (name, type, phase) VALUES (?, ?, ?)",
-            (name, node_type, phase),
-        )
-        self._conn.commit()
-        node_id = cursor.lastrowid
-        self._node_cache[name] = node_id
-        return node_id
-
-    def get_nodes(self) -> list[tuple[int, str, str, int | None]]:
-        cursor = self._conn.execute("SELECT id, name, type, phase FROM nodes;")
-        return [(row["id"], row["name"], row["type"], row["phase"]) for row in cursor.fetchall()]
-
-    def get_node_names(self) -> dict[int, str]:
-        """Get mapping of node ID to node name."""
-        cursor = self._conn.execute("SELECT id, name FROM nodes")
-        return {row["id"]: row["name"] for row in cursor.fetchall()}
-
-    # -------------------------------------------------------------------------
-    # Power flows (delegated to power_flow module)
-    # -------------------------------------------------------------------------
-
-    def insert_power_flow(
+    def get_power(
         self,
+        label: str,
+        start: datetime | None,
+        end: datetime | None,
+        bucket_seconds: float | None = None,
+    ) -> list[tuple[datetime, float]]:
+        if bucket_seconds is not None:
+            bucket_ms = round(bucket_seconds * 1000)
+            params: list = [bucket_ms, bucket_ms]
+            select_clause = "(start_time / ?) * ? as bucket, CAST(AVG(value) AS INTEGER) as avg_value"
+        else:
+            params = []
+            select_clause = "start_time, value"
+
+        conditions = ["label = ?"]
+        params.append(label)
+        if start is not None:
+            conditions.append("start_time >= ?")
+            params.append(dt_to_ms(start))
+        if end is not None:
+            conditions.append("start_time < ?")
+            params.append(dt_to_ms(end))
+
+        where_clause = " AND ".join(conditions)
+        query = f"""
+            SELECT {select_clause}
+            FROM power
+            WHERE {where_clause}
+            ORDER BY bucket
+        """
+        cursor = self.conn.execute(query, params)
+        return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]
+
+    def get_power_labels(self, start: datetime | None = None, end: datetime | None = None) -> list[str]:
+        return self._get_labels("power", start, end)
+
+    def get_all_power(
+        self, start: datetime, end: datetime | None = None, bucket_seconds: float | None = None
+    ) -> dict[str, list[tuple[datetime, int]]]:
+        power_series = {}
+        for label in self.get_power_labels(start, end):
+            power_series[label] = self.get_power(label, start, end, bucket_seconds)
+        return power_series
+
+    def compress_power(self, older_than: datetime, bucket_seconds: float) -> tuple[int, int]:
+        bucket_ms = round(bucket_seconds * 1000)
+        cutoff_ms = dt_to_ms(older_than) // bucket_ms * bucket_ms
+        # ^ cutoff alignment with bucket size enforces that we never cross bucket boundaries. This
+        #   makes calculating average power much easier since we don't need to work with weighted
+        #   averages and take duration of semi-bucket into account.
+
+        bucket_query = """
+            SELECT
+                label,
+                (start_time / ?) * ? AS bucket,
+                SUM(sample_count) AS total_samples,
+                COUNT(*) AS row_count
+            FROM power
+            WHERE start_time < ?
+            GROUP BY label, bucket
+            HAVING row_count > 1
+            ORDER BY bucket
+        """
+        cursor = self.conn.execute(bucket_query, (bucket_ms, bucket_ms, cutoff_ms))
+        buckets = cursor.fetchall()
+
+        total_sample_count = 0
+        total_bucket_count = 0
+        for row in buckets:
+            label = row["label"]
+            bucket_start = row["bucket"]
+            bucket_end = bucket_start + bucket_ms
+            total_samples = row["total_samples"]
+
+            cursor = self.conn.execute(
+                """
+                SELECT start_time, end_time, sample_count, value
+                FROM power
+                WHERE label = ? AND start_time >= ? AND start_time < ?
+                ORDER BY start_time
+                """,
+                (label, bucket_start, bucket_end),
+            )
+            samples = cursor.fetchall()
+
+            total_sample_count = 0
+            total_power = 0.0
+            for sample in samples:
+                total_sample_count += sample["sample_count"]
+                total_power += sample["value"]
+            average_power = total_power / len(samples)
+
+            self.conn.execute(
+                "DELETE FROM power_flows WHERE label = ? AND start_time >= ? AND start_time < ?",
+                (label, bucket_start, bucket_end),
+            )
+            self.conn.execute(
+                "INSERT INTO power_flows (label, start_time, end_time, sample_count, value) VALUES (?, ?, ?, ?, ?)",
+                (label, bucket_start, bucket_end, total_samples, average_power),
+            )
+
+            total_sample_count += len(samples)
+            total_bucket_count += 1
+
+        self.conn.commit()
+        return total_sample_count, total_bucket_count
+
+    # -------------------------------------------------------------------------
+    # Energy
+    # -------------------------------------------------------------------------
+
+    def insert_energy(
+        self,
+        label: str,
         timestamp: datetime,
-        from_node_id: int,
-        to_node_id: int,
-        power: float,
-    ) -> None:
-        """Insert a power flow measurement."""
-        from . import power_flow
-
-        power_flow.insert_power_flow(self._conn, timestamp, from_node_id, to_node_id, power)
-
-    def get_power_flow(
-        self,
-        start: datetime,
-        end: datetime,
-        bucket_seconds: float,
-        from_node_ids: list[int] | None = None,
-        to_node_ids: list[int] | None = None,
-    ) -> list[tuple[datetime, int, int, int]]:
-        """Get power flow data grouped by time bucket and node pair."""
-        from . import power_flow
-
-        flows = power_flow.get_power_flow(self._conn, start, end, bucket_seconds, from_node_ids, to_node_ids)
-        return [(f.time, f.from_node_id, f.to_node_id, f.power) for f in flows]
-
-    def get_grid_power(
-        self,
-        start: datetime,
-        end: datetime,
-        bucket_seconds: float,
-    ) -> list[tuple[datetime, int]]:
-        """Get total grid power (sum across all phases) as a single time series."""
-        from . import power_flow
-
-        return power_flow.get_total_grid_power(self._conn, start, end, bucket_seconds)
-
-    def compress_power_flows(self, older_than: datetime, bucket_ms: int) -> int:
-        """Compress raw power flow measurements older than a given time into buckets."""
-        from . import power_flow
-
-        return power_flow.compress_power_flows(self._conn, older_than, bucket_ms)
-
-    # -------------------------------------------------------------------------
-    # Energy flows (delegated to energy_flow module)
-    # -------------------------------------------------------------------------
-
-    def insert_energy_flow(
-        self,
-        timestamp: datetime,
-        from_node_id: int,
-        to_node_id: int,
         energy: float,
-    ) -> None:
-        """Insert energy flow if value changed from previous."""
-        from . import energy_flow
+    ):
+        self.conn.execute(
+            """
+            INSERT INTO energy (label, timestamp, value)
+            SELECT ?, ?, ?
+            WHERE ? != COALESCE(
+                (SELECT value FROM energy
+                 WHERE label = ?
+                 ORDER BY timestamp DESC LIMIT 1),
+                -1
+            )
+            """,
+            (label, dt_to_ms(timestamp), energy, energy, label),
+        )
+        self.conn.commit()
 
-        energy_flow.insert_energy_flow(self._conn, timestamp, from_node_id, to_node_id, energy)
+    def get_energy(
+        self,
+        label: str,
+        start: datetime | None,
+        end: datetime | None,
+        normalize: bool = False,
+    ) -> list[tuple[datetime, float]]:
+
+        conditions = []
+        params = []
+        if label is not None:
+            conditions.append("label = ?")
+            params.append(label)
+        if start is not None:
+            conditions.append("timestamp >= ?")
+            params.append(dt_to_ms(start))
+        if end is not None:
+            conditions.append("timestamp < ?")
+            params.append(dt_to_ms(end))
+
+        where_clause = " AND ".join(conditions)
+        query = f"""
+                SELECT timestamp, value
+                FROM energy
+                WHERE {where_clause}
+                ORDER BY timestamp
+            """
+        cursor = self.conn.execute(query, params)
+
+        result = [(row[0], row[1]) for row in cursor.fetchall()]
+        if normalize and result:
+            start_energy = result[0][1]
+            result = [(t, v - start_energy) for t, v in result]
+        return result
+
+    def get_energy_labels(self, start: datetime | None, end: datetime | None = None) -> list[str]:
+        return self._get_labels("energy", start, end)
+
+    def get_all_energy(
+        self, start: datetime, end: datetime | None = None, normalize: bool = False
+    ) -> dict[str, list[tuple[datetime, int]]]:
+        energy_series = {}
+        for label in self.get_energy_labels(start, end):
+            energy_series[label] = self.get_energy(label, start, end, normalize)
+        return energy_series
 
     # -------------------------------------------------------------------------
     # Day-ahead prices
     # -------------------------------------------------------------------------
 
-    def insert_price(self, area: str, start_time: datetime, end_time: datetime, price: float) -> None:
+    def insert_price(self, area: str, start_time: datetime, end_time: datetime, price: float):
         self._conn.execute(
             """
             INSERT INTO day_ahead_prices (area, start_time, end_time, price)
@@ -224,7 +306,7 @@ class Database:
         )
         self._conn.commit()
 
-    def insert_prices(self, area: str, prices: list[tuple[datetime, datetime, float]]) -> None:
+    def insert_prices(self, area: str, prices: list[tuple[datetime, datetime, float]]):
         self._conn.executemany(
             """
             INSERT INTO day_ahead_prices (area, start_time, end_time, price)
@@ -277,35 +359,27 @@ class Database:
             return ms_to_dt(row["latest"])
         return None
 
-    def get_average_price(self, area: str, start: datetime, end: datetime) -> float | None:
-        """Get average price for an area over a time range. Returns EUR/MWh or None if no data."""
-        cursor = self._conn.execute(
-            "SELECT AVG(price) as avg_price FROM day_ahead_prices WHERE area = ? AND start_time >= ? AND start_time < ?",
-            (area, dt_to_ms(start), dt_to_ms(end)),
-        )
-        row = cursor.fetchone()
-        return row["avg_price"] if row and row["avg_price"] is not None else None
-
     # -------------------------------------------------------------------------
     # Battery SOC
     # -------------------------------------------------------------------------
 
-    def insert_soc(self, timestamp: datetime, soc: int) -> None:
+    def insert_soc(self, label: str, timestamp: datetime, soc: int):
         """Insert battery SOC if changed from previous value."""
+        # TODO: also insert if last update was more than 5 minutes ago
         self._conn.execute(
             """
-            INSERT INTO battery_soc (timestamp, soc)
-            SELECT ?, ?
+            INSERT INTO battery_soc (label, timestamp, value)
+            SELECT ?, ?, ?
             WHERE ? != COALESCE(
-                (SELECT soc FROM battery_soc ORDER BY timestamp DESC LIMIT 1),
+                (SELECT value FROM battery_soc WHERE label = ? ORDER BY timestamp DESC LIMIT 1),
                 -1
             )
             """,
-            (dt_to_ms(timestamp), soc, soc),
+            (label, dt_to_ms(timestamp), soc, soc, label),
         )
         self._conn.commit()
 
-    def get_battery_soc(self, start: datetime, end: datetime) -> list[tuple[datetime, int]]:
+    def get_battery_soc(self, label: str, start: datetime, end: datetime) -> list[tuple[datetime, int]]:
         """Select rows from battery_soc, extending range to include boundary values for step rendering."""
         start_ms = dt_to_ms(start)
         end_ms = dt_to_ms(end)
@@ -313,7 +387,8 @@ class Database:
             """
             SELECT timestamp, soc
             FROM battery_soc
-            WHERE timestamp >= COALESCE(
+            WHERE label = ?
+            AND timestamp >= COALESCE(
                 (SELECT MAX(timestamp) FROM battery_soc WHERE timestamp < ?),
                 ?
             )
@@ -323,26 +398,9 @@ class Database:
             )
             ORDER BY timestamp
             """,
-            [start_ms, start_ms, end_ms, end_ms],
+            [label, start_ms, start_ms, end_ms, end_ms],
         )
         return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]
-
-    def get_soc_by_bucket(self, start: datetime, end: datetime, bucket_seconds: float) -> dict[int, int]:
-        """Get SOC values grouped by bucket (last value in each bucket)."""
-        bucket_ms = round(bucket_seconds * 1000)
-        start_ms, end_ms = dt_to_ms(start), dt_to_ms(end)
-        cursor = self._conn.execute(
-            f"""
-            SELECT (timestamp / {bucket_ms}) * {bucket_ms} as bucket,
-                   soc as battery_soc
-            FROM battery_soc
-            WHERE timestamp >= ? AND timestamp < ?
-            GROUP BY bucket
-            HAVING timestamp = MAX(timestamp)
-            """,
-            [start_ms, end_ms],
-        )
-        return {row["bucket"]: row["battery_soc"] for row in cursor.fetchall()}
 
     def get_current_soc(self) -> int | None:
         """Get the most recent battery SOC reading."""
@@ -354,20 +412,27 @@ class Database:
         """Get battery SOC reading at or after timestamp.
         Before would seemingly make more sense but might return a very out of data SoC value after a
         cold-start which would mess with the optimizer."""
+        ts_ms = dt_to_ms(timestamp)
         cursor = self._conn.execute(
-            "SELECT soc FROM battery_soc WHERE timestamp >= ? ORDER BY timestamp ASC LIMIT 1",
-            [dt_to_ms(timestamp)],
+            "SELECT value FROM battery_soc WHERE timestamp >= ? ORDER BY timestamp ASC LIMIT 1",
+            [ts_ms],
         )
         row = cursor.fetchone()
-        return row["soc"] if row else None
+        if not row:
+            cursor = self._conn.execute(
+                "SELECT value FROM battery_soc WHERE timestamp <= ? ORDER BY timestamp DESC LIMIT 1",
+                [ts_ms],
+            )
+            row = cursor.fetchone()
+        return row["value"] if row else None
 
-    def get_soc_series(self, start: datetime, end: datetime) -> list[tuple[int, int]]:
-        """Get raw SOC time series. Returns list of (timestamp_ms, soc)."""
+    def get_soc_series(self, label: str, start: datetime, end: datetime) -> list[tuple[int, int]]:
+        """Get raw SoC time series. Returns list of (timestamp_ms, soc)."""
         cursor = self._conn.execute(
-            "SELECT timestamp, soc FROM battery_soc WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp",
-            [dt_to_ms(start), dt_to_ms(end)],
+            "SELECT timestamp, value FROM battery_soc WHERE label = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp",
+            [label, dt_to_ms(start), dt_to_ms(end)],
         )
-        return [(row["timestamp"], row["soc"]) for row in cursor.fetchall()]
+        return [(row["timestamp"], row["value"]) for row in cursor.fetchall()]
 
     # -------------------------------------------------------------------------
     # Charge schedule
@@ -403,11 +468,5 @@ class Database:
         )
         row = cursor.fetchone()
         if row:
-            return (ms_to_dt(row[0]), ms_to_dt(row[1]), row[2], row[3])
+            return ms_to_dt(row[0]), ms_to_dt(row[1]), row[2], row[3]
         return None
-
-    def prune_old_schedule(self, before: datetime) -> int:
-        """Remove schedule entries that ended before the given time. Returns count deleted."""
-        cursor = self._conn.execute("DELETE FROM charge_schedule WHERE end_time < ?", [dt_to_ms(before)])
-        self._conn.commit()
-        return cursor.rowcount
