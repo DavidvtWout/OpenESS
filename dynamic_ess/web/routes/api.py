@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from dynamic_ess.db import Database, ms_to_dt, energy_flow
+from dynamic_ess.db import Database, ms_to_dt
 from dynamic_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
@@ -378,32 +378,32 @@ async def get_battery_cycles(
             end_time = ms_to_dt(c["end_ms"])
             duration = (end_time - start_time).total_seconds() / 3600.0
 
-            vebus_start = energy_flow.get_vebus_energy_at(db.conn, start_time)
-            vebus_end = energy_flow.get_vebus_energy_at(db.conn, end_time)
+            # vebus_start = energy_flow.get_vebus_energy_at(db.conn, start_time)
+            # vebus_end = energy_flow.get_vebus_energy_at(db.conn, end_time)
 
-            ac_energy_in = (
-                vebus_end["ac_in_to_battery"]
-                - vebus_start["ac_in_to_battery"]
-                + (vebus_end["ac_out_to_battery"] - vebus_start["ac_out_to_battery"])
-            ) * 1000
-            ac_energy_out = (
-                (vebus_end["battery_to_ac_in"] - vebus_start["battery_to_ac_in"])
-                + (vebus_end["battery_to_ac_out"] - vebus_start["battery_to_ac_out"])
-            ) * 1000
+            # ac_energy_in = (
+            #     vebus_end["ac_in_to_battery"]
+            #     - vebus_start["ac_in_to_battery"]
+            #     + (vebus_end["ac_out_to_battery"] - vebus_start["ac_out_to_battery"])
+            # ) * 1000
+            # ac_energy_out = (
+            #     (vebus_end["battery_to_ac_in"] - vebus_start["battery_to_ac_in"])
+            #     + (vebus_end["battery_to_ac_out"] - vebus_start["battery_to_ac_out"])
+            # ) * 1000
 
-            system_eff = (ac_energy_out / ac_energy_in) * 100 if ac_energy_in > 0 else None
-
-            cycles.append(
-                BatteryCycle(
-                    start_time=start_time,
-                    end_time=end_time,
-                    duration_hours=round(duration, 2),
-                    min_soc=round(c["min_soc"]),
-                    ac_energy_in_wh=round(ac_energy_in, 1),
-                    ac_energy_out_wh=round(ac_energy_out, 1),
-                    system_efficiency=round(system_eff, 1) if system_eff else None,
-                )
-            )
+            # system_eff = (ac_energy_out / ac_energy_in) * 100 if ac_energy_in > 0 else None
+            #
+            # cycles.append(
+            #     BatteryCycle(
+            #         start_time=start_time,
+            #         end_time=end_time,
+            #         duration_hours=round(duration, 2),
+            #         min_soc=round(c["min_soc"]),
+            #         ac_energy_in_wh=round(ac_energy_in, 1),
+            #         ac_energy_out_wh=round(ac_energy_out, 1),
+            #         system_efficiency=round(system_eff, 1) if system_eff else None,
+            #     )
+            # )
 
         return cycles
     except Exception as e:
@@ -456,7 +456,8 @@ async def get_energy(
         series = db.get_all_energy(start, end, normalize=True)
 
         # TODO: Get integrated power flows
-        # integrated_flows = energy_flow.integrate_power_flows(db.conn, start, end)
+        for label in db.get_power_labels(start, end):
+            series[f"{label} [integrated]"] = db.integrate_power(label, start, end)
 
         return EnergyResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:

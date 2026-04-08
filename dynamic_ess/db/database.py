@@ -2,7 +2,7 @@
 
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from .runner import get_migrations, run_migration
@@ -292,10 +292,22 @@ class Database:
 
     def get_all_energy(
         self, start: datetime, end: datetime | None = None, normalize: bool = False
-    ) -> dict[str, list[tuple[datetime, int]]]:
+    ) -> dict[str, list[tuple[datetime, float]]]:
         energy_series = {}
         for label in self.get_energy_labels(start, end):
             energy_series[label] = self.get_energy(label, start, end, normalize)
+        return energy_series
+
+    def integrate_power(
+        self, label: str, start: datetime, end: datetime, bucket_seconds: int = 60
+    ) -> list[tuple[datetime, float]]:
+        power_series = self.get_power(label, start, end, bucket_seconds=bucket_seconds)
+        if not power_series:
+            return []
+
+        energy_series = [(power_series[0][0] - timedelta(seconds=bucket_seconds), 0.0)]
+        for ts, v in power_series:
+            energy_series.append((ts, energy_series[-1][-1] + v / 1000 / bucket_seconds))
         return energy_series
 
     # -------------------------------------------------------------------------
