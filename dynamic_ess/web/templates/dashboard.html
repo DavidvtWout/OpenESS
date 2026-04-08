@@ -9,10 +9,10 @@
     <label>
         Time range:
         <select id="range-select">
-            <option value="24" selected>Today</option>
-            <option value="48">Last 2 days</option>
-            <option value="168">Last 7 days</option>
-            <option value="720">Last 30 days</option>
+            <option value="24" selected>1 day</option>
+            <option value="48">2 days</option>
+            <option value="168">7 days</option>
+            <option value="720">30 days</option>
         </select>
     </label>
     <div class="range-nav">
@@ -20,16 +20,6 @@
         <span id="range-label"></span>
         <button id="range-next" class="btn-nav" title="Next period" disabled>&gt;</button>
     </div>
-</div>
-
-<div class="chart-container">
-    <h2>Battery SoC</h2>
-    <div id="soc-chart" class="chart"></div>
-</div>
-
-<div class="chart-container">
-    <h2>Power</h2>
-    <div id="power-chart" class="chart"></div>
 </div>
 
 <div class="chart-container">
@@ -45,8 +35,18 @@
 </div>
 
 <div class="chart-container">
+    <h2>Power</h2>
+    <div id="power-chart" class="chart"></div>
+</div>
+
+<div class="chart-container">
     <h2>Prices</h2>
     <div id="prices-chart" class="chart"></div>
+</div>
+
+<div class="chart-container">
+    <h2>Battery SoC</h2>
+    <div id="soc-chart" class="chart"></div>
 </div>
 {% endblock %}
 
