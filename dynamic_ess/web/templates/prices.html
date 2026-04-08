@@ -22,24 +22,9 @@
     <div id="prices-chart" class="chart chart-large"></div>
 </div>
 
-<div class="stats" id="price-stats">
-    <!-- Filled by JS -->
-</div>
+<div class="stats" id="price-stats"></div>
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/app.js"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const daysSelect = document.getElementById('days-select');
-
-        function updateChart() {
-            const days = parseInt(daysSelect.value);
-            loadPricesChart('prices-chart', days, true);
-        }
-
-        daysSelect.addEventListener('change', updateChart);
-        updateChart();
-    });
-</script>
+<script src="/static/prices.js"></script>
 {% endblock %}

@@ -307,7 +307,7 @@ class Database:
 
         energy_series = [(power_series[0][0] - timedelta(seconds=bucket_seconds), 0.0)]
         for ts, v in power_series:
-            energy_series.append((ts, energy_series[-1][-1] + v / 1000 / bucket_seconds))
+            energy_series.append((ts, energy_series[-1][-1] + v / 1000 / (3600 / bucket_seconds)))
         return energy_series
 
     # -------------------------------------------------------------------------

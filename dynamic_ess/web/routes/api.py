@@ -192,16 +192,21 @@ async def get_power(
         # mp_ac_pattern = re.compile(r"^mp_\d+_ac.*$")
         # mp_ac_labels = [label for label in db.get_power_labels() if mp_ac_pattern.match(label)]
 
-        # TODO: add mp_228_ac_in and mp_228_ac_out
-        # series["To MP 228"] = db.get_power("mp_228_ac_in", start, end, bucket_seconds)
+        series["To MP 228"] = []
+        for (ts, ac_in), (_, ac_out) in zip(
+            db.get_power("mp_228_ac_in", start, end, bucket_seconds),
+            db.get_power("mp_228_ac_out", start, end, bucket_seconds),
+        ):
+            series["To MP 228"].append((ts, ac_in - ac_out))
 
         series["Battery (BMS 225)"] = db.get_power("bms_225", start, end, bucket_seconds)
         series["Battery (MP 228)"] = db.get_power("mp_228_battery", start, end, bucket_seconds)
 
-        # TODO
-        # series["Schedule"] = ...
+        series["Schedule"] = []
+        for ts_start, ts_end, v, _ in db.get_schedule(start):
+            series["Schedule"].extend([(ts_start, v), (ts_end, v)])
 
-        return PowerResponse(series=series)
+        return PowerResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:
         logger.exception("Failed to get power data")
         raise HTTPException(status_code=500, detail=str(e))

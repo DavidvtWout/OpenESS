@@ -399,7 +399,7 @@ async function loadEnergyFlowChart(elementId, start, end, bucketMinutes = 60, fr
 async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
     showLoading(elementId);
 
-    const powerUrl = `/api/power?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
+    const powerUrl = `/api/power-graph?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
     console.log('Fetching power:', powerUrl);
 
     try {
@@ -409,10 +409,8 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
             throw new Error(`Failed to fetch power data: ${response.status}`);
         }
 
-        const result = await response.json();
-        const data = result.power;
-        const schedule = result.schedule;
-        console.log('Power data:', data.length, 'points, Schedule:', schedule.length, 'entries');
+        const data = await response.json();
+        console.log('Power data:', data.series.length, 'points');
 
         const settings = loadSettings();
         const useKw = settings.powerUnit === 'kw';
@@ -421,84 +419,46 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         const now = new Date();
 
         // Build schedule step data - only show actual schedule entries, no gap filling
-        const scheduleInRange = schedule
-            .map(entry => ({
-                start: new Date(entry.start_time),
-                end: new Date(entry.end_time),
-                power: entry.power_w / divisor
-            }))
-            .filter(e => e.end > now && e.start <= end)
-            .sort((a, b) => a.start - b.start);
-
-        const scheduleTimes = [];
-        const schedulePowers = [];
-
-        for (const entry of scheduleInRange) {
-            const entryStart = entry.start < now ? now : entry.start;
-            scheduleTimes.push(entryStart, entry.end);
-            schedulePowers.push(entry.power, entry.power);
-        }
+        //const scheduleInRange = schedule
+        //    .map(entry => ({
+        //        start: new Date(entry.start_time),
+        //        end: new Date(entry.end_time),
+        //        power: entry.power_w / divisor
+        //    }))
+        //    .filter(e => e.end > now && e.start <= end)
+        //    .sort((a, b) => a.start - b.start);
+        //const scheduleTimes = [];
+        //const schedulePowers = [];
+        //for (const entry of scheduleInRange) {
+        //    const entryStart = entry.start < now ? now : entry.start;
+        //    scheduleTimes.push(entryStart, entry.end);
+        //    schedulePowers.push(entry.power, entry.power);
+        //}
 
         // Check if we have any data to show
-        if (data.length === 0 && scheduleInRange.length === 0) {
+        if (data.series.length === 0) {
             showError(elementId, 'No power data available');
             return;
         }
 
-        const times = data.map(d => new Date(d.time));
         const unit = useKw ? 'kW' : 'W';
-        const traces = [];
-
-        // Gap threshold: 2x the aggregate interval
         const gapThresholdMs = aggregateMinutes * 60 * 1000 * 2;
 
-        // Add measurement traces only if we have measurement data
-        if (data.length > 0) {
-            const gridData = insertGapNulls(times, data.map(d => d.grid_power / divisor), gapThresholdMs);
-            const batteryData = insertGapNulls(times, data.map(d => d.battery_power / divisor), gapThresholdMs);
-            const invChargerData = insertGapNulls(times, data.map(d => d.inverter_charger_power / divisor), gapThresholdMs);
+        const traces = [];
+        const sortedKeys = Object.keys(data.series).sort();
+        for (let i = 0; i < sortedKeys.length; i++) {
+            const key = sortedKeys[i];
+            const series = data.series[key];
 
-            traces.push(
-                {
-                    x: gridData.times,
-                    y: gridData.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'Grid',
-                    line: { color: '#e74c3c', width: 2 },
-                    hovertemplate: `%{y:.1f} ${unit}<extra>Grid</extra>`,
-                },
-                {
-                    x: batteryData.times,
-                    y: batteryData.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'Battery',
-                    line: { color: '#3498db', width: 2 },
-                    hovertemplate: `%{y:.1f} ${unit}<extra>Battery</extra>`,
-                },
-                {
-                    x: invChargerData.times,
-                    y: invChargerData.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'Inverter/Charger',
-                    line: { color: '#9b59b6', width: 2 },
-                    hovertemplate: `%{y:.1f} ${unit}<extra>Inverter/Charger</extra>`,
-                },
-            );
-        }
-
-        // Add schedule trace if we have schedule data
-        if (scheduleTimes.length > 0) {
             traces.push({
-                x: scheduleTimes,
-                y: schedulePowers,
+                x: series.timestamps.map(t => new Date(t)),
+                y: series.values,
                 type: 'scatter',
                 mode: 'lines',
-                name: 'Scheduled',
-                line: { color: '#2ecc71', width: 2, dash: 'dot' },
-                hovertemplate: `%{y:.1f} ${unit}<extra>Scheduled</extra>`,
+                name: key,
+                line: {width: 1.5},
+                connectgaps: false,
+                hovertemplate: `%{y:.1f} ${unit}<extra>${key}</extra>`,
             });
         }
 
