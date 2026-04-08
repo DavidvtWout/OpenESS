@@ -4,8 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from dynamic_ess.db import Database, dt_to_ms, ms_to_dt, power_flow, energy_flow
-from dynamic_ess.optimizer.optimizer import charger_loss, inverter_loss
+from dynamic_ess.db import Database, ms_to_dt, energy_flow
 from dynamic_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
@@ -27,6 +26,11 @@ def get_prices() -> PriceConfig:
     from dynamic_ess.web.dependencies import get_price_config
 
     return get_price_config()
+
+
+class TimeSeries(BaseModel):
+    timestamps: list[datetime]
+    values: list[float]
 
 
 class PricePoint(BaseModel):
@@ -74,11 +78,11 @@ class EnergyGraphResponse(BaseModel):
 
 
 class PowerResponse(BaseModel):
-    series: dict[str, list[tuple[datetime, float]]]
+    series: dict[str, TimeSeries]
 
 
 class EnergyResponse(BaseModel):
-    series: dict[str, list[tuple[datetime, float]]]
+    series: dict[str, TimeSeries]
 
 
 class EfficiencyScatterPoint(BaseModel):
@@ -91,12 +95,13 @@ class EfficiencyScatterPoint(BaseModel):
     category: str
 
 
-class DebugEnergyFlowPoint(BaseModel):
-    time: datetime
-    from_node: str
-    to_node: str
-    energy: float
-    source: str
+def data_to_timeseries(data: list[tuple[datetime, float]]) -> TimeSeries:
+    timestamps = []
+    values = []
+    for t, v in data:
+        timestamps.append(t)
+        values.append(v)
+    return TimeSeries(timestamps=timestamps, values=values)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -426,7 +431,7 @@ async def get_power(
         if end is None:
             end = now
         series = db.get_all_power(start, end, aggregate_minutes * 60)
-        return PowerResponse(series=series)
+        return PowerResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:
         logger.exception("Failed to get debug power flows")
         raise HTTPException(status_code=500, detail=str(e))
@@ -435,7 +440,7 @@ async def get_power(
 # TODO: add parameter to select subset of series
 # TODO: add normalize parameter
 @router.get("/energy", response_model=EnergyResponse)
-async def get_debug_energy_flows(
+async def get_energy(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     db: Database = Depends(get_db),
@@ -453,7 +458,7 @@ async def get_debug_energy_flows(
         # TODO: Get integrated power flows
         # integrated_flows = energy_flow.integrate_power_flows(db.conn, start, end)
 
-        return EnergyResponse(series=series)
+        return EnergyResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:
         logger.exception("Failed to get debug energy flows")
         raise HTTPException(status_code=500, detail=str(e))

@@ -29,6 +29,7 @@ function getPlotlyLayout() {
         xaxis: {
             gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
             linecolor: isDark ? '#3a3a5a' : '#dddddd',
+            // type: 'date',
         },
         yaxis: {
             gridcolor: isDark ? '#2a2a4a' : '#eeeeee',

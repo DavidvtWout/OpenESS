@@ -76,14 +76,16 @@ class Database:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def _get_labels(self, table_name, start: datetime | None = None, end: datetime | None = None) -> list[str]:
+    def _get_labels(
+        self, table_name: str, timestamp_name: str, start: datetime | None = None, end: datetime | None = None
+    ) -> list[str]:
         conditions = []
         params = []
         if start is not None:
-            conditions.append("start_time >= ?")
+            conditions.append(f"{timestamp_name} >= ?")
             params.append(dt_to_ms(start))
         if end is not None:
-            conditions.append("start_time < ?")
+            conditions.append(f"{timestamp_name} < ?")
             params.append(dt_to_ms(end))
 
         if conditions:
@@ -122,10 +124,12 @@ class Database:
             bucket_ms = round(bucket_seconds * 1000)
             params: list = [bucket_ms, bucket_ms]
             select_clause = "(start_time / ?) * ? as bucket, CAST(AVG(value) AS INTEGER) as avg_value"
+            group_by = "GROUP BY bucket"
             order_by = "bucket"
         else:
             params = []
             select_clause = "start_time, value"
+            group_by = ""
             order_by = "start_time"
 
         conditions = ["label = ?"]
@@ -142,13 +146,14 @@ class Database:
             SELECT {select_clause}
             FROM power
             WHERE {where_clause}
+            {group_by}
             ORDER BY {order_by}
         """
         cursor = self.conn.execute(query, params)
         return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]
 
     def get_power_labels(self, start: datetime | None = None, end: datetime | None = None) -> list[str]:
-        return self._get_labels("power", start, end)
+        return self._get_labels("power", "start_time", start, end)
 
     def get_all_power(
         self, start: datetime, end: datetime | None = None, bucket_seconds: float | None = None
@@ -283,7 +288,7 @@ class Database:
         return result
 
     def get_energy_labels(self, start: datetime | None, end: datetime | None = None) -> list[str]:
-        return self._get_labels("energy", start, end)
+        return self._get_labels("energy", "timestamp", start, end)
 
     def get_all_energy(
         self, start: datetime, end: datetime | None = None, normalize: bool = False
