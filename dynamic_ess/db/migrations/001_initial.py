@@ -83,6 +83,15 @@ def upgrade(conn) -> None:
             );
         END
     """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS power_delete
+        INSTEAD OF DELETE ON power
+        BEGIN
+            DELETE FROM _power
+            WHERE label_id = (SELECT label_id FROM labels WHERE label = OLD.label)
+              AND start_time = OLD.start_time;
+        END
+    """)
 
     # -------------
     #  Energy
@@ -115,6 +124,15 @@ def upgrade(conn) -> None:
                 NEW.timestamp,
                 NEW.value
             );
+        END
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS energy_delete
+        INSTEAD OF DELETE ON energy
+        BEGIN
+            DELETE FROM _energy
+            WHERE label_id = (SELECT label_id FROM labels WHERE label = OLD.label)
+              AND timestamp = OLD.timestamp;
         END
     """)
 

@@ -157,21 +157,22 @@ class Database:
         return power_series
 
     def compress_power(self, older_than: datetime, bucket_seconds: float) -> tuple[int, int]:
+        older_than = older_than.replace(second=0, microsecond=0)
         bucket_ms = round(bucket_seconds * 1000)
-        cutoff_ms = dt_to_ms(older_than) // bucket_ms * bucket_ms
+        cutoff_ms = dt_to_ms(older_than)
         # ^ cutoff alignment with bucket size enforces that we never cross bucket boundaries. This
         #   makes calculating average power much easier since we don't need to work with weighted
         #   averages and take duration of semi-bucket into account.
 
         bucket_query = """
             SELECT
-                label,
+                label_id,
                 (start_time / ?) * ? AS bucket,
                 SUM(sample_count) AS total_samples,
                 COUNT(*) AS row_count
-            FROM power
+            FROM _power
             WHERE start_time < ?
-            GROUP BY label, bucket
+            GROUP BY label_id, bucket
             HAVING row_count > 1
             ORDER BY bucket
         """
@@ -181,7 +182,7 @@ class Database:
         total_sample_count = 0
         total_bucket_count = 0
         for row in buckets:
-            label = row["label"]
+            label_id = row["label_id"]
             bucket_start = row["bucket"]
             bucket_end = bucket_start + bucket_ms
             total_samples = row["total_samples"]
@@ -189,11 +190,11 @@ class Database:
             cursor = self.conn.execute(
                 """
                 SELECT start_time, end_time, sample_count, value
-                FROM power
-                WHERE label = ? AND start_time >= ? AND start_time < ?
+                FROM _power
+                WHERE label_id = ? AND start_time >= ? AND start_time < ?
                 ORDER BY start_time
                 """,
-                (label, bucket_start, bucket_end),
+                (label_id, bucket_start, bucket_end),
             )
             samples = cursor.fetchall()
 
@@ -205,12 +206,12 @@ class Database:
             average_power = total_power / len(samples)
 
             self.conn.execute(
-                "DELETE FROM power_flows WHERE label = ? AND start_time >= ? AND start_time < ?",
-                (label, bucket_start, bucket_end),
+                "DELETE FROM _power WHERE label_id = ? AND start_time >= ? AND start_time < ?",
+                (label_id, bucket_start, bucket_end),
             )
             self.conn.execute(
-                "INSERT INTO power_flows (label, start_time, end_time, sample_count, value) VALUES (?, ?, ?, ?, ?)",
-                (label, bucket_start, bucket_end, total_samples, average_power),
+                "INSERT INTO _power (label_id, start_time, end_time, sample_count, value) VALUES (?, ?, ?, ?, ?)",
+                (label_id, bucket_start, bucket_end, total_samples, average_power),
             )
 
             total_sample_count += len(samples)
