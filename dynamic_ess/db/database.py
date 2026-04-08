@@ -400,27 +400,12 @@ class Database:
         self._conn.commit()
 
     def get_battery_soc(self, label: str, start: datetime, end: datetime) -> list[tuple[datetime, int]]:
-        """Select rows from battery_soc, extending range to include boundary values for step rendering."""
-        start_ms = dt_to_ms(start)
-        end_ms = dt_to_ms(end)
+        """Get raw SoC time series. Returns list of (timestamp_ms, soc)."""
         cursor = self._conn.execute(
-            """
-            SELECT timestamp, value
-            FROM battery_soc
-            WHERE label = ?
-            AND timestamp >= COALESCE(
-                (SELECT MAX(timestamp) FROM battery_soc WHERE timestamp < ?),
-                ?
-            )
-            AND timestamp <= COALESCE(
-                (SELECT MIN(timestamp) FROM battery_soc WHERE timestamp >= ?),
-                ?
-            )
-            ORDER BY timestamp
-            """,
-            [label, start_ms, start_ms, end_ms, end_ms],
+            "SELECT timestamp, value FROM battery_soc WHERE label = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp",
+            [label, dt_to_ms(start), dt_to_ms(end)],
         )
-        return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]
+        return [(ms_to_dt(row["timestamp"]), row["value"]) for row in cursor.fetchall()]
 
     def get_current_soc(self) -> int | None:
         """Get the most recent battery SOC reading."""
@@ -445,14 +430,6 @@ class Database:
             )
             row = cursor.fetchone()
         return row["value"] if row else None
-
-    def get_soc_series(self, label: str, start: datetime, end: datetime) -> list[tuple[int, int]]:
-        """Get raw SoC time series. Returns list of (timestamp_ms, soc)."""
-        cursor = self._conn.execute(
-            "SELECT timestamp, value FROM battery_soc WHERE label = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp",
-            [label, dt_to_ms(start), dt_to_ms(end)],
-        )
-        return [(row["timestamp"], row["value"]) for row in cursor.fetchall()]
 
     # -------------------------------------------------------------------------
     # Charge schedule

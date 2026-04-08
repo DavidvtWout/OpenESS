@@ -41,8 +41,8 @@ class PricePoint(BaseModel):
 
 
 class BatterySocResponse(BaseModel):
-    history: list[tuple[datetime, float]]
-    future: list[tuple[datetime, float]]
+    history: TimeSeries
+    future: TimeSeries
 
 
 class HealthResponse(BaseModel):
@@ -115,41 +115,15 @@ async def health_check(db: Database = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/prices", response_model=list[PricePoint])
-async def get_price_data(
+@router.get("/energy-graph", response_model=EnergyGraphResponse)
+async def get_energy_flow_endpoint(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
-    db: Database = Depends(get_db),
-    price_config: PriceConfig = Depends(get_prices),
-):
-    try:
-        now = datetime.now(timezone.utc)
-        if start is None:
-            start = now - timedelta(days=7)
-        if end is None:
-            end = now + timedelta(days=2)
-
-        prices = db.get_hourly_prices(price_config.area, start, end)
-        return [
-            PricePoint(
-                time=hour,
-                market_price=price,
-                buy_price=price_config.buy_price(price),
-                sell_price=price_config.sell_price(price),
-            )
-            for hour, price in prices
-        ]
-    except Exception as e:
-        logger.exception("Failed to get prices")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/battery-soc", response_model=BatterySocResponse)
-async def get_battery_soc(
-    start: datetime | None = Query(default=None),
-    end: datetime | None = Query(default=None),
+    bucket_minutes: int = Query(default=60),
+    max_gap_seconds: int = Query(default=300),
     db: Database = Depends(get_db),
 ):
+    """Get energy flow data by integrating power over time, plus schedule."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -157,14 +131,14 @@ async def get_battery_soc(
         if end is None:
             end = now
 
-        # TODO: label
-        actual = db.get_battery_soc("bms_225", start, end)
-        # TODO: ^ append now
-        scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(start)]
-        # TODO: ^ prepend now
-        return BatterySocResponse(history=actual, future=scheduled)
+        grid_data = {f"Grid L{i}": db.get_power(f"grid_l{i}", start, end, bucket_minutes * 60) for i in (1, 2, 3)}
+        battery_data = db.get_power("bms_225", start, end, bucket_minutes * 60)
+        inverter_data = db.get_power("mp_228_ac_in", start, end, bucket_minutes * 60)
+
+        # TODO
+        return EnergyGraphResponse(history=[], future=[])
     except Exception as e:
-        logger.exception("Failed to get battery SOC")
+        logger.exception("Failed to get energy flow")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -212,15 +186,41 @@ async def get_power(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/energy-graph", response_model=EnergyGraphResponse)
-async def get_energy_flow_endpoint(
+@router.get("/prices", response_model=list[PricePoint])
+async def get_price_data(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
-    bucket_minutes: int = Query(default=60),
-    max_gap_seconds: int = Query(default=300),
+    db: Database = Depends(get_db),
+    price_config: PriceConfig = Depends(get_prices),
+):
+    try:
+        now = datetime.now(timezone.utc)
+        if start is None:
+            start = now - timedelta(days=7)
+        if end is None:
+            end = now + timedelta(days=2)
+
+        prices = db.get_hourly_prices(price_config.area, start, end)
+        return [
+            PricePoint(
+                time=hour,
+                market_price=price,
+                buy_price=price_config.buy_price(price),
+                sell_price=price_config.sell_price(price),
+            )
+            for hour, price in prices
+        ]
+    except Exception as e:
+        logger.exception("Failed to get prices")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/battery-soc", response_model=BatterySocResponse)
+async def get_battery_soc(
+    start: datetime | None = Query(default=None),
+    end: datetime | None = Query(default=None),
     db: Database = Depends(get_db),
 ):
-    """Get energy flow data by integrating power over time, plus schedule."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -228,14 +228,12 @@ async def get_energy_flow_endpoint(
         if end is None:
             end = now
 
-        grid_data = {f"Grid L{i}": db.get_power(f"grid_l{i}", start, end, bucket_minutes * 60) for i in (1, 2, 3)}
-        battery_data = db.get_power("bms_225", start, end, bucket_minutes * 60)
-        inverter_data = db.get_power("mp_228_ac_in", start, end, bucket_minutes * 60)
-
-        # TODO
-        return EnergyGraphResponse(history=[], future=[])
+        # TODO: label
+        actual = db.get_battery_soc("mp_228_soc", start, end)
+        scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(start)]
+        return BatterySocResponse(history=data_to_timeseries(actual), future=data_to_timeseries(scheduled))
     except Exception as e:
-        logger.exception("Failed to get energy flow")
+        logger.exception("Failed to get battery SOC")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -370,7 +368,7 @@ async def get_battery_cycles(
             end = now
 
         # TODO: label
-        rows = db.get_soc_series("bms_255", start, end)
+        rows = db.get_battery_soc("mp_228_soc", start, end)
 
         if len(rows) < 3:
             return []

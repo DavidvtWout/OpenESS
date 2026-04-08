@@ -410,36 +410,11 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
         }
 
         const data = await response.json();
-        console.log('Power data:', data.series.length, 'points');
-
         const settings = loadSettings();
         const useKw = settings.powerUnit === 'kw';
         const divisor = useKw ? 1000 : 1;
         const powerLabel = useKw ? 'Power (kW)' : 'Power (W)';
         const now = new Date();
-
-        // Build schedule step data - only show actual schedule entries, no gap filling
-        //const scheduleInRange = schedule
-        //    .map(entry => ({
-        //        start: new Date(entry.start_time),
-        //        end: new Date(entry.end_time),
-        //        power: entry.power_w / divisor
-        //    }))
-        //    .filter(e => e.end > now && e.start <= end)
-        //    .sort((a, b) => a.start - b.start);
-        //const scheduleTimes = [];
-        //const schedulePowers = [];
-        //for (const entry of scheduleInRange) {
-        //    const entryStart = entry.start < now ? now : entry.start;
-        //    scheduleTimes.push(entryStart, entry.end);
-        //    schedulePowers.push(entry.power, entry.power);
-        //}
-
-        // Check if we have any data to show
-        if (data.series.length === 0) {
-            showError(elementId, 'No power data available');
-            return;
-        }
 
         const unit = useKw ? 'kW' : 'W';
         const gapThresholdMs = aggregateMinutes * 60 * 1000 * 2;
@@ -616,33 +591,31 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
         const traces = [];
 
         // Add historical SoC trace with step interpolation
-        if (data.history.length > 0) {
-            const times = data.history.map(d => new Date(d.time));
-            const socs = data.history.map(d => d.soc);
+        const times = data.history.timestamps.map(t => new Date(t));
+        const socs = data.history.values;
 
-            // Extend the line to "now" with the last known SOC value
-            const lastTime = times[times.length - 1];
-            if (now > lastTime) {
-                times.push(now);
-                socs.push(socs[socs.length - 1]);
-            }
-
-            traces.push({
-                x: times,
-                y: socs,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'SoC',
-                line: { color: '#3498db', width: 2 },
-                hovertemplate: '%{y}%<extra>SoC</extra>',
-            });
+        // Extend the line to "now" with the last known SOC value
+        const lastTime = times[times.length - 1];
+        if (now > lastTime) {
+            times.push(now);
+            socs.push(socs[socs.length - 1]);
         }
 
+        traces.push({
+            x: times,
+            y: socs,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'SoC',
+            line: { color: '#3498db', width: 2 },
+            hovertemplate: '%{y}%<extra>SoC</extra>',
+        });
+
         // Add scheduled SoC trace
-        if (data.future.length > 0) {
+        if (data.future.values.length > 0) {
             traces.push({
-                x: data.future.map(d => new Date(d.time)),
-                y: data.future.map(d => d.soc),
+                x: data.future.timestamps.map(t => new Date(t)),
+                y: data.future.values,
                 type: 'scatter',
                 mode: 'lines',
                 name: 'Scheduled',
