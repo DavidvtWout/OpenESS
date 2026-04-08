@@ -274,93 +274,6 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
     }
 }
 
-// Load and display battery SoC chart with scheduled SoC
-async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
-    showLoading(elementId);
-
-    const batterySocUrl = `/api/battery-soc?start=${formatDate(start)}&end=${formatDate(end)}`;
-    console.log('Fetching SoC:', batterySocUrl);
-
-    try {
-        const response = await fetch(batterySocUrl);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch battery SoC: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('SoC data:', data.actual.length, 'actual,', data.scheduled.length, 'scheduled');
-
-        const now = new Date();
-
-        // Check if we have any data to show
-        if (data.actual.length === 0 && data.scheduled.length === 0) {
-            showError(elementId, 'No SoC data available');
-            return;
-        }
-
-        const traces = [];
-
-        // Add actual SoC trace with step interpolation
-        if (data.actual.length > 0) {
-            const times = data.actual.map(d => new Date(d.time));
-            const socs = data.actual.map(d => d.soc);
-
-            // Extend the line to "now" with the last known SOC value
-            const lastTime = times[times.length - 1];
-            if (now > lastTime) {
-                times.push(now);
-                socs.push(socs[socs.length - 1]);
-            }
-
-            traces.push({
-                x: times,
-                y: socs,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'SoC',
-                line: { color: '#3498db', width: 2 },
-                hovertemplate: '%{y}%<extra>SoC</extra>',
-            });
-        }
-
-        // Add scheduled SoC trace
-        if (data.scheduled.length > 0) {
-            traces.push({
-                x: data.scheduled.map(d => new Date(d.time)),
-                y: data.scheduled.map(d => d.soc),
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Scheduled',
-                line: { color: '#2ecc71', width: 2, dash: 'dot' },
-                hovertemplate: '%{y}%<extra>Scheduled</extra>',
-            });
-        }
-
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            hovermode: 'x unified',
-            xaxis: {
-                ...defaultLayout.xaxis,
-                range: [start, end],
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: 'SoC (%)',
-                range: [0, 100],
-            },
-            legend: getHorizontalLegend(),
-            shapes: getNowLineShape(now, start, end),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, traces, layout, defaultConfig);
-    } catch (error) {
-        console.error('Error loading SoC data:', error);
-        showError(elementId, 'Failed to load SoC data');
-    }
-}
-
 // Render energy flow chart from pre-fetched data (for caching)
 function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = 'multiplus', schedule = [], bucketMinutes = 60) {
     const settings = loadSettings();
@@ -627,7 +540,7 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
 async function loadEnergyFlowChart(elementId, start, end, bucketMinutes = 60, frameOfReference = 'multiplus') {
     showLoading(elementId);
 
-    const energyUrl = `/api/energy-flow?start=${formatDate(start)}&end=${formatDate(end)}&bucket_minutes=${bucketMinutes}`;
+    const energyUrl = `/api/energy-graph?start=${formatDate(start)}&end=${formatDate(end)}&bucket_minutes=${bucketMinutes}`;
     console.log('Fetching energy flow:', energyUrl);
 
     try {

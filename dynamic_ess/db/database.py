@@ -122,9 +122,11 @@ class Database:
             bucket_ms = round(bucket_seconds * 1000)
             params: list = [bucket_ms, bucket_ms]
             select_clause = "(start_time / ?) * ? as bucket, CAST(AVG(value) AS INTEGER) as avg_value"
+            order_by = "bucket"
         else:
             params = []
             select_clause = "start_time, value"
+            order_by = "start_time"
 
         conditions = ["label = ?"]
         params.append(label)
@@ -140,7 +142,7 @@ class Database:
             SELECT {select_clause}
             FROM power
             WHERE {where_clause}
-            ORDER BY bucket
+            ORDER BY {order_by}
         """
         cursor = self.conn.execute(query, params)
         return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]
@@ -386,7 +388,7 @@ class Database:
         end_ms = dt_to_ms(end)
         cursor = self._conn.execute(
             """
-            SELECT timestamp, soc
+            SELECT timestamp, value
             FROM battery_soc
             WHERE label = ?
             AND timestamp >= COALESCE(
@@ -405,7 +407,7 @@ class Database:
 
     def get_current_soc(self) -> int | None:
         """Get the most recent battery SOC reading."""
-        cursor = self._conn.execute("SELECT soc FROM battery_soc ORDER BY timestamp DESC LIMIT 1")
+        cursor = self._conn.execute("SELECT value FROM battery_soc ORDER BY timestamp DESC LIMIT 1")
         row = cursor.fetchone()
         return row["soc"] if row else None
 
