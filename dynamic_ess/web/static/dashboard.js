@@ -15,7 +15,6 @@ let dashboardStart = null;
 let dashboardEnd = null;
 let currentFoR = 'multiplus';
 let cachedEnergyData = null;
-let cachedScheduleData = null;
 let cachedBucketMinutes = 60;
 let rangeOffset = 0; // Number of periods to shift back from current
 let isRelayoutInProgress = false; // Flag to prevent infinite zoom sync loops
@@ -107,8 +106,140 @@ function setupZoomSync() {
     });
 }
 
+function renderConsumptionEnergyChart(elementId, data, start, end, bucketMinutes = 60) {
+
+}
+
+function renderGridEnergyChart(elementId, data, start, end, bucketMinutes = 60) {
+    const settings = loadSettings();
+    const useKw = settings.powerUnit === 'kw';
+    const fmtEnergy = useKw ? (wh) => (wh / 1000).toFixed(2) : (wh) => Math.round(wh);
+    const energyUnit = useKw ? 'kWh' : 'Wh';
+    const toDisplay = useKw ? (wh) => wh / 1000 : (wh) => wh;
+
+    //function buildHoverText(d) {
+    //    const time = new Date(d.time).toLocaleString();
+    //    return `<b>${time}</b><br>` +
+    //            `Grid Export: ${fmtEnergy(d.grid_export_wh)} ${energyUnit}<br>` +
+    //            `Grid Import: ${fmtEnergy(d.grid_import_wh)} ${energyUnit}<br>` +
+    //            `Conversion Losses: ${fmtEnergy(d.charger_losses_wh + d.inverter_losses_wh)} ${energyUnit}`;
+    //}
+    //const hoverTexts = data.map(d => buildHoverText(d));
+
+    const timestamps = data.timestamps.map(t => new Date(t));
+
+    let traces = [];
+    traces = [
+        {
+            x: timestamps,
+            y: data.grid_export["From MP"].map(v => toDisplay(v)),
+            type: 'bar',
+            name: 'From MP',
+            marker: { color: '#278e60' },
+            //text: hoverTexts,
+            //hoverinfo: 'text',
+            textposition: 'none',
+        },
+        {
+            x: timestamps,
+            y: data.grid_import["Consumption"].map(v => -toDisplay(v)),
+            type: 'bar',
+            name: 'Consumption',
+            marker: { color: '#3498db' },
+            //text: hoverTexts,
+            //hoverinfo: 'text',
+            textposition: 'none',
+        },
+        {
+            x: timestamps,
+            y: data.grid_import["To MP"].map(v => -toDisplay(v)),
+            type: 'bar',
+            name: 'To MP',
+            marker: { color: '#3498ab' },
+            //text: hoverTexts,
+            //hoverinfo: 'text',
+            textposition: 'none',
+        },
+    ];
+
+    const layout = getDefaultLayout();
+    layoutSetXRange(layout, start, end);
+    layoutAddNowLine(layout, start, end)
+    makePlot(elementId, traces, layout);
+}
+
+function renderBatteryEnergyChart(elementId, data, start, end, bucketMinutes = 60) {
+    const settings = loadSettings();
+    const useKw = settings.powerUnit === 'kw';
+    const fmtEnergy = useKw ? (wh) => (wh / 1000).toFixed(2) : (wh) => Math.round(wh);
+    const energyUnit = useKw ? 'kWh' : 'Wh';
+    const toDisplay = useKw ? (wh) => wh / 1000 : (wh) => wh;
+
+    const timestamps = data.timestamps.map(t => new Date(t));
+    const mp_data = data.battery_systems["MultiPlus"];
+
+    let traces = [];
+    traces = [
+        {
+            x: timestamps,
+            y: mp_data.energy_from_inverter.map(v => toDisplay(v)),
+            type: 'bar',
+            name: 'Inverter Output',
+            marker: { color: '#f39c12' },
+            //text: hoverTexts,
+            //hoverinfo: 'text',
+            textposition: 'none',
+        },
+        //{
+        //    x: timestamps,
+        //    y: data.map(d => -toDisplay(d.inverter_losses_wh)),
+        //    type: 'bar',
+        //    name: 'Inverter Losses',
+        //    marker: { color: '#e67e22' },
+        //    text: hoverTexts,
+        //    hoverinfo: 'text',
+        //    textposition: 'none',
+        //},
+        {
+            x: timestamps,
+            y: mp_data.energy_to_charger.map(v => -toDisplay(v)),
+            type: 'bar',
+            name: 'Charger Input',
+            marker: { color: '#3498db' },
+            //text: hoverTexts,
+            //hoverinfo: 'text',
+            textposition: 'none',
+        },
+        //{
+        //    x: timestamps,
+        //    y: data.map(d => -toDisplay(d.charger_losses_wh)),
+        //    type: 'bar',
+        //    name: 'Charger Losses',
+        //    marker: { color: '#2980b9' },
+        //    text: hoverTexts,
+        //    hoverinfo: 'text',
+        //    textposition: 'none',
+        //},
+    ];
+
+    const layout = getDefaultLayout();
+    layoutSetXRange(layout, start, end);
+    layoutAddNowLine(layout, start, end)
+    makePlot(elementId, traces, layout);
+}
+
 // Render energy flow chart from pre-fetched data (for caching)
-function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = 'multiplus', schedule = [], bucketMinutes = 60) {
+function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = 'multiplus', bucketMinutes = 60) {
+    if (frameOfReference === 'consumption') {
+        renderConsumptionEnergyChart(elementId, data, start, end, bucketMinutes);
+    } else if (frameOfReference === 'grid') {
+        renderGridEnergyChart(elementId, data, start, end,bucketMinutes);
+    } else {
+        renderBatteryEnergyChart(elementId, data, start, end, bucketMinutes);
+    }
+    return;
+
+
     const settings = loadSettings();
     const useKw = settings.powerUnit === 'kw';
 
@@ -124,15 +255,6 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
     let times;
     if (data && data.length > 0) {
         times = data.map(d => new Date(d.time));
-    } else if (schedule.length > 0) {
-        // Generate time buckets covering the schedule range
-        times = [];
-        const scheduleStart = Math.min(...schedule.map(s => new Date(s.start_time).getTime()));
-        const scheduleEnd = Math.max(...schedule.map(s => new Date(s.end_time).getTime()));
-        const bucketStartTime = Math.floor(scheduleStart / bucketMs) * bucketMs + bucketMs / 2;
-        for (let t = bucketStartTime; t < scheduleEnd; t += bucketMs) {
-            times.push(new Date(t));
-        }
     } else {
         showError(elementId, 'No energy flow data available');
         return;
@@ -155,22 +277,22 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
             return { chargerInputWh, chargerLossWh, inverterOutputWh, inverterLossWh };
         }
 
-        for (const entry of schedule) {
-            const entryStart = new Date(entry.start_time).getTime();
-            const entryEnd = new Date(entry.end_time).getTime();
-            const overlapStart = Math.max(effectiveBucketStart, entryStart);
-            const overlapEnd = Math.min(bucketEnd, entryEnd);
-            if (overlapEnd > overlapStart) {
-                const overlapHours = (overlapEnd - overlapStart) / 3600000;
-                if (entry.power_w > 0) {
-                    chargerInputWh += entry.charger_input_w * overlapHours;
-                    chargerLossWh += entry.charger_loss_w * overlapHours;
-                } else if (entry.power_w < 0) {
-                    inverterOutputWh += entry.inverter_output_w * overlapHours;
-                    inverterLossWh += entry.inverter_loss_w * overlapHours;
-                }
-            }
-        }
+        //for (const entry of schedule) {
+        //    const entryStart = new Date(entry.start_time).getTime();
+        //    const entryEnd = new Date(entry.end_time).getTime();
+        //    const overlapStart = Math.max(effectiveBucketStart, entryStart);
+        //    const overlapEnd = Math.min(bucketEnd, entryEnd);
+        //    if (overlapEnd > overlapStart) {
+        //        const overlapHours = (overlapEnd - overlapStart) / 3600000;
+        //        if (entry.power_w > 0) {
+        //            chargerInputWh += entry.charger_input_w * overlapHours;
+        //            chargerLossWh += entry.charger_loss_w * overlapHours;
+        //        } else if (entry.power_w < 0) {
+        //            inverterOutputWh += entry.inverter_output_w * overlapHours;
+        //            inverterLossWh += entry.inverter_loss_w * overlapHours;
+        //        }
+        //    }
+        //}
         return { chargerInputWh, chargerLossWh, inverterOutputWh, inverterLossWh };
     });
 
@@ -346,27 +468,10 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
         }
     }
 
-    const defaultLayout = getPlotlyLayout();
-    const layout = {
-        ...defaultLayout,
-        barmode: 'relative',
-        bargap: 0.02,
-        xaxis: {
-            ...defaultLayout.xaxis,
-            range: [start, end],
-        },
-        yaxis: {
-            ...defaultLayout.yaxis,
-            title: `Energy (${energyUnit})`,
-            zeroline: true,
-            zerolinecolor: getZerolineColor(),
-        },
-        legend: getHorizontalLegend(),
-        shapes: getNowLineShape(now, start, end),
-    };
-
-    document.getElementById(elementId).innerHTML = '';
-    Plotly.newPlot(elementId, traces, layout, defaultConfig);
+    const layout = getDefaultLayout();
+    layoutSetXRange(layout, start, end);
+    layoutAddNowLine(layout, start, end)
+    makePlot(elementId, traces, layout);
 }
 
 // Load and display energy flow stacked bar chart with frame of reference
@@ -384,11 +489,7 @@ async function loadEnergyFlowChart(elementId, start, end, bucketMinutes = 60, fr
         }
 
         const result = await response.json();
-        const data = result.energy;
-        const schedule = result.schedule;
-        console.log('Energy flow data:', data.length, 'buckets, Schedule:', schedule.length, 'entries');
-
-        renderEnergyFlowChart(elementId, data, start, end, frameOfReference, schedule, bucketMinutes);
+        renderEnergyFlowChart(elementId, result, start, end, frameOfReference, bucketMinutes);
     } catch (error) {
         console.error('Error loading energy flow:', error);
         showError(elementId, 'Failed to load energy flow');
@@ -437,26 +538,10 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
             });
         }
 
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            hovermode: 'x unified',
-            xaxis: {
-                ...defaultLayout.xaxis,
-                range: [start, end],
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: powerLabel,
-                zeroline: true,
-                zerolinecolor: getZerolineColor(),
-            },
-            legend: getHorizontalLegend(),
-            shapes: getNowLineShape(now, start, end),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, traces, layout, defaultConfig);
+        const layout = getDefaultLayout();
+        layoutSetXRange(layout, start, end);
+        layoutAddNowLine(layout, start, end)
+        makePlot(elementId, traces, layout);
     } catch (error) {
         console.error('Error loading power data:', error);
         showError(elementId, 'Failed to load power data');
@@ -540,24 +625,10 @@ async function loadPricesChartRange(elementId, start, end) {
             hovertemplate: `Sell: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
 
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            hovermode: 'x',
-            xaxis: {
-                ...defaultLayout.xaxis,
-                range: [start, end],
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: priceLabel,
-            },
-            legend: { orientation: 'h', y: -0.2 },
-            shapes: getNowLineShape(now, start, end),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, [marketTrace, buyTrace, sellTrace], layout, defaultConfig);
+        const layout = getDefaultLayout();
+        layoutSetXRange(layout, start, end);
+        layoutAddNowLine(layout, start, end)
+        makePlot(elementId, [marketTrace, buyTrace, sellTrace], layout);
     } catch (error) {
         console.error('Error loading prices:', error);
         showError(elementId, 'Failed to load prices');
@@ -578,7 +649,6 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
         }
 
         const data = await response.json();
-        console.log('SoC data:', data.history.length, 'actual,', data.future.length, 'scheduled');
 
         const now = new Date();
 
@@ -624,25 +694,11 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
             });
         }
 
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            hovermode: 'x unified',
-            xaxis: {
-                ...defaultLayout.xaxis,
-                range: [start, end],
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: 'SoC (%)',
-                range: [0, 100],
-            },
-            legend: getHorizontalLegend(),
-            shapes: getNowLineShape(now, start, end),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, traces, layout, defaultConfig);
+         const layout = getDefaultLayout();
+         layoutSetXRange(layout, start, end);
+         layoutAddNowLine(layout, start, end)
+         layout.hovermode = 'x unified';
+         makePlot(elementId, traces, layout);
     } catch (error) {
         console.error('Error loading SoC data:', error);
         showError(elementId, 'Failed to load SoC data');
@@ -664,7 +720,6 @@ async function loadDashboard() {
 
     // Clear cache when time range changes
     cachedEnergyData = null;
-    cachedScheduleData = null;
     cachedBucketMinutes = bucketMinutes;
 
     await Promise.all([
@@ -674,14 +729,15 @@ async function loadDashboard() {
         loadSocChart('soc-chart', dashboardStart, dashboardEnd, aggregateMinutes)
     ]);
 
-    renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR, cachedScheduleData, cachedBucketMinutes);
+    renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR, cachedBucketMinutes);
 
     // Setup zoom sync after charts are loaded (needs to be re-attached after each newPlot)
     setupZoomSync();
 }
 
 async function loadAndCacheEnergyData(start, end, bucketMinutes) {
-    const energyUrl = `/api/energy-graph?start=${start.toISOString()}&end=${end.toISOString()}&bucket_minutes=${bucketMinutes}`;
+    const energyUrl = getEnergyGraphUrl(start, end, bucketMinutes);
+    console.log('Fetching', energyUrl);
 
     try {
         const response = await fetch(energyUrl);
@@ -690,18 +746,16 @@ async function loadAndCacheEnergyData(start, end, bucketMinutes) {
             throw new Error(`Failed to fetch energy flow: ${response.status}`);
         }
         const result = await response.json();
-        cachedEnergyData = result.energy;
-        cachedScheduleData = result.schedule;
+        cachedEnergyData = result;
     } catch (error) {
         console.error('Error fetching energy data:', error);
         cachedEnergyData = null;
-        cachedScheduleData = [];
     }
 }
 
 function renderEnergyOnly() {
-    if (dashboardStart && dashboardEnd && (cachedEnergyData || cachedScheduleData)) {
-        renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR, cachedScheduleData || [], cachedBucketMinutes);
+    if (dashboardStart && dashboardEnd && cachedEnergyData) {
+        renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR, cachedBucketMinutes);
     }
 }
 

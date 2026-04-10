@@ -131,7 +131,7 @@ class Optimizer:
         self._price_config = price_config
         self._battery_config = battery_config
 
-    def optimize(self) -> list[tuple[datetime, datetime, int, int]]:
+    def optimize(self) -> list[tuple[datetime, datetime, int, float]]:
         """Generate optimal charge schedule using mixed-integer linear programming.
 
         The optimization minimizes electricity cost while respecting battery constraints.
@@ -281,7 +281,7 @@ class Optimizer:
             charge_power = pyo.value(model.charge_power[t])
             discharge_power = pyo.value(model.discharge_power[t])
             power_w = int((charge_power - discharge_power) * 1000)
-            expected_soc = int(round(pyo.value(model.soc[t])))
+            expected_soc = round(pyo.value(model.soc[t]), 1)
 
             # Calculate cost for this hour
             price = pyo.value(model.market_price[t])

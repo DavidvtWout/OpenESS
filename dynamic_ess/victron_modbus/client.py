@@ -212,16 +212,21 @@ class VictronClient:
     def collect_and_store_measurements(self) -> None:
         """Collect all measurements from Victron and store in database."""
         for mp_config in self._mp_configs:
-            # TODO: if SoC is >99% enable charger to balance cells.
             threshold = 50
-            if abs(mp_config.ess_setpoint) >= threshold:
-                self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, mp_config.ess_setpoint)
+            if self._database.get_current_soc() >= 99 and mp_config.ess_setpoint >= -threshold:
+                # Keep putting power into the battery to allow balancing of the cells by the BMS.
+                # TODO: implement balancing limits?
+                self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, 1000)
                 self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 0)
-                self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 0)
             else:
-                self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, 0)
-                self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 1)
-                self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 1)
+                if abs(mp_config.ess_setpoint) >= threshold:
+                    self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, mp_config.ess_setpoint)
+                    self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 0)
+                    self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 0)
+                else:
+                    self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, 0)
+                    self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 1)
+                    self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 1)
 
         timestamp = datetime.now(timezone.utc)
 

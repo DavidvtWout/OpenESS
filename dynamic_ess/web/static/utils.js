@@ -1,16 +1,20 @@
-// Generic utility functions
+//-----------------------------//
+//  Generic utility functions  //
+//-----------------------------//
 
-// Helper to format dates for API
+function isDarkTheme() {
+    const settings = loadSettings();
+    return settings.theme === 'dark';
+}
+
 function formatDate(date) {
     return date.toISOString();
 }
 
-// Helper to show loading state
 function showLoading(elementId) {
     document.getElementById(elementId).innerHTML = '<div class="loading">Loading...</div>';
 }
 
-// Helper to show error state
 function showError(elementId, message) {
     document.getElementById(elementId).innerHTML = `<div class="error">${message}</div>`;
 }
@@ -37,56 +41,79 @@ function insertGapNulls(timestamps, values, gapThresholdMs) {
     return { timestamps: newTimestamps, values: newValues };
 }
 
-
-// Shared chart utilities for Plotly charts
+//----------------------------//
+//  Plotly utility functions  //
+//----------------------------//
 
 const defaultConfig = {
     responsive: true,
     displayModeBar: false,
 };
 
-// Get Plotly layout based on current theme
-function getPlotlyLayout() {
-    const settings = loadSettings();
-    const isDark = settings.theme === 'dark';
+function makePlot(elementId, traces, layout, config = defaultConfig) {
+    // Remove "Loading..." TODO: find out why PlotLy adds this loading message
+    document.getElementById(elementId).innerHTML = '';
+
+    Plotly.newPlot(elementId, traces, layout, config);
+}
+
+// TODO: use colours from style.css
+function getDefaultLayout() {
+    const isDark = isDarkTheme();
+    const font = {
+       family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+       color: isDark ? '#e4e4e4' : '#333333',
+    }
 
     return {
         margin: { t: 30, r: 30, b: 50, l: 60 },
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
-        font: {
-            family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-            color: isDark ? '#e4e4e4' : '#333333',
-        },
+        font: font,
         hoverlabel: {
             bgcolor: isDark ? '#2a2a4a' : '#ffffff',
             bordercolor: isDark ? '#4a4a6a' : '#cccccc',
-            font: {
-                family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                color: isDark ? '#e4e4e4' : '#333333',
-            },
+            font: font,
         },
         xaxis: {
             gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
             linecolor: isDark ? '#3a3a5a' : '#dddddd',
-            // type: 'date',
         },
         yaxis: {
             gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
             linecolor: isDark ? '#3a3a5a' : '#dddddd',
+            zeroline: true,
+            zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
         },
+        legend: {
+            orientation: 'h',
+            y: -0.15,
+            font: font,
+        },
+        // Only relevant for bar charts
+        barmode: 'relative',
+        bargap: 0.02,
     };
 }
 
-// Get "now" line shape for charts (vertical dashed line at current time)
-function getNowLineShape(now, start, end, color = '#e74c3c') {
-    if (now >= start && now <= end) {
+function layoutSetXRange(layout, start, end) {
+    layout.xaxis.range = [start, end];
+}
+
+function layoutAddNowLine(layout, now, start, end, color = '#e74c3c') {
+    layout.shapes = getNowLineShape(now, start, end);
+}
+
+function getNowLineShape(start, end, now = null, color = '#e74c3c') {
+    if (now == null) {
+        now = new Date().getTime();
+    }
+
+    if (now >= start && now < end) {
         return [{
             type: 'line',
-            x0: now,
-            x1: now,
-            y0: 0,
-            y1: 1,
+            x0: now, y0: 0,
+            x1: now, y1: 1,
             yref: 'paper',
             line: { color: color, width: 2, dash: 'dash' },
         }];
@@ -94,24 +121,10 @@ function getNowLineShape(now, start, end, color = '#e74c3c') {
     return [];
 }
 
-// Get standard horizontal legend config
-function getHorizontalLegend(yOffset = -0.15) {
-    const settings = loadSettings();
-    const isDark = settings.theme === 'dark';
-    return {
-        orientation: 'h',
-        y: yOffset,
-        font: { color: isDark ? '#e4e4e4' : '#333333' },
-    };
-}
+//-----------------//
+//  API endpoints  //
+//-----------------//
 
-// Check if dark theme is active
-function isDarkTheme() {
-    const settings = loadSettings();
-    return settings.theme === 'dark';
-}
-
-// Get zeroline color based on theme
-function getZerolineColor() {
-    return isDarkTheme() ? '#4a4a6a' : '#cccccc';
+function getEnergyGraphUrl(start, end, bucketMinutes) {
+    return `/api/energy-graph?start=${formatDate(start)}&end=${formatDate(end)}&bucket_minutes=${bucketMinutes}`;
 }

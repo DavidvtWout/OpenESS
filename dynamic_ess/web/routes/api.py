@@ -11,10 +11,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["api"])
 
-# Milliseconds per minute/hour
-MS_PER_MIN = 60_000
-MS_PER_HOUR = 3_600_000
-
 
 def get_db() -> Database:
     from dynamic_ess.web.dependencies import get_database
@@ -40,17 +36,6 @@ class PricePoint(BaseModel):
     sell_price: float
 
 
-class BatterySocResponse(BaseModel):
-    history: TimeSeries
-    future: TimeSeries
-
-
-class HealthResponse(BaseModel):
-    status: str
-    database: str
-    tables: list[str]
-
-
 class BatteryCycle(BaseModel):
     start_time: datetime
     end_time: datetime
@@ -70,11 +55,6 @@ class EnergySample(BaseModel):
     grid_export_wh: float
     grid_import_wh: float
     consumption_wh: float
-
-
-class EnergyGraphResponse(BaseModel):
-    history: list[EnergySample]
-    future: list[EnergySample]
 
 
 class PowerResponse(BaseModel):
@@ -104,6 +84,12 @@ def data_to_timeseries(data: list[tuple[datetime, float]]) -> TimeSeries:
     return TimeSeries(timestamps=timestamps, values=values)
 
 
+class HealthResponse(BaseModel):
+    status: str
+    database: str
+    tables: list[str]
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(db: Database = Depends(get_db)):
     try:
@@ -115,12 +101,33 @@ async def health_check(db: Database = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class BatteryEnergySeries(BaseModel):
+    energy_to_charger: list[float | None] = []
+    energy_from_inverter: list[float | None] = []
+    energy_to_battery: list[float | None] = []
+    energy_from_battery: list[float | None] = []
+    energy_loss_to_battery: list[float | None] = []
+    energy_loss_from_battery: list[float | None] = []
+
+
+class EnergyGraphResponse(BaseModel):
+    timestamps: list[datetime]
+
+    grid_import: dict[str, list[float | None]]
+    grid_export: dict[str, list[float | None]]
+
+    battery_systems: dict[str, BatteryEnergySeries]
+
+    solar: list[float | None] = []
+    to_consumption: list[float | None] = []
+    from_consumption: list[float | None] = []
+
+
 @router.get("/energy-graph", response_model=EnergyGraphResponse)
 async def get_energy_flow_endpoint(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     bucket_minutes: int = Query(default=60),
-    max_gap_seconds: int = Query(default=300),
     db: Database = Depends(get_db),
 ):
     """Get energy flow data by integrating power over time, plus schedule."""
@@ -131,12 +138,59 @@ async def get_energy_flow_endpoint(
         if end is None:
             end = now
 
-        grid_data = {f"Grid L{i}": db.get_power(f"grid_l{i}", start, end, bucket_minutes * 60) for i in (1, 2, 3)}
-        battery_data = db.get_power("bms_225", start, end, bucket_minutes * 60)
-        inverter_data = db.get_power("mp_228_ac_in", start, end, bucket_minutes * 60)
+        series = {
+            "from_grid": db.get_energy_aggregated(
+                "from_net_total", bucket_minutes * 60, start, end, center_buckets=True
+            ),
+            "to_grid": db.get_energy_aggregated("to_net_total", bucket_minutes * 60, start, end, center_buckets=True),
+            "to_mp": db.get_energy_aggregated(
+                "mp_228_ac_in_to_dc", bucket_minutes * 60, start, end, center_buckets=True
+            ),
+            "from_mp": db.get_energy_aggregated(
+                "mp_228_dc_to_ac_in", bucket_minutes * 60, start, end, center_buckets=True
+            ),
+        }
 
-        # TODO
-        return EnergyGraphResponse(history=[], future=[])
+        timestamps = set()
+        series_as_dict: dict[str, dict[datetime, float]] = {name: {} for name in series}
+        for name, s in series.items():
+            for ts, v in s:
+                timestamps.add(ts)
+                series_as_dict[name][ts] = v
+        timestamps = list(sorted(timestamps))
+
+        grid_exports = {
+            "From MP": [],
+        }
+        grid_imports = {
+            "Consumption": [],
+            "To MP": [],
+        }
+        battery_stats = BatteryEnergySeries()
+        for ts in timestamps:
+            # Grid export
+            from_mp = series_as_dict["from_mp"].get(ts)
+            grid_exports["From MP"].append(from_mp)
+            unaccounted_export = series_as_dict["to_grid"].get(ts, 0) - (from_mp or 0)
+
+            # Grid import
+            to_mp = series_as_dict["to_mp"].get(ts)
+            grid_imports["To MP"].append(to_mp)
+            grid_import = series_as_dict["from_grid"].get(ts)
+            if grid_import is not None:
+                grid_import -= (to_mp or 0) - unaccounted_export
+            grid_imports["Consumption"].append(grid_import)
+
+            # Battery stats
+            battery_stats.energy_to_charger.append(to_mp)
+            battery_stats.energy_from_inverter.append(from_mp)
+
+        return EnergyGraphResponse(
+            timestamps=timestamps,
+            grid_export=grid_exports,
+            grid_import=grid_imports,
+            battery_systems={"MultiPlus": battery_stats},
+        )
     except Exception as e:
         logger.exception("Failed to get energy flow")
         raise HTTPException(status_code=500, detail=str(e))
@@ -213,6 +267,11 @@ async def get_price_data(
     except Exception as e:
         logger.exception("Failed to get prices")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class BatterySocResponse(BaseModel):
+    history: TimeSeries
+    future: TimeSeries
 
 
 @router.get("/battery-soc", response_model=BatterySocResponse)

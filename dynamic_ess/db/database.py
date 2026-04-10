@@ -6,18 +6,9 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from .runner import get_migrations, run_migration
+from .util import dt_to_ms, ms_to_dt, base_conditions
 
 logger = logging.getLogger(__name__)
-
-
-def dt_to_ms(dt: datetime) -> int:
-    """Convert datetime to Unix milliseconds."""
-    return int(dt.timestamp() * 1000)
-
-
-def ms_to_dt(ms: int) -> datetime:
-    """Convert Unix milliseconds to UTC datetime."""
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
 
 
 class Database:
@@ -259,26 +250,14 @@ class Database:
         end: datetime | None,
         normalize: bool = False,
     ) -> list[tuple[datetime, float]]:
-
-        conditions = []
-        params = []
-        if label is not None:
-            conditions.append("label = ?")
-            params.append(label)
-        if start is not None:
-            conditions.append("timestamp >= ?")
-            params.append(dt_to_ms(start))
-        if end is not None:
-            conditions.append("timestamp < ?")
-            params.append(dt_to_ms(end))
-
-        where_clause = " AND ".join(conditions)
+        conditions, params = base_conditions(label, start, end)
+        where_clause = "WHERE " + " AND ".join(conditions)
         query = f"""
-                SELECT timestamp, value
-                FROM energy
-                WHERE {where_clause}
-                ORDER BY timestamp
-            """
+            SELECT timestamp, value
+            FROM energy
+            {where_clause}
+            ORDER BY timestamp
+        """
         cursor = self.conn.execute(query, params)
 
         result = [(row[0], row[1]) for row in cursor.fetchall()]
@@ -286,6 +265,46 @@ class Database:
             start_energy = result[0][1]
             result = [(t, v - start_energy) for t, v in result]
         return result
+
+    def get_energy_aggregated(
+        self, label, aggregation_seconds: float, start: datetime | None, end: datetime | None, center_buckets=False
+    ) -> list[tuple[datetime, float]]:
+        if start:
+            start -= timedelta(seconds=aggregation_seconds)
+        if end:
+            end += timedelta(seconds=aggregation_seconds)
+
+        agg_ms = int(aggregation_seconds * 1000)
+        conditions, params = base_conditions(label, start, end)
+        where_clause = "WHERE " + " AND ".join(conditions)
+        query = f"""
+            SELECT
+                (timestamp / ?) * ? AS bucket,
+                SUM(delta) AS energy_sum
+            FROM (
+                SELECT
+                    timestamp,
+                    CASE
+                        WHEN prev IS NULL THEN 0      -- first value
+                        WHEN value < prev THEN value  -- time series was reset to zero
+                        ELSE value - prev
+                    END AS delta
+                FROM (
+                    SELECT
+                        timestamp,
+                        value,
+                        LAG(value) OVER (ORDER BY timestamp) AS prev
+                    FROM energy
+                    {where_clause}
+                )
+            )
+            GROUP BY bucket
+            ORDER BY bucket
+        """
+        cursor = self.conn.execute(query, [agg_ms, agg_ms] + params)
+
+        center_offset = agg_ms // 2 if center_buckets else 0
+        return [(ms_to_dt(r[0] + center_offset), round(r[1], 3)) for r in cursor.fetchall()]
 
     def get_energy_labels(self, start: datetime | None, end: datetime | None = None) -> list[str]:
         return self._get_labels("energy", "timestamp", start, end)
@@ -297,6 +316,15 @@ class Database:
         for label in self.get_energy_labels(start, end):
             energy_series[label] = self.get_energy(label, start, end, normalize)
         return energy_series
+
+    def get_grid_energy_total(
+        self, start: datetime | None, end: datetime | None = None, normalize: bool = False
+    ) -> dict[str, list[tuple[datetime, float]]]:
+        # TODO: per phase and total
+        return {
+            "from_net_total": self.get_energy("from_net_total", start, end, normalize),
+            "to_net_total": self.get_energy("to_net_total", start, end, normalize),
+        }
 
     def integrate_power(
         self, label: str, start: datetime, end: datetime, bucket_seconds: int = 60
@@ -411,7 +439,7 @@ class Database:
         """Get the most recent battery SOC reading."""
         cursor = self._conn.execute("SELECT value FROM battery_soc ORDER BY timestamp DESC LIMIT 1")
         row = cursor.fetchone()
-        return row["soc"] if row else None
+        return row["value"] if row else None
 
     def get_soc_at(self, timestamp: datetime) -> int | None:
         """Get battery SOC reading at or after timestamp.
@@ -435,7 +463,7 @@ class Database:
     # Charge schedule
     # -------------------------------------------------------------------------
 
-    def set_schedule(self, entries: list[tuple[datetime, datetime, int, int]]) -> None:
+    def set_schedule(self, entries: list[tuple[datetime, datetime, int, float]]) -> None:
         """Insert or update schedule entries."""
         self._conn.executemany(
             "INSERT OR REPLACE INTO charge_schedule (start_time, end_time, power, expected_soc) VALUES (?, ?, ?, ?)",

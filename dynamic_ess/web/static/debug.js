@@ -67,30 +67,10 @@ async function loadPowerChart() {
             });
         }
 
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            hovermode: 'x unified',
-            xaxis: {
-                ...defaultLayout.xaxis,
-                range: [start, now],
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: `Power (${powerUnit})`,
-                zeroline: true,
-                zerolinecolor: getZerolineColor(),
-            },
-            legend: {
-                ...getHorizontalLegend(-0.25),
-                traceorder: 'normal',
-            },
-            shapes: getNowLineShape(now, start, now),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, traces, layout, defaultConfig);
-
+        const layout = getDefaultLayout();
+        layoutSetXRange(layout, start, now);
+        layout.hovermode = 'x unified';
+        makePlot(elementId, traces, layout);
     } catch (error) {
         console.error('Error loading power flows:', error);
         showError(elementId, 'Failed to load power flows');
@@ -154,30 +134,10 @@ async function loadEnergyChart() {
             });
         }
 
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            hovermode: 'x unified',
-            xaxis: {
-                ...defaultLayout.xaxis,
-                range: [start, now],
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: `Energy (${energyUnit})`,
-                zeroline: true,
-                zerolinecolor: getZerolineColor(),
-            },
-            legend: {
-                ...getHorizontalLegend(-0.25),
-                traceorder: 'normal',
-            },
-            shapes: getNowLineShape(now, start, now),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, traces, layout, defaultConfig);
-
+        const layout = getDefaultLayout();
+        layoutSetXRange(layout, start, now);
+        layout.hovermode = 'x unified';
+        makePlot(elementId, traces, layout);
     } catch (error) {
         console.error('Error loading energy flows:', error);
         showError(elementId, 'Failed to load energy flows');

@@ -84,24 +84,11 @@ async function loadPricesChart(elementId, days = 7, showStats = false) {
             hovertemplate: `Sell: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
 
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            hovermode: 'x',
-            xaxis: {
-                ...defaultLayout.xaxis,
-                title: 'Time',
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: priceLabel,
-            },
-            legend: { orientation: 'h', y: -0.2 },
-            shapes: currentPriceIdx >= 0 ? getNowLineShape(now, start, end, '#9b59b6') : [],
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, [marketTrace, buyTrace, sellTrace], layout, defaultConfig);
+        const layout = getDefaultLayout();
+        layoutSetXRange(layout, start, end);
+        layoutAddNowLine(layout, start, end)
+        layout.hovermode = 'x';
+        makePlot(elementId, [marketTrace, buyTrace, sellTrace], layout);
 
         // Update stats if requested (use buy prices)
         if (showStats) {
