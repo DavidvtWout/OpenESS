@@ -1,5 +1,4 @@
 import logging
-import pprint
 from datetime import datetime, timezone, timedelta
 from threading import Lock
 
@@ -141,14 +140,14 @@ class VictronClient:
                 self._config.pvinverter_id,
                 [
                     SolarInverter.ENERGY_L1,
-                    SolarInverter.POWER_TOTAL,
+                    SolarInverter.POWER_L1,
                 ],
             )
             self._database.insert_energy(
                 f"pvinverter_{self._config.pvinverter_id}_l1", timestamp, pvinverter_values.get(SolarInverter.ENERGY_L1)
             )
             self._database.insert_power(
-                f"pvinverter_{self._config.pvinverter_id}", timestamp, pvinverter_values.get(SolarInverter.POWER_TOTAL)
+                f"pvinverter_{self._config.pvinverter_id}_l1", timestamp, pvinverter_values.get(SolarInverter.POWER_L1)
             )
 
         # VEBus registers for each device

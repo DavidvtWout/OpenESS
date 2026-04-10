@@ -139,15 +139,17 @@ async def get_energy_flow_endpoint(
             end = now
 
         series = {
-            "from_grid": db.get_energy_aggregated(
-                "from_net_total", bucket_minutes * 60, start, end, center_buckets=True
+            "grid_import": db.get_energy_aggregated(
+                "grid_import", bucket_minutes * 60, start, end, center_buckets=True
             ),
-            "to_grid": db.get_energy_aggregated("to_net_total", bucket_minutes * 60, start, end, center_buckets=True),
-            "to_mp": db.get_energy_aggregated(
-                "mp_228_ac_in_to_dc", bucket_minutes * 60, start, end, center_buckets=True
+            "grid_export": db.get_energy_aggregated(
+                "grid_export", bucket_minutes * 60, start, end, center_buckets=True
             ),
-            "from_mp": db.get_energy_aggregated(
-                "mp_228_dc_to_ac_in", bucket_minutes * 60, start, end, center_buckets=True
+            "vebus_228_import": db.get_energy_aggregated(
+                "vebus_228_ac_in_import", bucket_minutes * 60, start, end, center_buckets=True
+            ),
+            "vebus_228_export": db.get_energy_aggregated(
+                "vebus_228_ac_in_export", bucket_minutes * 60, start, end, center_buckets=True
             ),
         }
 
@@ -169,14 +171,14 @@ async def get_energy_flow_endpoint(
         battery_stats = BatteryEnergySeries()
         for ts in timestamps:
             # Grid export
-            from_mp = series_as_dict["from_mp"].get(ts)
+            from_mp = series_as_dict["vebus_228_export"].get(ts)
             grid_exports["From MP"].append(from_mp)
-            unaccounted_export = series_as_dict["to_grid"].get(ts, 0) - (from_mp or 0)
+            unaccounted_export = series_as_dict["grid_export"].get(ts, 0) - (from_mp or 0)
 
             # Grid import
-            to_mp = series_as_dict["to_mp"].get(ts)
+            to_mp = series_as_dict["vebus_228_import"].get(ts)
             grid_imports["To MP"].append(to_mp)
-            grid_import = series_as_dict["from_grid"].get(ts)
+            grid_import = series_as_dict["grid_import"].get(ts)
             if grid_import is not None:
                 grid_import -= (to_mp or 0) - unaccounted_export
             grid_imports["Consumption"].append(grid_import)
@@ -213,22 +215,19 @@ async def get_power(
 
         bucket_seconds = aggregate_minutes * 60
 
-        # First add grid data
         series = {f"Grid L{i}": db.get_power(f"grid_l{i}", start, end, bucket_seconds) for i in (1, 2, 3)}
-
-        # TODO: grep series based on patterns instead of hard-coded
-        # mp_ac_pattern = re.compile(r"^mp_\d+_ac.*$")
-        # mp_ac_labels = [label for label in db.get_power_labels() if mp_ac_pattern.match(label)]
 
         series["To MP 228"] = []
         for (ts, ac_in), (_, ac_out) in zip(
-            db.get_power("mp_228_ac_in", start, end, bucket_seconds),
-            db.get_power("mp_228_ac_out", start, end, bucket_seconds),
+            db.get_power("vebus_228_ac_in_l1", start, end, bucket_seconds),
+            db.get_power("vebus_228_ac_out_l1", start, end, bucket_seconds),
         ):
             series["To MP 228"].append((ts, ac_in - ac_out))
 
-        series["Battery (BMS 225)"] = db.get_power("bms_225", start, end, bucket_seconds)
-        series["Battery (MP 228)"] = db.get_power("mp_228_battery", start, end, bucket_seconds)
+        series["Battery (BMS 225)"] = db.get_power("battery_225", start, end, bucket_seconds)
+        series["Battery (MP 228)"] = db.get_power("vebus_228_battery", start, end, bucket_seconds)
+
+        series["Solar"] = db.get_power("pvinverter_31_l1", start, end, bucket_seconds)
 
         series["Schedule"] = []
         for ts_start, ts_end, v, _ in db.get_schedule(start):
@@ -287,8 +286,7 @@ async def get_battery_soc(
         if end is None:
             end = now
 
-        # TODO: label
-        actual = db.get_battery_soc("mp_228_soc", start, end)
+        actual = db.get_battery_soc("battery_225", start, end)
         scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(start)]
         return BatterySocResponse(history=data_to_timeseries(actual), future=data_to_timeseries(scheduled))
     except Exception as e:
@@ -427,7 +425,7 @@ async def get_battery_cycles(
             end = now
 
         # TODO: label
-        rows = db.get_battery_soc("mp_228_soc", start, end)
+        rows = db.get_battery_soc("vebus_228_soc", start, end)
 
         if len(rows) < 3:
             return []
@@ -517,7 +515,7 @@ async def get_energy(
         # Get counter-based energy flows
         series = db.get_all_energy(start, end, normalize=True)
 
-        # TODO: Get integrated power flows
+        # Get integrated power flows
         for label in db.get_power_labels(start, end):
             series[f"{label} [integrated]"] = db.integrate_power(label, start, end)
 

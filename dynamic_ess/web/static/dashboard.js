@@ -239,239 +239,26 @@ function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = '
     }
     return;
 
-
-    const settings = loadSettings();
-    const useKw = settings.powerUnit === 'kw';
-
-    // Convert Wh based on unit preference
-    const toDisplay = useKw ? (wh) => wh / 1000 : (wh) => wh;
-    const fmtEnergy = useKw ? (wh) => (wh / 1000).toFixed(2) : (wh) => Math.round(wh);
-    const energyUnit = useKw ? 'kWh' : 'Wh';
-
-    // Build scheduled energy data aligned with time buckets
-    const bucketMs = bucketMinutes * 60 * 1000;
-
-    // Generate time buckets from data if available, otherwise from schedule range
-    let times;
-    if (data && data.length > 0) {
-        times = data.map(d => new Date(d.time));
-    } else {
-        showError(elementId, 'No energy flow data available');
-        return;
-    }
-
-    // Only show scheduled energy for future time (starting from "now")
-    const now = new Date().getTime();
-
-    const scheduledData = times.map(t => {
-        const bucketStart = t.getTime() - bucketMs / 2;
-        const bucketEnd = bucketStart + bucketMs;
-        let chargerInputWh = 0;
-        let chargerLossWh = 0;
-        let inverterOutputWh = 0;
-        let inverterLossWh = 0;
-
-        // Only calculate scheduled energy for the future portion of the bucket
-        const effectiveBucketStart = Math.max(bucketStart, now);
-        if (effectiveBucketStart >= bucketEnd) {
-            return { chargerInputWh, chargerLossWh, inverterOutputWh, inverterLossWh };
-        }
-
-        //for (const entry of schedule) {
-        //    const entryStart = new Date(entry.start_time).getTime();
-        //    const entryEnd = new Date(entry.end_time).getTime();
-        //    const overlapStart = Math.max(effectiveBucketStart, entryStart);
-        //    const overlapEnd = Math.min(bucketEnd, entryEnd);
-        //    if (overlapEnd > overlapStart) {
-        //        const overlapHours = (overlapEnd - overlapStart) / 3600000;
-        //        if (entry.power_w > 0) {
-        //            chargerInputWh += entry.charger_input_w * overlapHours;
-        //            chargerLossWh += entry.charger_loss_w * overlapHours;
-        //        } else if (entry.power_w < 0) {
-        //            inverterOutputWh += entry.inverter_output_w * overlapHours;
-        //            inverterLossWh += entry.inverter_loss_w * overlapHours;
-        //        }
-        //    }
-        //}
-        return { chargerInputWh, chargerLossWh, inverterOutputWh, inverterLossWh };
-    });
-
     // Build FoR-specific hover text
-    function buildHoverText(d, forType) {
-        const time = new Date(d.time).toLocaleString();
-        if (forType === 'multiplus') {
-            return `<b>${time}</b><br>` +
-                `Inverter Output: ${fmtEnergy(d.inverter_output_wh)} ${energyUnit}<br>` +
-                `Inverter Losses: ${fmtEnergy(d.inverter_losses_wh)} ${energyUnit}<br>` +
-                `Charger Input: ${fmtEnergy(d.charger_input_wh)} ${energyUnit}<br>` +
-                `Charger Losses: ${fmtEnergy(d.charger_losses_wh)} ${energyUnit}`;
-        } else if (forType === 'grid') {
-            return `<b>${time}</b><br>` +
-                `Grid Export: ${fmtEnergy(d.grid_export_wh)} ${energyUnit}<br>` +
-                `Grid Import: ${fmtEnergy(d.grid_import_wh)} ${energyUnit}<br>` +
-                `Conversion Losses: ${fmtEnergy(d.charger_losses_wh + d.inverter_losses_wh)} ${energyUnit}`;
-        } else {
-            return `<b>${time}</b><br>` +
-                `Consumption: ${fmtEnergy(d.consumption_wh)} ${energyUnit}<br>` +
-                `MultiPlus Losses: ${fmtEnergy(d.charger_losses_wh + d.inverter_losses_wh)} ${energyUnit}`;
-        }
-    }
-
-    const hasData = data && data.length > 0;
-    const dataTimes = hasData ? data.map(d => new Date(d.time)) : [];
-    const hoverTexts = hasData ? data.map(d => buildHoverText(d, frameOfReference)) : [];
-
-    let traces = [];
-
-    if (frameOfReference === 'multiplus') {
-        if (hasData) {
-            traces = [
-                {
-                    x: dataTimes,
-                    y: data.map(d => toDisplay(d.inverter_output_wh)),
-                    type: 'bar',
-                    name: 'Inverter Output',
-                    marker: { color: '#f39c12' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: dataTimes,
-                    y: data.map(d => -toDisplay(d.inverter_losses_wh)),
-                    type: 'bar',
-                    name: 'Inverter Losses',
-                    marker: { color: '#e67e22' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: dataTimes,
-                    y: data.map(d => -toDisplay(d.charger_input_wh)),
-                    type: 'bar',
-                    name: 'Charger Input',
-                    marker: { color: '#3498db' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: dataTimes,
-                    y: data.map(d => -toDisplay(d.charger_losses_wh)),
-                    type: 'bar',
-                    name: 'Charger Losses',
-                    marker: { color: '#2980b9' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-            ];
-        }
-
-        const hasScheduledData = scheduledData.some(d => d.chargerInputWh > 0 || d.inverterOutputWh > 0);
-        if (hasScheduledData) {
-            traces.push(
-                {
-                    x: times,
-                    y: scheduledData.map(d => toDisplay(d.inverterOutputWh)),
-                    type: 'bar',
-                    name: 'Sched. Inverter',
-                    marker: { color: '#f39c12', opacity: 0.4, line: { color: '#f39c12', width: 1 } },
-                    hovertemplate: `%{y:.1f} ${energyUnit}<extra>Scheduled Inverter Output</extra>`,
-                },
-                {
-                    x: times,
-                    y: scheduledData.map(d => toDisplay(d.inverterLossWh)),
-                    type: 'bar',
-                    name: 'Sched. Inv. Losses',
-                    marker: { color: '#e67e22', opacity: 0.4, line: { color: '#e67e22', width: 1 } },
-                    hovertemplate: `%{y:.1f} ${energyUnit}<extra>Scheduled Inverter Losses</extra>`,
-                },
-                {
-                    x: times,
-                    y: scheduledData.map(d => -toDisplay(d.chargerInputWh)),
-                    type: 'bar',
-                    name: 'Sched. Charger',
-                    marker: { color: '#3498db', opacity: 0.4, line: { color: '#3498db', width: 1 } },
-                    hovertemplate: `%{y:.1f} ${energyUnit}<extra>Scheduled Charger Input</extra>`,
-                },
-                {
-                    x: times,
-                    y: scheduledData.map(d => -toDisplay(d.chargerLossWh)),
-                    type: 'bar',
-                    name: 'Sched. Chg. Losses',
-                    marker: { color: '#2980b9', opacity: 0.4, line: { color: '#2980b9', width: 1 } },
-                    hovertemplate: `%{y:.1f} ${energyUnit}<extra>Scheduled Charger Losses</extra>`,
-                },
-            );
-        }
-    } else if (frameOfReference === 'grid') {
-        if (hasData) {
-            traces = [
-                {
-                    x: dataTimes,
-                    y: data.map(d => toDisplay(d.grid_export_wh)),
-                    type: 'bar',
-                    name: 'Grid Export',
-                    marker: { color: '#27ae60' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: dataTimes,
-                    y: data.map(d => -toDisplay(d.grid_import_wh)),
-                    type: 'bar',
-                    name: 'Grid Import',
-                    marker: { color: '#3498db' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: dataTimes,
-                    y: data.map(d => -toDisplay(d.charger_losses_wh + d.inverter_losses_wh)),
-                    type: 'bar',
-                    name: 'Conversion Losses',
-                    marker: { color: '#e74c3c' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-            ];
-        }
-    } else if (frameOfReference === 'consumption') {
-        if (hasData) {
-            traces = [
-                {
-                    x: dataTimes,
-                    y: data.map(d => -toDisplay(d.consumption_wh)),
-                    type: 'bar',
-                    name: 'Consumption',
-                    marker: { color: '#9b59b6' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-                {
-                    x: dataTimes,
-                    y: data.map(d => -toDisplay(d.charger_losses_wh + d.inverter_losses_wh)),
-                    type: 'bar',
-                    name: 'MultiPlus Losses',
-                    marker: { color: '#e74c3c' },
-                    text: hoverTexts,
-                    hoverinfo: 'text',
-                    textposition: 'none',
-                },
-            ];
-        }
-    }
-
-    const layout = getDefaultLayout();
-    layoutSetXRange(layout, start, end);
-    layoutAddNowLine(layout, start, end)
-    makePlot(elementId, traces, layout);
+//    function buildHoverText(d, forType) {
+//        const time = new Date(d.time).toLocaleString();
+//        if (forType === 'multiplus') {
+//            return `<b>${time}</b><br>` +
+//                `Inverter Output: ${fmtEnergy(d.inverter_output_wh)} ${energyUnit}<br>` +
+//                `Inverter Losses: ${fmtEnergy(d.inverter_losses_wh)} ${energyUnit}<br>` +
+//                `Charger Input: ${fmtEnergy(d.charger_input_wh)} ${energyUnit}<br>` +
+//                `Charger Losses: ${fmtEnergy(d.charger_losses_wh)} ${energyUnit}`;
+//        } else if (forType === 'grid') {
+//            return `<b>${time}</b><br>` +
+//                `Grid Export: ${fmtEnergy(d.grid_export_wh)} ${energyUnit}<br>` +
+//                `Grid Import: ${fmtEnergy(d.grid_import_wh)} ${energyUnit}<br>` +
+//                `Conversion Losses: ${fmtEnergy(d.charger_losses_wh + d.inverter_losses_wh)} ${energyUnit}`;
+//        } else {
+//            return `<b>${time}</b><br>` +
+//                `Consumption: ${fmtEnergy(d.consumption_wh)} ${energyUnit}<br>` +
+//                `MultiPlus Losses: ${fmtEnergy(d.charger_losses_wh + d.inverter_losses_wh)} ${energyUnit}`;
+//        }
+//    }
 }
 
 // Load and display energy flow stacked bar chart with frame of reference

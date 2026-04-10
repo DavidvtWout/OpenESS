@@ -44,7 +44,7 @@ def main():
     )
 
     config = Config.from_file(args.config)
-    init_dependencies(config.db_path, config.prices)
+    init_dependencies(config.database, config.prices)
 
     logger.info(f"Starting web server on http://{args.host}:{args.port}")
 
