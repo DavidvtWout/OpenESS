@@ -423,7 +423,7 @@ async function loadPricesChartRange(elementId, start, end) {
 }
 
 // Load and display battery SoC chart with scheduled SoC
-async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
+async function loadSocChart(elementId, start, end, aggregateMinutes = 1) {
     showLoading(elementId);
 
     const batterySocUrl = `/api/battery-soc?start=${formatDate(start)}&end=${formatDate(end)}`;
@@ -483,7 +483,7 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
             mode: 'lines',
             name: 'Voltage',
             line: { color: '#ff7171', width: 2},
-            hovertemplate: '%{y}%<extra>Scheduled</extra>',
+            hovertemplate: '%{y}V<extra>Voltage</extra>',
             yaxis: 'y2',
         });
 
@@ -494,10 +494,12 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
          layout.hovermode = 'x unified';
          layout.yaxis.side = 'left';
          layout.yaxis.range = [0, 100];
+         layout.yaxis.title = {text: "SoC (%)"}
          layout.yaxis2 = {
              overlaying: 'y',
              side: 'right',
              gridcolor: 'transparent',
+             title: {text: "Voltage (V)"},
          };
          makePlot(elementId, traces, layout);
     } catch (error) {

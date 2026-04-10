@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -75,7 +76,7 @@ class EfficiencyScatterPoint(BaseModel):
     category: str
 
 
-def data_to_timeseries(data: list[tuple[datetime, float]]) -> TimeSeries:
+def data_to_timeseries(data: Iterable[tuple[datetime, float]]) -> TimeSeries:
     timestamps = []
     values = []
     for t, v in data:
@@ -289,11 +290,11 @@ async def get_battery_soc(
 
         actual = db.get_battery_soc("battery_225", start, end)
         scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(start)]
-        voltage = db.get_voltage("battery_225_voltage", start, end, bucket_seconds=300)
+        voltage = db.get_voltage("battery_225_voltage", start, end, bucket_seconds=60)
         return BatterySocResponse(
             history=data_to_timeseries(actual),
             future=data_to_timeseries(scheduled),
-            voltage=data_to_timeseries(voltage),
+            voltage=data_to_timeseries((t, round(v, 2)) for t, v in voltage),
         )
     except Exception as e:
         logger.exception("Failed to get battery SOC")

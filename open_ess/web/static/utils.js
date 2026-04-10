@@ -66,7 +66,7 @@ function getDefaultLayout() {
     }
 
     return {
-        margin: { t: 30, r: 30, b: 50, l: 60 },
+        margin: { t: 30, r: 60, b: 50, l: 60 },
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
         font: font,
