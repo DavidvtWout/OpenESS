@@ -1,43 +1,39 @@
 database:
   path: /var/lib/open-ess/data.db
 
-frontend:
-
-mqtt:
-
 prices:
-  area: NL  # ENTSO-E bidding zone (NL, DE_LU, BE, etc.)
-  entsoe_api_key_file: /var/lib/open-ess/entsoe_api_key
+  area:  # Required - ENTSO-E bidding zone (NL, DE_LU, BE, etc.)
+  entsoe_api_key_file: /var/lib/open-ess/entsoe_api_key  # Required
 
   # Price formulas: calculate actual buy/sell price from market price
   # Use 'price' or 'p' as the market price variable (EUR/kWh)
   # Allowed operations: +, -, *, /, **, parentheses
   # Example: "(price + 0.05) * 1.21" adds €0.05/kWh markup and 21% VAT
-  buy_formula: "price"   # default: pass-through
-  sell_formula: "price"  # default: pass-through
+  buy_formula:
+  sell_formula:
 
 victron_gx:
-  host: 192.168.1.100  # IP of your Victron GX device
-  port: 502
+  host:  # Address of your Victron GX device
+  port:  # Optional - Defaults to 502
 
   # Modbus unit IDs - check Settings → Services → Modbus TCP → Available services
-  system_id: 100
-  grid_id: (optional)
-  pvinverter_id: (optional)
+  system_id: 100  # Defaults to 100
+  grid_id: # Optional - com.victronenergy.grid contains some more grid metrics than com.victronenergy.system.
+  pvinverter_id: # Optional - Read metrics from solar inverter. Solar data is only shown in the graphs but isn't actually used for scheduling.
 
 battery:
   control:
-    type: victron or mqtt
+    type: # victron or mqtt. Mqtt will be implemented soon.
     monitor_only: no  # Read-only mode. Only collect metric but don't actively control the battery.
-    # If victron;
-    vebus_id: 228 (required)
-    battery_id: 225 (optional)
-    disable_charger_when_idle: default=False
-    disable_inverter_when_idle: default=False
-    # If mqtt;
-    topic: (required)
+    # victron;
+    vebus_id: # Required
+    battery_id: # Optional
+    disable_charger_when_idle: # Default: False
+    disable_inverter_when_idle: # Default: False
+    # mqtt;
+    topic: # Required
 
-  capacity_kwh: 10.0
+  capacity_kwh: # Required
   min_soc: 10   # Lowest State-of-Charge allowed
   max_soc: 100  # Highest State-of-Charge allowed
 
