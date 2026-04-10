@@ -271,6 +271,7 @@ async def get_price_data(
 class BatterySocResponse(BaseModel):
     history: TimeSeries
     future: TimeSeries
+    voltage: TimeSeries
 
 
 @router.get("/battery-soc", response_model=BatterySocResponse)
@@ -288,7 +289,12 @@ async def get_battery_soc(
 
         actual = db.get_battery_soc("battery_225", start, end)
         scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(start)]
-        return BatterySocResponse(history=data_to_timeseries(actual), future=data_to_timeseries(scheduled))
+        voltage = db.get_voltage("battery_225_voltage", start, end, bucket_seconds=300)
+        return BatterySocResponse(
+            history=data_to_timeseries(actual),
+            future=data_to_timeseries(scheduled),
+            voltage=data_to_timeseries(voltage),
+        )
     except Exception as e:
         logger.exception("Failed to get battery SOC")
         raise HTTPException(status_code=500, detail=str(e))

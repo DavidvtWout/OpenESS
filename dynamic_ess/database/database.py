@@ -143,6 +143,15 @@ class Database:
         cursor = self.conn.execute(query, params)
         return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]
 
+    def get_voltage(
+        self,
+        label: str,
+        start: datetime | None,
+        end: datetime | None,
+        bucket_seconds: float | None = None,
+    ) -> list[tuple[datetime, float]]:
+        return self.get_power(label, start, end, bucket_seconds)
+
     def get_power_labels(self, start: datetime | None = None, end: datetime | None = None) -> list[str]:
         return self._get_labels("power", "start_time", start, end)
 

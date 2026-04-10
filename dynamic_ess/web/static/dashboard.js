@@ -467,24 +467,38 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 5) {
             line: { color: '#3498db', width: 2 },
             hovertemplate: '%{y}%<extra>SoC</extra>',
         });
+        traces.push({
+            x: data.future.timestamps.map(t => new Date(t)),
+            y: data.future.values,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Scheduled',
+            line: { color: '#2ecc71', width: 2, dash: 'dot' },
+            hovertemplate: '%{y}%<extra>Scheduled</extra>',
+        });
+        traces.push({
+            x: data.voltage.timestamps.map(t => new Date(t)),
+            y: data.voltage.values,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Voltage',
+            line: { color: '#ff7171', width: 2},
+            hovertemplate: '%{y}%<extra>Scheduled</extra>',
+            yaxis: 'y2',
+        });
 
-        // Add scheduled SoC trace
-        if (data.future.values.length > 0) {
-            traces.push({
-                x: data.future.timestamps.map(t => new Date(t)),
-                y: data.future.values,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Scheduled',
-                line: { color: '#2ecc71', width: 2, dash: 'dot' },
-                hovertemplate: '%{y}%<extra>Scheduled</extra>',
-            });
-        }
 
          const layout = getDefaultLayout();
          layoutSetXRange(layout, start, end);
          layoutAddNowLine(layout, start, end)
          layout.hovermode = 'x unified';
+         layout.yaxis.side = 'left';
+         layout.yaxis.range = [0, 100];
+         layout.yaxis2 = {
+             overlaying: 'y',
+             side: 'right',
+             gridcolor: 'transparent',
+         };
          makePlot(elementId, traces, layout);
     } catch (error) {
         console.error('Error loading SoC data:', error);
