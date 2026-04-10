@@ -33,7 +33,7 @@ class EnergyMetricConfig(BaseModel):
 
 
 class BatteryConfig(BaseModel):
-    name: str | None = None
+    name: str | None = "battery"
     capacity_kwh: float | None = None
     max_charge_power_kw: float | None = None
     max_invert_power_kw: float | None = None

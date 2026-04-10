@@ -91,12 +91,12 @@ class VictronClient:
         now = datetime.now(tz=timezone.utc)
         for mp_config in self._mp_configs.values():
             with self._lock:
-                if mp_config.setpoint_expiration is None or mp_config.setpoint_expiration >= now:
+                if mp_config.setpoint_expiration is None or now >= mp_config.setpoint_expiration:
                     mp_config.setpoint = None
                     mp_config.setpoint_expiration = None
                 if mp_config.setpoint is None:
                     continue
-            idle_threshold = mp_config.battery_config.idle_threshold_w
+            idle_threshold = mp_config.battery_config.idle_threshold_w / 1000
             if self._database.get_current_soc() >= 99 and mp_config.setpoint >= -idle_threshold:
                 # Keep putting power into the battery to allow balancing of the cells by the BMS.
                 # TODO: implement balancing limits?

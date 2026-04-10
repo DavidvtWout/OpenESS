@@ -114,7 +114,7 @@ class Database:
         if bucket_seconds is not None:
             bucket_ms = round(bucket_seconds * 1000)
             params: list = [bucket_ms, bucket_ms]
-            select_clause = "(start_time / ?) * ? as bucket, CAST(AVG(value) AS INTEGER) as avg_value"
+            select_clause = "(start_time / ?) * ? as bucket, AVG(value) as avg_value"
             group_by = "GROUP BY bucket"
             order_by = "bucket"
         else:

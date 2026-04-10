@@ -28,6 +28,7 @@ class VictronService(Service):
         logger.info(f"Connected to Victron GX at {self._client.address}")
 
     def tick(self):
+        self._client.write_setpoints()
         self._client.collect_and_store_measurements()
 
     def wait_until_next(self):
