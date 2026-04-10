@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timezone, timedelta
 
-from dynamic_ess.service import Service
+from open_ess.service import Service
 from .config import DatabaseConfig
 from .database import Database
 

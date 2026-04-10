@@ -6,9 +6,9 @@ from datetime import datetime, timedelta, timezone
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
-from dynamic_ess.database import Database
-from dynamic_ess.metrics import BatteryConfig
-from dynamic_ess.pricing import PriceConfig
+from open_ess.database import Database
+from open_ess.metrics import BatteryConfig
+from open_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
 

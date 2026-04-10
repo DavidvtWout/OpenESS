@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Dynamic ESS{% endblock %}</title>
+    <title>{% block title %}OpenESS{% endblock %}</title>
     <script src="/static/settings.js"></script>
     <script src="/static/utils.js"></script>
     <script src="https://cdn.plot.ly/plotly-3.4.0.min.js" charset="utf-8"></script>
@@ -11,7 +11,7 @@
 </head>
 <body>
     <nav>
-        <div class="nav-brand">Dynamic ESS</div>
+        <div class="nav-brand">OpenESS</div>
         <ul class="nav-links">
             <li><a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a></li>
             <li><a href="/prices" class="{% if request.url.path == '/prices' %}active{% endif %}">Prices</a></li>

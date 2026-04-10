@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from .battery_config import BatteryConfig
 
 if TYPE_CHECKING:
-    from dynamic_ess.config import Config
+    from open_ess.config import Config
 
 
 class MetricsCoordinator:

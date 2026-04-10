@@ -3,11 +3,11 @@ import logging
 import signal
 from pathlib import Path
 
-from dynamic_ess.config import Config
-from dynamic_ess.database import Database, DatabaseService
-from dynamic_ess.optimizer import OptimizerService
-from dynamic_ess.pricing import EntsoeService
-from dynamic_ess.victron_modbus import VictronService
+from open_ess.config import Config
+from open_ess.database import Database, DatabaseService
+from open_ess.optimizer import OptimizerService
+from open_ess.pricing import EntsoeService
+from open_ess.victron_modbus import VictronService
 
 
 class ColoredFormatter(logging.Formatter):
@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Victron dynamic ESS controller - optimize charging based on day-ahead prices"
+        description="Open Energy Storage System - optimize charging based on day-ahead prices"
     )
     parser.add_argument(
         "--config",

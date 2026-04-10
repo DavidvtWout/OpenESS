@@ -10,8 +10,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Dynamic ESS",
-        description="Victron dynamic ESS controller dashboard",
+        title="OpenESS",
+        description="Open Energy Storage System dashboard",
     )
 
     # Mount static files

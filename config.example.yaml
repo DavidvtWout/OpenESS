@@ -1,5 +1,5 @@
 database:
-  path: /var/lib/dynamic-ess/data.db
+  path: /var/lib/open-ess/data.db
 
 frontend:
 
@@ -7,7 +7,7 @@ mqtt:
 
 prices:
   area: NL  # ENTSO-E bidding zone (NL, DE_LU, BE, etc.)
-  entsoe_api_key_file: /var/lib/dynamic-ess/entsoe_api_key
+  entsoe_api_key_file: /var/lib/open-ess/entsoe_api_key
 
   # Price formulas: calculate actual buy/sell price from market price
   # Use 'price' or 'p' as the market price variable (EUR/kWh)

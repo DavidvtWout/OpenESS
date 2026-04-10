@@ -3,10 +3,10 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
-from dynamic_ess.database import DatabaseConfig
-from dynamic_ess.metrics import BatteryConfig
-from dynamic_ess.pricing import PriceConfig
-from dynamic_ess.victron_modbus import VictronConfig
+from open_ess.database import DatabaseConfig
+from open_ess.metrics import BatteryConfig
+from open_ess.pricing import PriceConfig
+from open_ess.victron_modbus import VictronConfig
 
 # TODO: Validate config. If a battery defines victron control, require victron_gx config.
 

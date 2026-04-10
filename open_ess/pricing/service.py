@@ -1,7 +1,7 @@
 import logging
 
-from dynamic_ess.database import Database, DatabaseConfig
-from dynamic_ess.service import Service
+from open_ess.database import Database, DatabaseConfig
+from open_ess.service import Service
 from .client import EntsoeClient
 from .config import PriceConfig
 

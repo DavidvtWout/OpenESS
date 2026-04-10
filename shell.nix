@@ -1,9 +1,9 @@
 { pkgs ? import <nixpkgs> { } }:
 
-let dynamic-ess = pkgs.python3.pkgs.callPackage ./default.nix { };
+let open-ess = pkgs.python3.pkgs.callPackage ./default.nix { };
 in pkgs.mkShell {
   packages = [
-    (pkgs.python3.withPackages (_: dynamic-ess.propagatedBuildInputs))
+    (pkgs.python3.withPackages (_: open-ess.propagatedBuildInputs))
     pkgs.cbc  # MILP solver for the optimizer
   ];
 

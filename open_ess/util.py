@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import matplotlib.pyplot as plt
 
-from dynamic_ess.database import Database
+from open_ess.database import Database
 
 logger = logging.getLogger(__name__)
 

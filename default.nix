@@ -3,7 +3,7 @@
 , uvicorn, xsdata, httpx }:
 
 buildPythonPackage {
-  pname = "dynamic-ess";
+  pname = "open-ess";
   version = "0.0.0";
   format = "pyproject";
 
@@ -25,7 +25,7 @@ buildPythonPackage {
   ];
 
   meta = with lib; {
-    description = "Victron dynamic ESS charge/discharge schedule optimizer";
+    description = "Open Energy Storage System - Charge/discharge schedule optimizer for day-ahead energy prices.";
     license = licenses.mit;
   };
 }

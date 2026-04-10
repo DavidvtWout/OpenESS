@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from dynamic_ess.database import Database, ms_to_dt
-from dynamic_ess.pricing import PriceConfig
+from open_ess.database import Database, ms_to_dt
+from open_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +13,13 @@ router = APIRouter(tags=["api"])
 
 
 def get_db() -> Database:
-    from dynamic_ess.web.dependencies import get_database
+    from open_ess.web.dependencies import get_database
 
     return get_database()
 
 
 def get_prices() -> PriceConfig:
-    from dynamic_ess.web.dependencies import get_price_config
+    from open_ess.web.dependencies import get_price_config
 
     return get_price_config()
 

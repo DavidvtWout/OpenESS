@@ -4,15 +4,15 @@ from pathlib import Path
 
 import uvicorn
 
-from dynamic_ess.config import Config
-from dynamic_ess.web.app import create_app
-from dynamic_ess.web.dependencies import init_dependencies, close_dependencies
+from open_ess.config import Config
+from open_ess.web.app import create_app
+from open_ess.web.dependencies import init_dependencies, close_dependencies
 
 logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Dynamic ESS web dashboard")
+    parser = argparse.ArgumentParser(description="OpenESS web dashboard")
     parser.add_argument(
         "--config",
         type=Path,

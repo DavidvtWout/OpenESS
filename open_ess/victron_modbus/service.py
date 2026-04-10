@@ -1,9 +1,9 @@
 import logging
 import time
 
-from dynamic_ess.database import Database, DatabaseConfig
-from dynamic_ess.metrics import BatteryConfig
-from dynamic_ess.service import Service
+from open_ess.database import Database, DatabaseConfig
+from open_ess.metrics import BatteryConfig
+from open_ess.service import Service
 from .client import VictronClient
 from .config import VictronConfig
 

@@ -1,5 +1,5 @@
-from dynamic_ess.database import Database, DatabaseConfig
-from dynamic_ess.pricing import PriceConfig
+from open_ess.database import Database, DatabaseConfig
+from open_ess.pricing import PriceConfig
 
 # Global instances (simple approach for now)
 _database: Database | None = None

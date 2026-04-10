@@ -1,11 +1,11 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from dynamic_ess.database import Database, DatabaseConfig
-from dynamic_ess.metrics import BatteryConfig
-from dynamic_ess.pricing import PriceConfig
-from dynamic_ess.service import Service
-from dynamic_ess.victron_modbus import VictronService
+from open_ess.database import Database, DatabaseConfig
+from open_ess.metrics import BatteryConfig
+from open_ess.pricing import PriceConfig
+from open_ess.service import Service
+from open_ess.victron_modbus import VictronService
 from .optimizer import Optimizer
 
 logger = logging.getLogger(__name__)

@@ -4,8 +4,8 @@ from threading import Lock
 
 from pydantic import BaseModel
 
-from dynamic_ess.database import Database
-from dynamic_ess.metrics import BatteryConfig, VictronControl
+from open_ess.database import Database
+from open_ess.metrics import BatteryConfig, VictronControl
 from .config import VictronConfig
 from .modbus_client import VictronModbusClient
 from .registers import Register, System, VEBus, GridMeter, Battery, SolarInverter
