@@ -11,7 +11,7 @@ function getFlowColor(index) {
     return FLOW_COLORS[index % FLOW_COLORS.length];
 }
 
-async function loadPowerFlowsChart() {
+async function loadPowerChart() {
     const elementId = 'power-chart';
     showLoading(elementId);
 
@@ -21,7 +21,8 @@ async function loadPowerFlowsChart() {
     const now = new Date();
     const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
 
-    const url = `/api/debug/power-flows?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=${aggregateMinutes}`;
+    const url = `/api/power?start=${formatDate(start)}&end=${formatDate(now)}&aggregate_minutes=${aggregateMinutes}`;
+    console.log('Fetching power:', url);
 
     try {
         const response = await fetch(url);
@@ -31,7 +32,7 @@ async function loadPowerFlowsChart() {
 
         const data = await response.json();
 
-        if (data.length === 0) {
+        if (data.series.length === 0) {
             showError(elementId, 'No power flow data available');
             return;
         }
@@ -41,70 +42,42 @@ async function loadPowerFlowsChart() {
         const divisor = useKw ? 1000 : 1;
         const powerUnit = useKw ? 'kW' : 'W';
 
-        // Group data by flow (from_node -> to_node)
-        const flows = {};
-        for (const d of data) {
-            const key = `${d.from_node} -> ${d.to_node}`;
-            if (!flows[key]) {
-                flows[key] = { times: [], powers: [] };
-            }
-            flows[key].times.push(new Date(d.time));
-            flows[key].powers.push(d.power / divisor);
-        }
-
         // Gap threshold: 2x the aggregate interval
         const gapThresholdMs = aggregateMinutes * 60 * 1000 * 2;
 
         // Create traces for each flow
         const traces = [];
-        const sortedKeys = Object.keys(flows).sort();
+        const sortedKeys = Object.keys(data.series).sort();
         for (let i = 0; i < sortedKeys.length; i++) {
             const key = sortedKeys[i];
-            const flow = flows[key];
-            const gapped = insertGapNulls(flow.times, flow.powers, gapThresholdMs);
+            const series = data.series[key];
+            //const gapped = insertGapNulls(series.timestamps, series.values, gapThresholdMs);
             traces.push({
-                x: gapped.times,
-                y: gapped.values,
+                x: series.timestamps.map(t => new Date(t)),
+                y: series.values,
                 type: 'scatter',
                 mode: 'lines',
                 name: key,
-                line: { color: getFlowColor(i), width: 1.5 },
+                line: {
+                  // color: getFlowColor(i),
+                  width: 1.5
+                },
                 connectgaps: false,
                 hovertemplate: `%{y:.1f} ${powerUnit}<extra>${key}</extra>`,
             });
         }
 
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            hovermode: 'x unified',
-            xaxis: {
-                ...defaultLayout.xaxis,
-                range: [start, now],
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: `Power (${powerUnit})`,
-                zeroline: true,
-                zerolinecolor: getZerolineColor(),
-            },
-            legend: {
-                ...getHorizontalLegend(-0.25),
-                traceorder: 'normal',
-            },
-            shapes: getNowLineShape(now, start, now),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, traces, layout, defaultConfig);
-
+        const layout = getDefaultLayout();
+        layoutSetXRange(layout, start, now);
+        layout.hovermode = 'x unified';
+        makePlot(elementId, traces, layout);
     } catch (error) {
         console.error('Error loading power flows:', error);
         showError(elementId, 'Failed to load power flows');
     }
 }
 
-async function loadEnergyFlowsChart() {
+async function loadEnergyChart() {
     const elementId = 'energy-chart';
     showLoading(elementId);
 
@@ -113,7 +86,8 @@ async function loadEnergyFlowsChart() {
     const now = new Date();
     const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
 
-    const url = `/api/debug/energy-flows?start=${formatDate(start)}&end=${formatDate(now)}`;
+    const url = `/api/energy?start=${formatDate(start)}&end=${formatDate(now)}`;
+    console.log('Fetching energy:', url);
 
     try {
         const response = await fetch(url);
@@ -123,7 +97,7 @@ async function loadEnergyFlowsChart() {
 
         const data = await response.json();
 
-        if (data.length === 0) {
+        if (data.series.length === 0) {
             showError(elementId, 'No energy flow data available');
             return;
         }
@@ -133,33 +107,26 @@ async function loadEnergyFlowsChart() {
         const energyUnit = useKw ? 'kWh' : 'Wh';
         const multiplier = useKw ? 1 : 1000;  // API returns kWh
 
-        // Group data by flow (from_node -> to_node) and source (counter vs integrated)
-        const flows = {};
-        for (const d of data) {
-            const suffix = d.source === 'integrated' ? ' [int]' : '';
-            const key = `${d.from_node} -> ${d.to_node}${suffix}`;
-            if (!flows[key]) {
-                flows[key] = { times: [], energies: [], source: d.source };
-            }
-            flows[key].times.push(new Date(d.time));
-            flows[key].energies.push(d.energy * multiplier);
-        }
-
         // Create traces for each flow
         const traces = [];
-        const sortedKeys = Object.keys(flows).sort();
+        const sortedKeys = Object.keys(data.series).sort();
         for (let i = 0; i < sortedKeys.length; i++) {
             const key = sortedKeys[i];
-            const flow = flows[key];
-            const isIntegrated = flow.source === 'integrated';
+            const series = data.series[key];
+
+            // Add "now" to the end of the series.
+            const timestamps = [...series.timestamps.map(t => new Date(t)), new Date()];
+            const values = [...series.values, series.values.at(-1)];
+            //const isIntegrated = series.source === 'integrated';
+            const isIntegrated = 0;
             traces.push({
-                x: flow.times,
-                y: flow.energies,
+                x: timestamps,
+                y: values,
                 type: 'scatter',
                 mode: 'lines',
                 name: key,
                 line: {
-                    color: getFlowColor(i),
+                    // color: getFlowColor(i),
                     width: isIntegrated ? 1.5 : 2,
                     dash: isIntegrated ? 'dot' : 'solid',
                 },
@@ -167,30 +134,10 @@ async function loadEnergyFlowsChart() {
             });
         }
 
-        const defaultLayout = getPlotlyLayout();
-        const layout = {
-            ...defaultLayout,
-            hovermode: 'x unified',
-            xaxis: {
-                ...defaultLayout.xaxis,
-                range: [start, now],
-            },
-            yaxis: {
-                ...defaultLayout.yaxis,
-                title: `Energy (${energyUnit})`,
-                zeroline: true,
-                zerolinecolor: getZerolineColor(),
-            },
-            legend: {
-                ...getHorizontalLegend(-0.25),
-                traceorder: 'normal',
-            },
-            shapes: getNowLineShape(now, start, now),
-        };
-
-        document.getElementById(elementId).innerHTML = '';
-        Plotly.newPlot(elementId, traces, layout, defaultConfig);
-
+        const layout = getDefaultLayout();
+        layoutSetXRange(layout, start, now);
+        layout.hovermode = 'x unified';
+        makePlot(elementId, traces, layout);
     } catch (error) {
         console.error('Error loading energy flows:', error);
         showError(elementId, 'Failed to load energy flows');
@@ -198,8 +145,8 @@ async function loadEnergyFlowsChart() {
 }
 
 function loadAllCharts() {
-    loadPowerFlowsChart();
-    loadEnergyFlowsChart();
+    loadPowerChart();
+    loadEnergyChart();
 }
 
 document.addEventListener('DOMContentLoaded', () => {

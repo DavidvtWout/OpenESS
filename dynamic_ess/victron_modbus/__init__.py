@@ -1,13 +1,12 @@
-from .client import SystemState, VictronClient
+from .client import VictronClient
 from .config import VictronConfig
-from .registers import Battery, DataType, GridMeter, Register, SolarCharger, System, VEBus
+from .registers import Register, Battery, DataType, GridMeter, SolarCharger, System, VEBus
 from .service import VictronService
 
 __all__ = [
     "VictronClient",
     "VictronConfig",
     "VictronService",
-    "SystemState",
     "Register",
     "DataType",
     "System",

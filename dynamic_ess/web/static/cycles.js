@@ -135,16 +135,12 @@ async function loadScatterChart() {
                 title: `Battery Power (${powerUnit})`,
                 gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
                 linecolor: isDark ? '#3a3a5a' : '#dddddd',
-                zeroline: true,
-                zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
                 rangemode: 'tozero',
             },
             yaxis: {
                 title: `Losses (${powerUnit})`,
                 gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
                 linecolor: isDark ? '#3a3a5a' : '#dddddd',
-                zeroline: true,
-                zerolinecolor: isDark ? '#4a4a6a' : '#cccccc',
                 rangemode: 'tozero',
             },
             legend: {
@@ -171,7 +167,7 @@ async function loadCycles() {
     const now = new Date();
     const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-    const url = `/api/cycles?start=${start.toISOString()}&end=${now.toISOString()}&min_soc_swing=${minSwing}`;
+    const url = `/api/cycles?start=${formatDate(start)}&end=${formatDate(now)}&min_soc_swing=${minSwing}`;
 
     const tbody = document.getElementById('cycles-body');
     tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading...</td></tr>';
@@ -193,7 +189,7 @@ async function loadCycles() {
         // Build table rows
         tbody.innerHTML = cycles.map(cycle => `
             <tr>
-                <td>${formatDateTime(cycle.start_time)}</td>
+                <td>${formatDate(cycle.start_time)}</td>
                 <td>${formatDateTime(cycle.end_time)}</td>
                 <td>${formatDuration(cycle.duration_hours)}</td>
                 <td>${cycle.min_soc}%</td>
