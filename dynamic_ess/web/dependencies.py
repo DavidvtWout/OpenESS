@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from dynamic_ess.db import Database
+from dynamic_ess.database import Database
 from dynamic_ess.pricing import PriceConfig
 
 # Global instances (simple approach for now)

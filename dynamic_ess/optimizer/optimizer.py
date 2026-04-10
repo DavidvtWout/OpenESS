@@ -1,14 +1,14 @@
 import logging
 import os
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 import pyomo.environ as pyo
-from pydantic import BaseModel
 from pyomo.opt import SolverFactory
 
-from dynamic_ess.db import Database
+from dynamic_ess.database import Database
+from dynamic_ess.metrics import BatteryConfig
 from dynamic_ess.pricing import PriceConfig
-from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +67,6 @@ def predict_next_week(
     return next_week
 
 
-class BatteryConfig(BaseModel):
-    capacity_kwh: float  # Total battery capacity in kWh
-    max_charge_power_kw: float  # Maximum charge power in kW
-    max_discharge_power_kw: float  # Maximum discharge power in kW
-    min_soc: int = 10  # Minimum SOC in %
-    max_soc: int = 100  # Maximum SOC in %
-
-
 def charger_loss(power_kw: float) -> float:
     """Calculate charger conversion loss in kW (excluding idle power)."""
     p = abs(power_kw)
@@ -127,9 +119,13 @@ class Optimizer:
     """
 
     def __init__(self, db: Database, price_config: PriceConfig, battery_config: BatteryConfig):
-        self.db = db
+        self._database = db
         self._price_config = price_config
         self._battery_config = battery_config
+
+    @property
+    def battery_config(self) -> BatteryConfig:
+        return self._battery_config
 
     def optimize(self) -> list[tuple[datetime, datetime, int, float]]:
         """Generate optimal charge schedule using mixed-integer linear programming.
@@ -144,7 +140,7 @@ class Optimizer:
         # Get hourly prices for the planning horizon
         now = datetime.now(timezone.utc)
         start_hour = now.replace(minute=0, second=0, microsecond=0)
-        hourly_prices = self.db.get_hourly_prices(self._price_config.area, start_hour - timedelta(weeks=6))
+        hourly_prices = self._database.get_hourly_prices(self._price_config.area, start_hour - timedelta(weeks=6))
 
         if not hourly_prices:
             logger.warning("No price data available")
@@ -163,7 +159,7 @@ class Optimizer:
             return []
 
         # Get current SOC
-        soc_at_start = self.db.get_soc_at(start_hour)
+        soc_at_start = self._database.get_soc_at(start_hour)
         if soc_at_start is None:
             logger.error("No SoC data available")
             return []
@@ -174,7 +170,7 @@ class Optimizer:
             self._battery_config.max_charge_power_kw, charger_loss
         )
         inverter_bp, inverter_loss_vals = build_piecewise_loss_points(
-            self._battery_config.max_discharge_power_kw, inverter_loss
+            self._battery_config.max_invert_power_kw, inverter_loss
         )
 
         # Capture price functions
@@ -192,7 +188,7 @@ class Optimizer:
 
         # Decision variables
         model.charge_power = pyo.Var(model.T, bounds=(0, self._battery_config.max_charge_power_kw))
-        model.discharge_power = pyo.Var(model.T, bounds=(0, self._battery_config.max_discharge_power_kw))
+        model.discharge_power = pyo.Var(model.T, bounds=(0, self._battery_config.max_invert_power_kw))
         model.soc = pyo.Var(model.T, bounds=(self._battery_config.min_soc, self._battery_config.max_soc))
 
         # Auxiliary variables for piecewise linear losses

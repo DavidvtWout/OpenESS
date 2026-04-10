@@ -1,4 +1,4 @@
-"""Initial migration: create many tables."""
+"""Initial migration: create tables."""
 
 
 def upgrade(conn) -> None:

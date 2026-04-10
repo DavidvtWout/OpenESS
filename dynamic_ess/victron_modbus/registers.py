@@ -213,24 +213,18 @@ class Battery:
 
 
 # =============================================================================
-# com.victronenergy.solarcharger (Unit ID varies)
-# MPPT Solar Charger
+# com.victronenergy.pvinverter (Unit ID varies)
+# Solar Inverter
 # =============================================================================
-class SolarCharger:
-    PV_VOLTAGE = Register("PV Voltage", 3700, DataType.UINT16, scale=100)
-    PV_CURRENT = Register("PV Current", 3701, DataType.INT16, scale=10)
-    PV_POWER = Register("PV Power", 3702, DataType.UINT32)
+class SolarInverter:
+    ENERGY_L1 = Register("Energy L1", 1046, DataType.UINT32, scale=100)
+    ENERGY_L2 = Register("Energy L2", 1048, DataType.UINT32, scale=100)
+    ENERGY_L3 = Register("Energy L3", 1050, DataType.UINT32, scale=100)
 
-    BATTERY_VOLTAGE = Register("Battery Voltage", 3704, DataType.UINT16, scale=100)
-    BATTERY_CURRENT = Register("Battery Current", 3705, DataType.INT16, scale=10)
-
-    YIELD_TODAY = Register("Yield Today", 3708, DataType.UINT16, scale=10)
-    MAX_POWER_TODAY = Register("Max Power Today", 3709, DataType.UINT16)
-    YIELD_YESTERDAY = Register("Yield Yesterday", 3710, DataType.UINT16, scale=10)
-    MAX_POWER_YESTERDAY = Register("Max Power Yesterday", 3711, DataType.UINT16)
-
-    STATE = Register("State", 3706, DataType.UINT16)
-    ERROR = Register("Error", 3707, DataType.UINT16)
+    POWER_TOTAL = Register("Power", 1054, DataType.INT32)
+    POWER_L1 = Register("Power L1", 1058, DataType.INT32)
+    POWER_L2 = Register("Power L2", 1060, DataType.INT32)
+    POWER_L3 = Register("Power L3", 1062, DataType.INT32)
 
 
 # =============================================================================

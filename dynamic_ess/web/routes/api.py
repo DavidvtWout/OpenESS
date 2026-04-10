@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from dynamic_ess.db import Database, ms_to_dt
+from dynamic_ess.database import Database, ms_to_dt
 from dynamic_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)

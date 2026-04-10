@@ -3,8 +3,8 @@
 import logging
 import sqlite3
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 
+from .config import DatabaseConfig
 from .runner import get_migrations, run_migration
 from .util import dt_to_ms, ms_to_dt, base_conditions
 
@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 class Database:
-    def __init__(self, db_path: Path, run_migrations: bool = True):
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db_path = db_path
-        self._conn = sqlite3.connect(db_path)
+    def __init__(self, config: DatabaseConfig, run_migrations: bool = True):
+        self._config = config
+        config.path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(config.path)
         self._conn.row_factory = sqlite3.Row
         # WAL mode allows concurrent reads/writes without blocking
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -31,7 +31,7 @@ class Database:
 
     def new_connection(self) -> "Database":
         """Create a new Database instance with its own connection (for use in other threads)."""
-        return Database(self._db_path, run_migrations=False)
+        return Database(self._config, run_migrations=False)
 
     def _run_migrations(self):
         """Run all pending migrations."""

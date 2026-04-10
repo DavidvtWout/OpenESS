@@ -1,8 +1,8 @@
 import logging
 import time
-from pathlib import Path
 
-from dynamic_ess.db import Database
+from dynamic_ess.database import Database, DatabaseConfig
+from dynamic_ess.metrics import BatteryConfig
 from dynamic_ess.service import Service
 from .client import VictronClient
 from .config import VictronConfig
@@ -13,21 +13,22 @@ logger = logging.getLogger(__name__)
 class VictronService(Service):
     """Collects measurements from Victron GX every second."""
 
-    def __init__(self, config: VictronConfig, db_path: Path):
+    def __init__(self, config: VictronConfig, db_config: DatabaseConfig, battery_configs: list[BatteryConfig]):
         super().__init__("VictronService")
-        self.config = config
-        self.db_path = db_path
-        self.client: VictronClient | None = None
+        self._config = config
+        self._db_config = db_config
+        self._battery_configs = battery_configs
+        self._client: VictronClient | None = None
 
     def on_start(self):
-        db = Database(self.db_path, run_migrations=False)
-        self.client = VictronClient(self.config, db)
-        if not self.client.initialize():
-            raise RuntimeError(f"Could not connect to Victron GX at {self.client.address}")
-        logger.info(f"Connected to Victron GX at {self.client.address}")
+        db = Database(self._db_config, run_migrations=False)
+        self._client = VictronClient(self._config, self._battery_configs, db)
+        if not self._client.initialize():
+            raise RuntimeError(f"Could not connect to Victron GX at {self._client.address}")
+        logger.info(f"Connected to Victron GX at {self._client.address}")
 
     def tick(self):
-        self.client.collect_and_store_measurements()
+        self._client.collect_and_store_measurements()
 
     def wait_until_next(self):
         # Sleep until the start of the next second
@@ -37,5 +38,5 @@ class VictronService(Service):
 
     def stop(self):
         super().stop()
-        if self.client:
-            self.client.close()
+        if self._client:
+            self._client.close()

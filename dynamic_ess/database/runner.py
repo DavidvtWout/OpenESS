@@ -21,7 +21,7 @@ def get_migrations() -> list[tuple[int, str]]:
         parts = file.stem.split("_", 1)
         if len(parts) >= 1 and parts[0].isdigit():
             version = int(parts[0])
-            module_name = f"dynamic_ess.db.migrations.{file.stem}"
+            module_name = f"dynamic_ess.database.migrations.{file.stem}"
             migrations.append((version, module_name))
     return sorted(migrations)
 

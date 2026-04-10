@@ -4,9 +4,9 @@ import signal
 from pathlib import Path
 
 from dynamic_ess.config import Config
-from dynamic_ess.db import Database, DatabaseService
-from dynamic_ess.pricing import EntsoeService
+from dynamic_ess.database import Database, DatabaseService
 from dynamic_ess.optimizer import OptimizerService
+from dynamic_ess.pricing import EntsoeService
 from dynamic_ess.victron_modbus import VictronService
 
 
@@ -77,17 +77,17 @@ def main():
     config = Config.from_file(args.config)
 
     # Run migrations on startup
-    Database(config.db_path, run_migrations=True).close()
+    Database(config.database, run_migrations=True).close()
 
     # Services create their own connections in their threads
-    database_service = DatabaseService(config.db_path)
-    entsoe_service = EntsoeService(config.prices, config.db_path, check_interval_hours=1.0)
-    victron_service = VictronService(config.victron_gx, config.db_path)
+    database_service = DatabaseService(config.database)
+    entsoe_service = EntsoeService(config.prices, config.database, check_interval_hours=1.0)
+    victron_service = VictronService(config.victron_gx, config.database, config.batteries)
     optimer_service = OptimizerService(
-        config.db_path,
+        config.database,
         victron_service=victron_service,
-        battery_config=config.battery,
         price_config=config.prices,
+        battery_configs=config.batteries,
     )
 
     services = [

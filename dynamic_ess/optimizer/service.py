@@ -1,12 +1,12 @@
 import logging
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-from dynamic_ess.db import Database
+from dynamic_ess.database import Database, DatabaseConfig
+from dynamic_ess.metrics import BatteryConfig
 from dynamic_ess.pricing import PriceConfig
 from dynamic_ess.service import Service
 from dynamic_ess.victron_modbus import VictronService
-from .optimizer import BatteryConfig, Optimizer
+from .optimizer import Optimizer
 
 logger = logging.getLogger(__name__)
 
@@ -16,34 +16,40 @@ class OptimizerService(Service):
 
     def __init__(
         self,
-        db_path: Path,
+        db_config: DatabaseConfig,
         victron_service: VictronService,
         price_config: PriceConfig,
-        battery_config: BatteryConfig,
+        battery_configs: list[BatteryConfig],
     ):
         super().__init__("SchedulerService")
-        self.db_path = db_path
-        self.victron_service = victron_service
-        self.price_config = price_config
-        self.battery_config = battery_config
-        self.db: Database | None = None
-        self.optimizer: Optimizer | None = None
+        self._db_config = db_config
+        self._victron_service = victron_service
+        self._price_config = price_config
+        self._battery_configs = battery_configs
+        self._db: Database | None = None
+        self._optimizers: list[Optimizer] | None = None
 
     def on_start(self):
-        self.db = Database(self.db_path, run_migrations=False)
-        self.optimizer = Optimizer(self.db, price_config=self.price_config, battery_config=self.battery_config)
+        self._db = Database(self._db_config, run_migrations=False)
+        self._optimizers = [
+            Optimizer(self._db, price_config=self._price_config, battery_config=cfg) for cfg in self._battery_configs
+        ]
 
     def tick(self):
-        logger.debug("Running charge optimizer")
-        schedule = self.optimizer.optimize()
+        logger.debug("Running charge optimizer(s)")
 
-        if schedule:
-            _, _, power, _ = schedule[0]
-            self.victron_service.client.set_ess_setpoint(power)
-            self.db.set_schedule(schedule)
-            logger.debug(f"Updated schedule with {len(schedule)} entries")
-        else:
-            logger.warning("Optimizer returned empty schedule")
+        for optimizer in self._optimizers:
+            schedule = optimizer.optimize()
+            batt_cfg = optimizer.battery_config
+
+            if schedule:
+                _, _, power, _ = schedule[0]
+                self._victron_service._client.set_ess_setpoint(batt_cfg.name, power)
+                # TODO: support multiple schedules
+                self._db.set_schedule(schedule)
+                logger.debug(f"Updated schedule with {len(schedule)} entries")
+            else:
+                logger.warning("Optimizer returned empty schedule")
 
     def wait_until_next(self):
         now = datetime.now(timezone.utc)

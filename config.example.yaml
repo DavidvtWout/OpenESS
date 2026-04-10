@@ -1,4 +1,5 @@
-db_path: /var/lib/dynamic-ess/data.db
+database:
+  path: /var/lib/dynamic-ess/data.db
 
 frontend:
 
@@ -21,10 +22,21 @@ victron_gx:
 
   # Modbus unit IDs - check Settings → Services → Modbus TCP → Available services
   system_id: 100
-  vebus_ids: [ 228 ]   # list of MultiPlus/Quattro unit IDs
-  bms_id: 225          # optional, for BMS direct access
+  grid_id: (optional)
+  pvinverter_id: (optional)
 
 battery:
+  control:
+    type: victron or mqtt
+    monitor_only: no  # Read-only mode. Only collect metric but don't actively control the battery.
+    # If victron;
+    vebus_id: 228 (required)
+    battery_id: 225 (optional)
+    disable_charger_when_idle: default=False
+    disable_inverter_when_idle: default=False
+    # If mqtt;
+    topic: (required)
+
   capacity_kwh: 10.0
   min_soc: 10   # Lowest State-of-Charge allowed
   max_soc: 100  # Highest State-of-Charge allowed

@@ -1,31 +1,46 @@
 import logging
 import pprint
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from threading import Lock
 
-from pymodbus.client import ModbusTcpClient
-from pymodbus.exceptions import ModbusException
+from pydantic import BaseModel
 
-from dynamic_ess.db import Database
+from dynamic_ess.database import Database
+from dynamic_ess.metrics import BatteryConfig, VictronControl
 from .config import VictronConfig
-from .registers import Register, System, VEBus, GridMeter, Battery
+from .modbus_client import VictronModbusClient
+from .registers import Register, System, VEBus, GridMeter, Battery, SolarInverter
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class MultiPlusConfig:
-    vebus_id: int
-    ess_setpoint: int
+class MultiPlusConfig(BaseModel):
+    battery_config: BatteryConfig
+    setpoint: int | None = None
+    setpoint_expiration: datetime | None = None
+
+    @property
+    def vebus_id(self) -> int:
+        return self.battery_config.control.vebus_id
+
+    @property
+    def battery_id(self) -> int | None:
+        return self.battery_config.control.battery_id
 
 
 class VictronClient:
-    def __init__(self, config: VictronConfig, database: Database):
+    def __init__(self, config: VictronConfig, battery_configs: list[BatteryConfig], database: Database):
         self._config = config
+        self._mp_configs: dict[str, MultiPlusConfig] = {
+            cfg.name: MultiPlusConfig(battery_config=cfg)
+            for cfg in battery_configs
+            if isinstance(cfg.control, VictronControl)
+        }
         self._database = database
 
-        self._client = ModbusTcpClient(config.host, port=config.port)
-        self._mp_configs: list[MultiPlusConfig] = [MultiPlusConfig(vebus_id, 0) for vebus_id in config.vebus_ids]
+        self._client = VictronModbusClient(config)
+
+        self._lock = Lock()
 
     @property
     def host(self) -> str:
@@ -43,209 +58,98 @@ class VictronClient:
     def system_id(self) -> int:
         return self._config.system_id
 
-    def connect(self) -> bool:
-        return self._client.connect()
+    @property
+    def need_mode_3(self) -> bool:
+        with self._lock:
+            return any(not cfg.battery_config.control.monitor_only for cfg in self._mp_configs.values())
 
-    def close(self):
-        self._client.close()
-
-    def set_ess_setpoint(self, power: float):
-        logger.info(f"Set ESS to {power} W")
-        power /= len(self._mp_configs)
-        for mp_config in self._mp_configs:
-            mp_config.ess_setpoint = round(power)
+    def set_ess_setpoint(self, battery_name: str, power: float, until: datetime | None = None):
+        with self._lock:
+            if battery_name not in self._mp_configs:
+                raise ValueError(f"No known battery with name '{battery_name}'")
+            if until is None:
+                until = datetime.now(tz=timezone.utc) + timedelta(hours=1)
+            logger.info(f"Set {battery_name} to {power} W")
+            self._mp_configs[battery_name].setpoint = power
+            self._mp_configs[battery_name].setpoint_expiration = until
 
     def initialize(self) -> bool:
-        """Connect and detect phases for all configured VEBus devices."""
         if not self.connect():
             return False
 
         # Enable ESS mode 3 (external control)
-        self.write(self.system_id, System.ESS_MODE, 3)
+        if self.need_mode_3:
+            self.write(self.system_id, System.ESS_MODE, 3)
 
         return True
 
-    def read(self, unit_id: int, register: Register) -> float | None:
-        """Read a register and return the scaled value."""
-        try:
-            result = self._client.read_holding_registers(
-                register.address, count=register.dtype.register_count, device_id=unit_id
-            )
-            if result.isError():
-                logger.error(f"Modbus error reading register {register.address}: {result}")
-                return None
+    def write_setpoints(self):
+        if self.need_mode_3:
+            ess_mode = self.read(self.system_id, System.ESS_MODE)
+            if ess_mode != 3:
+                raise ValueError("Someone disabled ESS mode 3! Is VRM still managing the system?")
 
-            # Combine registers based on data type
-            if register.dtype.register_count == 1:
-                value = result.registers[0]
-                max_val = 0x8000
-                subtract = 0x10000
-            else:
-                high, low = result.registers
-                value = (high << 16) | low
-                max_val = 0x80000000
-                subtract = 0x100000000
-
-            # Handle signed values
-            if register.dtype.signed and value >= max_val:
-                value -= subtract
-
-            # Apply scale factor
-            return value / register.scale
-
-        except ModbusException as e:
-            logger.error(f"Modbus exception reading register {register.address}: {e}")
-            return None
-
-    def write(self, unit_id: int, register: Register, value: float) -> bool:
-        """Write a scaled value to a register."""
-        if not register.writable:
-            logger.error(f"Register {register.address} is not writable")
-            return False
-
-        try:
-            # Apply scale factor (reverse)
-            raw_value = int(value * register.scale)
-
-            # Handle signed values
-            if register.dtype.signed and raw_value < 0:
-                raw_value += 0x10000 if register.dtype.register_count == 1 else 0x100000000
-
-            # Write based on register count
-            if register.dtype.register_count == 2:
-                high = (raw_value >> 16) & 0xFFFF
-                low = raw_value & 0xFFFF
-                result = self._client.write_registers(register.address, [high, low], device_id=unit_id)
-            else:
-                result = self._client.write_register(register.address, raw_value & 0xFFFF, device_id=unit_id)
-
-            if result.isError():
-                logger.error(f"Modbus error writing register {register.address}: {result}")
-                return False
-            return True
-
-        except ModbusException as e:
-            logger.error(f"Modbus exception writing register {register.address}: {e}")
-            return False
-
-    def read_many(self, unit_id: int, registers: list[Register]) -> dict[Register, float | None]:
-        """
-        Read multiple registers efficiently by batching consecutive addresses.
-
-        Args:
-            unit_id: Modbus unit ID
-            registers: List of registers to read
-
-        Returns:
-            Dict mapping each register to its scaled value (or None if read failed)
-        """
-        if not registers:
-            return {}
-
-        # Sort by address and track end address (for 32-bit registers)
-        sorted_regs = sorted(registers, key=lambda r: r.address)
-
-        # Group registers into batches
-        batches: list[list[Register]] = []
-        current_batch: list[Register] = [sorted_regs[0]]
-
-        for reg in sorted_regs[1:]:
-            prev = current_batch[-1]
-            prev_end = prev.address + prev.dtype.register_count
-            if reg.address == prev_end:
-                current_batch.append(reg)
-            else:
-                batches.append(current_batch)
-                current_batch = [reg]
-
-        batches.append(current_batch)
-
-        # Read each batch
-        results: dict[Register, float | None] = {}
-
-        for batch in batches:
-            start_addr = batch[0].address
-            last_reg = batch[-1]
-            end_addr = last_reg.address + last_reg.dtype.register_count
-            count = end_addr - start_addr
-
-            try:
-                response = self._client.read_holding_registers(start_addr, count=count, device_id=unit_id)
-                if response.isError():
-                    # Batch read failed - fall back to individual reads
-                    logger.debug(f"Batch read {start_addr}-{end_addr} failed, falling back to individual reads")
-                    for reg in batch:
-                        results[reg] = self.read(unit_id, reg)
+        now = datetime.now(tz=timezone.utc)
+        for mp_config in self._mp_configs.values():
+            with self._lock:
+                if mp_config.setpoint_expiration is None or mp_config.setpoint_expiration >= now:
+                    mp_config.setpoint = None
+                    mp_config.setpoint_expiration = None
+                if mp_config.setpoint is None:
                     continue
-
-                # Extract values for each register in this batch
-                for reg in batch:
-                    offset = reg.address - start_addr
-                    results[reg] = self._extract_value(reg, response.registers, offset)
-
-            except ModbusException as e:
-                logger.debug(f"Batch read {start_addr}-{end_addr} failed: {e}, falling back to individual reads")
-                for reg in batch:
-                    results[reg] = self.read(unit_id, reg)
-
-        return results
-
-    @staticmethod
-    def _extract_value(register: Register, raw_registers: list[int], offset: int) -> float:
-        """Extract and scale a register value from raw register data."""
-        if register.dtype.register_count == 1:
-            value = raw_registers[offset]
-            max_val = 0x8000
-            subtract = 0x10000
-        else:
-            high = raw_registers[offset]
-            low = raw_registers[offset + 1]
-            value = (high << 16) | low
-            max_val = 0x80000000
-            subtract = 0x100000000
-
-        if register.dtype.signed and value >= max_val:
-            value -= subtract
-
-        return value / register.scale
-
-    def collect_and_store_measurements(self) -> None:
-        """Collect all measurements from Victron and store in database."""
-        for mp_config in self._mp_configs:
-            threshold = 50
-            if self._database.get_current_soc() >= 99 and mp_config.ess_setpoint >= -threshold:
+            idle_threshold = mp_config.battery_config.idle_threshold_w
+            if self._database.get_current_soc() >= 99 and mp_config.setpoint >= -idle_threshold:
                 # Keep putting power into the battery to allow balancing of the cells by the BMS.
                 # TODO: implement balancing limits?
-                self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, 1000)
+                self.write(
+                    mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, int(mp_config.battery_config.max_charge_power_kw * 1000)
+                )
                 self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 0)
             else:
-                if abs(mp_config.ess_setpoint) >= threshold:
-                    self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, mp_config.ess_setpoint)
+                if abs(mp_config.setpoint) >= idle_threshold:
+                    self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, mp_config.setpoint)
                     self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 0)
                     self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 0)
                 else:
                     self.write(mp_config.vebus_id, VEBus.ESS_SETPOINT_L1, 0)
-                    self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 1)
-                    self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 1)
+                    if mp_config.battery_config.control.disable_charger_when_idle:
+                        self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_CHARGE, 1)
+                    if mp_config.battery_config.control.disable_inverter_when_idle:
+                        self.write(mp_config.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 1)
 
+    def collect_and_store_measurements(self) -> None:
         timestamp = datetime.now(timezone.utc)
 
         # Read System registers
-        system_regs = [
-            System.GRID_L1,
-            System.GRID_L2,
-            System.GRID_L3,
-            System.INVERTER_CHARGER_POWER,
-        ]
+        system_regs = [System.GRID_L1, System.GRID_L2, System.GRID_L3]
         system_values = self.read_many(self.system_id, system_regs)
-
         self._database.insert_power("grid_l1", timestamp, system_values.get(System.GRID_L1))
         self._database.insert_power("grid_l2", timestamp, system_values.get(System.GRID_L2))
         self._database.insert_power("grid_l3", timestamp, system_values.get(System.GRID_L3))
-        self._database.insert_power("system_battery", timestamp, system_values.get(System.BATTERY_POWER))
-        self._database.insert_power(
-            "system_inverter_charger", timestamp, system_values.get(System.INVERTER_CHARGER_POWER)
-        )
+
+        if self._config.grid_id:
+            # TODO: check if grid meter delivers data per phase or not
+            grid_values = self.read_many(
+                self._config.grid_id,
+                [GridMeter.ENERGY_TO_NET_TOTAL, GridMeter.ENERGY_FROM_NET_TOTAL],
+            )
+            self._database.insert_energy("grid_import", timestamp, grid_values.get(GridMeter.ENERGY_FROM_NET_TOTAL))
+            self._database.insert_energy("grid_export", timestamp, grid_values.get(GridMeter.ENERGY_TO_NET_TOTAL))
+
+        if self._config.pvinverter_id:
+            pvinverter_values = self.read_many(
+                self._config.pvinverter_id,
+                [
+                    SolarInverter.ENERGY_L1,
+                    SolarInverter.POWER_TOTAL,
+                ],
+            )
+            self._database.insert_energy(
+                f"pvinverter_{self._config.pvinverter_id}_l1", timestamp, pvinverter_values.get(SolarInverter.ENERGY_L1)
+            )
+            self._database.insert_power(
+                f"pvinverter_{self._config.pvinverter_id}", timestamp, pvinverter_values.get(SolarInverter.POWER_TOTAL)
+            )
 
         # VEBus registers for each device
         vebus_regs = [
@@ -271,73 +175,90 @@ class VictronClient:
             VEBus.ENERGY_AC_OUT_TO_BATTERY,
         ]
 
-        for mp_config in self._mp_configs:
+        for mp_config in self._mp_configs.values():
             vebus_values = self.read_many(mp_config.vebus_id, vebus_regs)
-            # logger.info(pprint.pformat(vebus_values))
 
             self._database.insert_power(
-                f"mp_{mp_config.vebus_id}_ac_in", timestamp, vebus_values.get(VEBus.AC_INPUT_POWER_L1)
+                f"vebus_{mp_config.vebus_id}_ac_in_l1", timestamp, vebus_values.get(VEBus.AC_INPUT_POWER_L1)
             )
             self._database.insert_power(
-                f"mp_{mp_config.vebus_id}_ac_out", timestamp, vebus_values.get(VEBus.AC_OUTPUT_POWER_L1)
+                f"vebus_{mp_config.vebus_id}_ac_out_l1", timestamp, vebus_values.get(VEBus.AC_OUTPUT_POWER_L1)
             )
 
             soc = vebus_values.get(VEBus.SOC)
             if soc is not None:
-                self._database.insert_soc(f"mp_{mp_config.vebus_id}_soc", timestamp, int(soc))
+                self._database.insert_soc(f"vebus_{mp_config.vebus_id}_soc", timestamp, int(soc))
 
             # DC power from MultiPlus: mp_dc → battery
             dc_current = vebus_values.get(VEBus.DC_CURRENT)
             dc_voltage = vebus_values.get(VEBus.DC_VOLTAGE)
             if dc_current is not None and dc_voltage is not None:
                 dc_power = dc_current * dc_voltage
-                self._database.insert_power(f"mp_{mp_config.vebus_id}_battery", timestamp, dc_power)
+                self._database.insert_power(f"vebus_{mp_config.vebus_id}_battery", timestamp, dc_power)
 
             # Energy flows
             self._database.insert_energy(
-                f"mp_{mp_config.vebus_id}_ac_in_to_ac_out", timestamp, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_AC_OUT)
+                f"vebus_{mp_config.vebus_id}_ac_in_to_ac_out",
+                timestamp,
+                vebus_values.get(VEBus.ENERGY_AC_IN1_TO_AC_OUT),
             )
             self._database.insert_energy(
-                f"mp_{mp_config.vebus_id}_ac_in_to_dc", timestamp, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_BATTERY)
+                f"vebus_{mp_config.vebus_id}_ac_in_import", timestamp, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_BATTERY)
             )
             # self._database.insert_energy("", timestamp, vebus_values.get(VEBus.ENERGY_AC_IN2_TO_AC_OUT))
             # self._database.insert_energy("", timestamp, vebus_values.get(VEBus.ENERGY_AC_IN2_TO_BATTERY))
             self._database.insert_energy(
-                f"mp_{mp_config.vebus_id}_ac_out_to_ac_in", timestamp, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN1)
+                f"vebus_{mp_config.vebus_id}_ac_out_to_ac_in",
+                timestamp,
+                vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN1),
             )
             # self._database.insert_energy("", timestamp, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN2))
             self._database.insert_energy(
-                f"mp_{mp_config.vebus_id}_dc_to_ac_in", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN1)
+                f"vebus_{mp_config.vebus_id}_ac_in_export", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN1)
             )
             # self._database.insert_energy("", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN2))
             self._database.insert_energy(
-                f"mp_{mp_config.vebus_id}_dc_to_ac_out", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_OUT)
+                f"vebus_{mp_config.vebus_id}_ac_out_export", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_OUT)
             )
             self._database.insert_energy(
-                f"mp_{mp_config.vebus_id}_ac_out_to_dc", timestamp, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_BATTERY)
+                f"vebus_{mp_config.vebus_id}_ac_out_import", timestamp, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_BATTERY)
             )
 
-        if self._config.grid_id:
-            # TODO: check if grid meter delivers data per phase or not
-            grid_values = self.read_many(
-                self._config.grid_id,
-                [
-                    GridMeter.ENERGY_TO_NET_TOTAL,
-                    GridMeter.ENERGY_FROM_NET_TOTAL,
-                ],
-            )
-            self._database.insert_energy("from_net_total", timestamp, grid_values.get(GridMeter.ENERGY_FROM_NET_TOTAL))
-            self._database.insert_energy("to_net_total", timestamp, grid_values.get(GridMeter.ENERGY_TO_NET_TOTAL))
+            if mp_config.battery_id is not None:
+                bms_values = self.read_many(
+                    mp_config.battery_id,
+                    [
+                        Battery.DC_POWER,
+                        Battery.SOC,
+                        # TODO:
+                        # Battery.CHARGED_ENERGY,
+                        # Battery.DISCHARGED_ENERGY,
+                    ],
+                )
 
-        if self._config.bms_id is not None:
-            bms_values = self.read_many(
-                self._config.bms_id,
-                [
-                    Battery.DC_POWER,
-                    # TODO:
-                    # Battery.CHARGED_ENERGY,
-                    # Battery.DISCHARGED_ENERGY,
-                ],
-            )
+                self._database.insert_power(
+                    f"battery_{mp_config.battery_id}", timestamp, bms_values.get(Battery.DC_POWER)
+                )
+                if bms_values.get(Battery.SOC) is not None:
+                    self._database.insert_soc(
+                        f"battery_{mp_config.battery_id}", timestamp, round(bms_values.get(Battery.SOC))
+                    )
 
-            self._database.insert_power(f"bms_{self._config.bms_id}", timestamp, bms_values.get(Battery.DC_POWER))
+    # --------------------------------#
+    #  VictronModbusClient bindings  #
+    # --------------------------------#
+
+    def connect(self) -> bool:
+        return self._client.connect()
+
+    def read(self, unit_id: int, register: Register) -> float | None:
+        return self._client.read(unit_id, register)
+
+    def write(self, unit_id: int, register: Register, value: float) -> bool:
+        return self._client.write(unit_id, register, value)
+
+    def read_many(self, unit_id: int, registers: list[Register]) -> dict[Register, float | None]:
+        return self._client.read_many(unit_id, registers)
+
+    def close(self):
+        self._client.close()
