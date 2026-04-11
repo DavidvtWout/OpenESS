@@ -1,8 +1,11 @@
 import logging
 import signal
 
+import uvicorn
+
 from open_ess.config import Config
 from open_ess.database import Database, DatabaseService
+from open_ess.frontend import init_dependencies, create_app, close_dependencies
 from open_ess.optimizer import OptimizerService
 from open_ess.pricing import EntsoeService
 from open_ess.util import setup_logging, parse_args
@@ -48,6 +51,22 @@ def main():
 
     for s in services:
         s.start()
+
+    # Frontend
+    if config.frontend.enable:
+        init_dependencies(config.database, config.prices)
+        logger.info(f"Starting web server on http://{config.frontend.host}:{config.frontend.port}")
+        try:
+            app = create_app()
+            uvicorn.run(
+                app,
+                host=config.frontend.host,
+                port=config.frontend.port,
+                log_level="info",
+            )
+        finally:
+            close_dependencies()
+
     for s in services:
         s.join()
 
