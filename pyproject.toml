@@ -32,7 +32,6 @@ dev = ["black", "pre-commit"]
 
 [project.scripts]
 open-ess = "open_ess.main:main"
-open-ess-web = "open_ess.web.cli:main"
 
 [tool.black]
 line-length = 120

@@ -5,7 +5,7 @@ from typing import Iterable
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from open_ess.database import Database, ms_to_dt
+from open_ess.database import Database
 from open_ess.pricing import PriceConfig
 from .util import find_full_battery_cycles
 
@@ -15,13 +15,13 @@ router = APIRouter(tags=["api"])
 
 
 def get_db() -> Database:
-    from open_ess.web.dependencies import get_database
+    from open_ess.frontend.dependencies import get_database
 
     return get_database()
 
 
 def get_prices() -> PriceConfig:
-    from open_ess.web.dependencies import get_price_config
+    from open_ess.frontend.dependencies import get_price_config
 
     return get_price_config()
 
@@ -85,6 +85,7 @@ class HealthResponse(BaseModel):
 @router.get("/health", response_model=HealthResponse)
 async def health_check(db: Database = Depends(get_db)):
     try:
+        # TODO:
         cursor = db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = [row["name"] for row in cursor.fetchall()]
         return HealthResponse(status="ok", database="connected", tables=tables)
