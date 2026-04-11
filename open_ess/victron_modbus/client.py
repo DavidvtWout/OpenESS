@@ -239,8 +239,7 @@ class VictronClient:
                 self._database.insert_power(
                     f"battery_{mp_config.battery_id}", timestamp, bms_values.get(Battery.DC_POWER)
                 )
-                # "Abuse" power table for voltages because the compression algorithm also works perfectly fine for voltages.
-                self._database.insert_power(
+                self._database.insert_voltage(
                     f"battery_{mp_config.battery_id}_voltage", timestamp, bms_values.get(Battery.DC_VOLTAGE)
                 )
                 if bms_values.get(Battery.SOC) is not None:

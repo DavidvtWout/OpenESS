@@ -11,6 +11,29 @@ function formatDate(date) {
     return date.toISOString();
 }
 
+function formatEnergy(kwh) {
+    return kwh + ' kWh';
+}
+
+function formatDateTime(isoString) {
+    const date = new Date(isoString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+
+function formatDuration(hours) {
+    if (hours < 1) {
+        return Math.round(hours * 60) + ' min';
+    } else if (hours < 24) {
+        const h = Math.floor(hours);
+        const m = Math.round((hours - h) * 60);
+        return h + 'h ' + m + 'm';
+    } else {
+        const d = Math.floor(hours / 24);
+        const h = Math.round(hours % 24);
+        return d + 'd ' + h + 'h';
+    }
+}
+
 function showLoading(elementId) {
     document.getElementById(elementId).innerHTML = '<div class="loading">Loading...</div>';
 }

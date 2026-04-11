@@ -1,32 +1,5 @@
 // Cycles page functionality
 
-function formatDateTime(isoString) {
-    const date = new Date(isoString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-}
-
-function formatDuration(hours) {
-    if (hours < 1) {
-        return Math.round(hours * 60) + ' min';
-    } else if (hours < 24) {
-        const h = Math.floor(hours);
-        const m = Math.round((hours - h) * 60);
-        return h + 'h ' + m + 'm';
-    } else {
-        const d = Math.floor(hours / 24);
-        const h = Math.round(hours % 24);
-        return d + 'd ' + h + 'h';
-    }
-}
-
-function formatEnergy(wh) {
-    if (wh == null) return '-';
-    if (wh >= 1000) {
-        return (wh / 1000).toFixed(2) + ' kWh';
-    }
-    return Math.round(wh) + ' Wh';
-}
-
 function getEfficiencyClass(efficiency) {
     if (efficiency == null) return '';
     if (efficiency >= 90) return 'efficiency-good';
@@ -189,19 +162,24 @@ async function loadCycles() {
         // Build table rows
         tbody.innerHTML = cycles.map(cycle => `
             <tr>
-                <td>${formatDate(cycle.start_time)}</td>
+                <td>${formatDateTime(cycle.start_time)}</td>
                 <td>${formatDateTime(cycle.end_time)}</td>
                 <td>${formatDuration(cycle.duration_hours)}</td>
                 <td>${cycle.min_soc}%</td>
-                <td>${formatEnergy(cycle.ac_energy_in_wh)}</td>
-                <td>${formatEnergy(cycle.ac_energy_out_wh)}</td>
+                <td>${formatEnergy(cycle.ac_energy_in)}</td>
+                <td>${formatEnergy(cycle.ac_energy_out)}</td>
+                <td>${formatEnergy(cycle.dc_energy_in)}</td>
+                <td>${formatEnergy(cycle.dc_energy_out)}</td>
+                <td class="${getEfficiencyClass(cycle.charger_efficiency)}">${formatEfficiency(cycle.charger_efficiency)}</td>
+                <td class="${getEfficiencyClass(cycle.battery_efficiency)}">${formatEfficiency(cycle.battery_efficiency)}</td>
+                <td class="${getEfficiencyClass(cycle.inverter_efficiency)}">${formatEfficiency(cycle.inverter_efficiency)}</td>
                 <td class="${getEfficiencyClass(cycle.system_efficiency)}">${formatEfficiency(cycle.system_efficiency)}</td>
             </tr>
         `).join('');
 
         // Calculate and show stats
-        const totalAcIn = cycles.reduce((sum, c) => sum + (c.ac_energy_in_wh || 0), 0);
-        const totalAcOut = cycles.reduce((sum, c) => sum + (c.ac_energy_out_wh || 0), 0);
+        const totalAcIn = cycles.reduce((sum, c) => sum + (c.ac_energy_in || 0), 0);
+        const totalAcOut = cycles.reduce((sum, c) => sum + (c.ac_energy_out || 0), 0);
         const avgEfficiency = totalAcIn > 0 ? (totalAcOut / totalAcIn) * 100 : null;
 
         document.getElementById('cycle-stats').innerHTML = `

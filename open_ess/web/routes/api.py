@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from open_ess.database import Database, ms_to_dt
 from open_ess.pricing import PriceConfig
+from .util import find_full_battery_cycles
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +36,6 @@ class PricePoint(BaseModel):
     market_price: float
     buy_price: float
     sell_price: float
-
-
-class BatteryCycle(BaseModel):
-    start_time: datetime
-    end_time: datetime
-    duration_hours: float
-    min_soc: int
-    ac_energy_in_wh: float
-    ac_energy_out_wh: float
-    system_efficiency: float | None
 
 
 class EnergySample(BaseModel):
@@ -131,7 +122,6 @@ async def get_energy_flow_endpoint(
     bucket_minutes: int = Query(default=60),
     db: Database = Depends(get_db),
 ):
-    """Get energy flow data by integrating power over time, plus schedule."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -206,7 +196,6 @@ async def get_power(
     aggregate_minutes: int = Query(default=1),
     db: Database = Depends(get_db),
 ):
-    """Get power measurements: grid, battery, and inverter/charger, plus schedule."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -362,58 +351,19 @@ async def get_efficiency_scatter(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _find_cycles_recursive(
-    rows: list[tuple[int, float]],
-    start: int,
-    end: int,
-    min_soc_swing: int,
-) -> list[dict]:
-    """Find battery cycles using divide-and-conquer."""
-    if end - start < 3:
-        return []
-
-    min_idx = start
-    min_soc = rows[start][1]
-    for i in range(start + 1, end):
-        if rows[i][1] < min_soc:
-            min_soc = rows[i][1]
-            min_idx = i
-
-    left_peak_idx = start
-    left_peak = rows[start][1]
-    for i in range(start, min_idx + 1):
-        if rows[i][1] > left_peak:
-            left_peak = rows[i][1]
-            left_peak_idx = i
-
-    right_peak_idx = min_idx
-    right_peak = rows[min_idx][1]
-    for i in range(min_idx, end):
-        if rows[i][1] > right_peak:
-            right_peak = rows[i][1]
-            right_peak_idx = i
-
-    effective_peak = min(left_peak, right_peak)
-    swing = effective_peak - min_soc
-
-    if swing >= min_soc_swing:
-        cycle = {
-            "start_idx": left_peak_idx,
-            "end_idx": right_peak_idx,
-            "start_ms": rows[left_peak_idx][0],
-            "end_ms": rows[right_peak_idx][0],
-            "min_soc": min_soc,
-        }
-
-        return (
-            _find_cycles_recursive(rows, start, left_peak_idx, min_soc_swing)
-            + [cycle]
-            + _find_cycles_recursive(rows, right_peak_idx + 1, end, min_soc_swing)
-        )
-    else:
-        return _find_cycles_recursive(rows, start, left_peak_idx, min_soc_swing) + _find_cycles_recursive(
-            rows, right_peak_idx + 1, end, min_soc_swing
-        )
+class BatteryCycle(BaseModel):
+    start_time: datetime
+    end_time: datetime
+    duration_hours: float
+    min_soc: int
+    ac_energy_in: float | None
+    ac_energy_out: float | None
+    dc_energy_in: float
+    dc_energy_out: float
+    system_efficiency: float | None
+    battery_efficiency: float
+    charger_efficiency: float | None
+    inverter_efficiency: float | None
 
 
 @router.get("/cycles", response_model=list[BatteryCycle])
@@ -423,7 +373,6 @@ async def get_battery_cycles(
     min_soc_swing: int = Query(default=10),
     db: Database = Depends(get_db),
 ):
-    """Find battery cycles based on SOC swings and calculate energy from counters."""
     try:
         now = datetime.now(timezone.utc)
         if start is None:
@@ -431,46 +380,57 @@ async def get_battery_cycles(
         if end is None:
             end = now
 
-        # TODO: label
-        rows = db.get_battery_soc("vebus_228_soc", start, end)
-
-        if len(rows) < 3:
-            return []
-
-        raw_cycles = _find_cycles_recursive(rows, 0, len(rows), min_soc_swing)
+        battery_soc = db.get_battery_soc("vebus_228_soc", start, end)
+        raw_cycles = find_full_battery_cycles(battery_soc, min_soc_swing=min_soc_swing)
 
         cycles = []
-        for c in sorted(raw_cycles, key=lambda x: x["start_ms"]):
-            start_time = ms_to_dt(c["start_ms"])
-            end_time = ms_to_dt(c["end_ms"])
-            duration = (end_time - start_time).total_seconds() / 3600.0
+        for cycle_start, cycle_end, min_soc in raw_cycles:
+            duration = (cycle_end - cycle_start).total_seconds() / 3600.0
 
-            # vebus_start = energy_flow.get_vebus_energy_at(db.conn, start_time)
-            # vebus_end = energy_flow.get_vebus_energy_at(db.conn, end_time)
+            # TODO: this is cursed AF and should be fixed
+            dc_energy_in = 0.0
+            dc_energy_out = 0.0
+            for _, p in db.get_power("battery_225", cycle_start, cycle_end):
+                # for _, p in db.get_power("vebus_228_battery", cycle_start, cycle_end):
+                if p > 0:
+                    dc_energy_in += p
+                else:
+                    dc_energy_out += -p
+            dc_energy_in /= 60000
+            dc_energy_out /= 60000
 
-            # ac_energy_in = (
-            #     vebus_end["ac_in_to_battery"]
-            #     - vebus_start["ac_in_to_battery"]
-            #     + (vebus_end["ac_out_to_battery"] - vebus_start["ac_out_to_battery"])
-            # ) * 1000
-            # ac_energy_out = (
-            #     (vebus_end["battery_to_ac_in"] - vebus_start["battery_to_ac_in"])
-            #     + (vebus_end["battery_to_ac_out"] - vebus_start["battery_to_ac_out"])
-            # ) * 1000
+            ac_in_import = db.get_energy("vebus_228_ac_in_import", cycle_start, cycle_end, normalize=True)
+            ac_out_import = db.get_energy("vebus_228_ac_out_import", cycle_start, cycle_end, normalize=True)
+            ac_in_export = db.get_energy("vebus_228_ac_in_export", cycle_start, cycle_end, normalize=True)
+            ac_out_export = db.get_energy("vebus_228_ac_out_export", cycle_start, cycle_end, normalize=True)
 
-            # system_eff = (ac_energy_out / ac_energy_in) * 100 if ac_energy_in > 0 else None
-            #
-            # cycles.append(
-            #     BatteryCycle(
-            #         start_time=start_time,
-            #         end_time=end_time,
-            #         duration_hours=round(duration, 2),
-            #         min_soc=round(c["min_soc"]),
-            #         ac_energy_in_wh=round(ac_energy_in, 1),
-            #         ac_energy_out_wh=round(ac_energy_out, 1),
-            #         system_efficiency=round(system_eff, 1) if system_eff else None,
-            #     )
-            # )
+            ac_energy_in = 0.0
+            if ac_in_import:
+                ac_energy_in += ac_in_import[-1][1]
+            if ac_out_import:
+                ac_energy_in += ac_out_import[-1][1]
+            ac_energy_out = 0.0
+            if ac_in_export:
+                ac_energy_out += ac_in_export[-1][1]
+            if ac_out_export:
+                ac_energy_out += ac_out_export[-1][1]
+
+            cycles.append(
+                BatteryCycle(
+                    start_time=cycle_start,
+                    end_time=cycle_end,
+                    duration_hours=round(duration, 2),
+                    min_soc=round(min_soc, 1),
+                    ac_energy_in=round(ac_energy_in, 2) if ac_energy_in else None,
+                    ac_energy_out=round(ac_energy_out, 2) if ac_energy_out else None,
+                    dc_energy_in=round(dc_energy_in, 2),
+                    dc_energy_out=round(dc_energy_out, 2),
+                    system_efficiency=round(ac_energy_out / ac_energy_in * 100, 1) if ac_energy_in else None,
+                    battery_efficiency=round(dc_energy_out / dc_energy_in * 100, 1),
+                    charger_efficiency=round(dc_energy_in / ac_energy_in * 100, 1) if ac_energy_in else None,
+                    inverter_efficiency=round(ac_energy_out / dc_energy_out * 100, 1) if dc_energy_out else None,
+                )
+            )
 
         return cycles
     except Exception as e:

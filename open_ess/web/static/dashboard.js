@@ -1,13 +1,14 @@
 function getAggregateMinutes(hours) {
-    if (hours <= 48) return 5;
-    if (hours <= 168) return 15;
-    return 60;
+    if (hours <= 48) return 1;
+    if (hours <= 168) return 5;
+    return 15;
 }
 
 function getBucketMinutes(hours) {
     if (hours <= 48) return 60;      // hourly for Today and Last 2 days
     if (hours <= 168) return 120;    // 2-hourly for Last 7 days
-    return 360;                       // 6-hourly for Last 30 days
+    if (hours <= 768) return 360;    // 6-hourly for Last 30 days
+    return 1440;                     // daily for rest more than that
 }
 
 // Store timestamps for alignment

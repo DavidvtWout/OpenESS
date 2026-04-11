@@ -109,7 +109,7 @@ class Database:
         label: str,
         start: datetime | None,
         end: datetime | None,
-        bucket_seconds: float | None = None,
+        bucket_seconds: float | None = 60,
     ) -> list[tuple[datetime, float]]:
         if bucket_seconds is not None:
             bucket_ms = round(bucket_seconds * 1000)
@@ -142,15 +142,6 @@ class Database:
         """
         cursor = self.conn.execute(query, params)
         return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]
-
-    def get_voltage(
-        self,
-        label: str,
-        start: datetime | None,
-        end: datetime | None,
-        bucket_seconds: float | None = None,
-    ) -> list[tuple[datetime, float]]:
-        return self.get_power(label, start, end, bucket_seconds)
 
     def get_power_labels(self, start: datetime | None = None, end: datetime | None = None) -> list[str]:
         return self._get_labels("power", "start_time", start, end)
@@ -226,6 +217,10 @@ class Database:
 
         self.conn.commit()
         return total_sample_count, total_bucket_count
+
+    # "Abuse" power table for voltages because the compression algorithm also works perfectly fine for voltages.
+    insert_voltage = insert_power
+    get_voltage = get_power
 
     # -------------------------------------------------------------------------
     # Energy
@@ -437,7 +432,6 @@ class Database:
         self._conn.commit()
 
     def get_battery_soc(self, label: str, start: datetime, end: datetime) -> list[tuple[datetime, int]]:
-        """Get raw SoC time series. Returns list of (timestamp_ms, soc)."""
         cursor = self._conn.execute(
             "SELECT timestamp, value FROM battery_soc WHERE label = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp",
             [label, dt_to_ms(start), dt_to_ms(end)],
@@ -445,7 +439,6 @@ class Database:
         return [(ms_to_dt(row["timestamp"]), row["value"]) for row in cursor.fetchall()]
 
     def get_current_soc(self) -> int | None:
-        """Get the most recent battery SOC reading."""
         cursor = self._conn.execute("SELECT value FROM battery_soc ORDER BY timestamp DESC LIMIT 1")
         row = cursor.fetchone()
         return row["value"] if row else None
