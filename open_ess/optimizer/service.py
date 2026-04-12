@@ -46,7 +46,7 @@ class OptimizerService(Service):
                 _, _, power, _ = schedule[0]
                 self._victron_service._client.set_ess_setpoint(batt_cfg.name, power)
                 # TODO: support multiple schedules
-                self._db.set_schedule(schedule)
+                self._db.set_schedule("victron_228", schedule)
                 logger.debug(f"Updated schedule with {len(schedule)} entries")
             else:
                 logger.warning("Optimizer returned empty schedule")

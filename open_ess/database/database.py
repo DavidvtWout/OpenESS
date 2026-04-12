@@ -465,24 +465,25 @@ class Database:
     # Charge schedule
     # -------------------------------------------------------------------------
 
-    def set_schedule(self, entries: list[tuple[datetime, datetime, int, float]]) -> None:
-        """Insert or update schedule entries."""
+    def set_schedule(self, battery_id: str, entries: list[tuple[datetime, datetime, int, float]]) -> None:
+        # The view in the actual table already handles OR REPLACE and add OR REPLACE to this query messes up the
+        # insertion... The table_id is then recreated on every conflict.
         self._conn.executemany(
-            "INSERT OR REPLACE INTO charge_schedule (start_time, end_time, power, expected_soc) VALUES (?, ?, ?, ?)",
-            [(dt_to_ms(start), dt_to_ms(end), power, soc) for start, end, power, soc in entries],
+            "INSERT INTO charge_schedule (label, start_time, end_time, power, expected_soc) VALUES (?, ?, ?, ?, ?)",
+            [(battery_id, dt_to_ms(start), dt_to_ms(end), power, soc) for start, end, power, soc in entries],
         )
         self._conn.commit()
 
-    def get_schedule(self, start: datetime | None = None) -> list[tuple[datetime, datetime, int, int]]:
-        """Get schedule entries from start time onwards."""
+    def get_schedule(self, battery_id: str, start: datetime | None = None) -> list[tuple[datetime, datetime, int, int]]:
         if start is None:
             cursor = self._conn.execute(
-                "SELECT start_time, end_time, power, expected_soc FROM charge_schedule ORDER BY start_time"
+                "SELECT start_time, end_time, power, expected_soc FROM charge_schedule WHERE label = ? ORDER BY start_time",
+                [battery_id],
             )
         else:
             cursor = self._conn.execute(
-                "SELECT start_time, end_time, power, expected_soc FROM charge_schedule WHERE start_time >= ? ORDER BY start_time",
-                [dt_to_ms(start)],
+                "SELECT start_time, end_time, power, expected_soc FROM charge_schedule WHERE label = ? AND start_time >= ? ORDER BY start_time",
+                [battery_id, dt_to_ms(start)],
             )
         return [(ms_to_dt(row[0]), ms_to_dt(row[1]), row[2], row[3]) for row in cursor.fetchall()]
 
