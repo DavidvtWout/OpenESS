@@ -98,7 +98,7 @@ class BatteryConfig(BaseModel):
                     self.metrics.battery_voltage = f"{vebus_prefix}/voltage/battery"
             if self.metrics.power_to_system is None:
                 self.metrics.power_to_system = f"{vebus_prefix}/power/ac_in/l1"
-            if self.metrics.power_to_system is None:
+            if self.metrics.power_to_battery is None:
                 if bms_prefix:
                     self.metrics.power_to_battery = [f"{bms_prefix}/power/battery", f"{vebus_prefix}/power/battery"]
                 else:

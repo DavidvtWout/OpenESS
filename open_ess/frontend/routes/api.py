@@ -392,26 +392,35 @@ class BatteryCycle(BaseModel):
     dc_energy_in: float
     dc_energy_out: float
     system_efficiency: float | None
-    battery_efficiency: float
+    battery_efficiency: float | None
     charger_efficiency: float | None
     inverter_efficiency: float | None
+    profit: float | None
+    scheduled_profit: float | None
 
 
 @router.get("/cycles", response_model=list[BatteryCycle])
 async def get_battery_cycles(
+    battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     min_soc_swing: int = Query(default=10),
     db: Database = Depends(get_db),
+    battery_configs: dict[str, BatteryConfig] = Depends(get_batteries),
+    price_config: PriceConfig = Depends(get_prices),
 ):
     try:
+        if battery_id is None:
+            battery_config = battery_configs["victron/vebus/228"]  # TODO
+        else:
+            battery_config = battery_configs[battery_id]
         now = datetime.now(timezone.utc)
         if start is None:
             start = now - timedelta(days=30)
         if end is None:
             end = now
 
-        battery_soc = db.get_battery_soc("vebus_228_soc", start, end)
+        battery_soc = db.get_battery_soc(battery_config.metrics.battery_soc, start, end)
         raw_cycles = find_full_battery_cycles(battery_soc, min_soc_swing=min_soc_swing)
 
         cycles = []
@@ -421,7 +430,7 @@ async def get_battery_cycles(
             # TODO: this is cursed AF and should be fixed
             dc_energy_in = 0.0
             dc_energy_out = 0.0
-            for _, p in db.get_power("battery_225", cycle_start, cycle_end):
+            for _, p in db.get_power(battery_config.metrics.power_to_battery[0], cycle_start, cycle_end):
                 # for _, p in db.get_power("vebus_228_battery", cycle_start, cycle_end):
                 if p > 0:
                     dc_energy_in += p
@@ -430,21 +439,49 @@ async def get_battery_cycles(
             dc_energy_in /= 60000
             dc_energy_out /= 60000
 
-            ac_in_import = db.get_energy("vebus_228_ac_in_import", cycle_start, cycle_end, normalize=True)
-            ac_out_import = db.get_energy("vebus_228_ac_out_import", cycle_start, cycle_end, normalize=True)
-            ac_in_export = db.get_energy("vebus_228_ac_in_export", cycle_start, cycle_end, normalize=True)
-            ac_out_export = db.get_energy("vebus_228_ac_out_export", cycle_start, cycle_end, normalize=True)
+            ac_in_import = db.get_energy(
+                battery_config.metrics.energy_to_system, cycle_start, cycle_end, normalize=True
+            )
+            # ac_out_import = db.get_energy("vebus_228_ac_out_import", cycle_start, cycle_end, normalize=True)
+            ac_in_export = db.get_energy(
+                battery_config.metrics.energy_from_system, cycle_start, cycle_end, normalize=True
+            )
+            # ac_out_export = db.get_energy("vebus_228_ac_out_export", cycle_start, cycle_end, normalize=True)
 
             ac_energy_in = 0.0
             if ac_in_import:
                 ac_energy_in += ac_in_import[-1][1]
-            if ac_out_import:
-                ac_energy_in += ac_out_import[-1][1]
+            # if ac_out_import:
+            #     ac_energy_in += ac_out_import[-1][1]
             ac_energy_out = 0.0
             if ac_in_export:
                 ac_energy_out += ac_in_export[-1][1]
-            if ac_out_export:
-                ac_energy_out += ac_out_export[-1][1]
+            # if ac_out_export:
+            #     ac_energy_out += ac_out_export[-1][1]
+
+            profit = 0.0
+            scheduled_profit = 0.0
+            e_in = {
+                ts: v
+                for ts, v in db.get_energy_aggregated(
+                    battery_config.metrics.energy_to_system, 3600, cycle_start, cycle_end
+                )
+            }
+            e_out = {
+                ts: v
+                for ts, v in db.get_energy_aggregated(
+                    battery_config.metrics.energy_from_system, 3600, cycle_start, cycle_end
+                )
+            }
+            scheduled = {ts: v for ts, _, v, _ in db.get_schedule(battery_config.id, cycle_start)}
+            for ts, v in db.get_hourly_prices("NL", cycle_start, cycle_end):
+                profit -= price_config.buy_price(v) * e_in.get(ts, 0)
+                profit += price_config.sell_price(v) * e_out.get(ts, 0)
+                scheduled_power = scheduled.get(ts, 0)
+                if scheduled_power > 0:
+                    scheduled_profit -= price_config.buy_price(v) * scheduled_power / 1000
+                if scheduled_power < 0:
+                    scheduled_profit += price_config.sell_price(v) * -scheduled_power / 1000
 
             cycles.append(
                 BatteryCycle(
@@ -457,9 +494,11 @@ async def get_battery_cycles(
                     dc_energy_in=round(dc_energy_in, 2),
                     dc_energy_out=round(dc_energy_out, 2),
                     system_efficiency=round(ac_energy_out / ac_energy_in * 100, 1) if ac_energy_in else None,
-                    battery_efficiency=round(dc_energy_out / dc_energy_in * 100, 1),
+                    battery_efficiency=round(dc_energy_out / dc_energy_in * 100, 1) if dc_energy_in else None,
                     charger_efficiency=round(dc_energy_in / ac_energy_in * 100, 1) if ac_energy_in else None,
                     inverter_efficiency=round(ac_energy_out / dc_energy_out * 100, 1) if dc_energy_out else None,
+                    profit=round(profit, 2),
+                    scheduled_profit=round(scheduled_profit, 2),
                 )
             )
 

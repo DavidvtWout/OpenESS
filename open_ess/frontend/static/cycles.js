@@ -174,6 +174,8 @@ async function loadCycles() {
                 <td class="${getEfficiencyClass(cycle.battery_efficiency)}">${formatEfficiency(cycle.battery_efficiency)}</td>
                 <td class="${getEfficiencyClass(cycle.inverter_efficiency)}">${formatEfficiency(cycle.inverter_efficiency)}</td>
                 <td class="${getEfficiencyClass(cycle.system_efficiency)}">${formatEfficiency(cycle.system_efficiency)}</td>
+                <td>${cycle.profit}</td>
+                <td>${cycle.scheduled_profit}</td>
             </tr>
         `).join('');
 
