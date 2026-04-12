@@ -221,7 +221,7 @@ async def get_power(
         series["Solar"] = [(t, -p) for t, p in db.get_power("pvinverter_31_l1", start, end, bucket_seconds)]
 
         series["Schedule"] = []
-        for ts_start, ts_end, v, _ in db.get_schedule("victron_228", start):
+        for ts_start, ts_end, v, _ in db.get_schedule("victron/vebus/228", start):
             series["Schedule"].extend([(ts_start, v), (ts_end, v)])
 
         return PowerResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
@@ -279,7 +279,7 @@ async def get_battery_soc(
             end = now
 
         actual = db.get_battery_soc("battery_225", start, end)
-        scheduled = [(t, soc) for _, t, _, soc in db.get_schedule("victron_228", start)]
+        scheduled = [(t, soc) for _, t, _, soc in db.get_schedule("victron/vebus/228", start)]
         voltage = db.get_voltage("battery_225_voltage", start, end, bucket_seconds=60)
         return BatterySocResponse(
             history=data_to_timeseries(actual),

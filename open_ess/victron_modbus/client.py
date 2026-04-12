@@ -23,8 +23,8 @@ class MultiPlusConfig(BaseModel):
         return self.battery_config.control.vebus_id
 
     @property
-    def battery_id(self) -> int | None:
-        return self.battery_config.control.battery_id
+    def bms_id(self) -> int | None:
+        return self.battery_config.control.bms_id
 
 
 class VictronClient:
@@ -60,7 +60,7 @@ class VictronClient:
     @property
     def need_mode_3(self) -> bool:
         with self._lock:
-            return any(not cfg.battery_config.control.monitor_only for cfg in self._mp_configs.values())
+            return any(not cfg.battery_config.monitor_only for cfg in self._mp_configs.values())
 
     def set_ess_setpoint(self, battery_name: str, power: float, until: datetime | None = None):
         with self._lock:
@@ -122,9 +122,9 @@ class VictronClient:
         # Read System registers
         system_regs = [System.GRID_L1, System.GRID_L2, System.GRID_L3]
         system_values = self.read_many(self.system_id, system_regs)
-        self._database.insert_power("grid_l1", timestamp, system_values.get(System.GRID_L1))
-        self._database.insert_power("grid_l2", timestamp, system_values.get(System.GRID_L2))
-        self._database.insert_power("grid_l3", timestamp, system_values.get(System.GRID_L3))
+        self._database.insert_power("grid/power/l1", timestamp, system_values.get(System.GRID_L1))
+        self._database.insert_power("grid/power/l2", timestamp, system_values.get(System.GRID_L2))
+        self._database.insert_power("grid/power/l3", timestamp, system_values.get(System.GRID_L3))
 
         if self._config.grid_id:
             # TODO: check if grid meter delivers data per phase or not
@@ -132,8 +132,12 @@ class VictronClient:
                 self._config.grid_id,
                 [GridMeter.ENERGY_TO_NET_TOTAL, GridMeter.ENERGY_FROM_NET_TOTAL],
             )
-            self._database.insert_energy("grid_import", timestamp, grid_values.get(GridMeter.ENERGY_FROM_NET_TOTAL))
-            self._database.insert_energy("grid_export", timestamp, grid_values.get(GridMeter.ENERGY_TO_NET_TOTAL))
+            self._database.insert_energy(
+                "grid/energy/import/total", timestamp, grid_values.get(GridMeter.ENERGY_FROM_NET_TOTAL)
+            )
+            self._database.insert_energy(
+                "grid/energy/export/total", timestamp, grid_values.get(GridMeter.ENERGY_TO_NET_TOTAL)
+            )
 
         if self._config.pvinverter_id:
             pvinverter_values = self.read_many(
@@ -144,10 +148,14 @@ class VictronClient:
                 ],
             )
             self._database.insert_energy(
-                f"pvinverter_{self._config.pvinverter_id}_l1", timestamp, pvinverter_values.get(SolarInverter.ENERGY_L1)
+                f"victron/pvinverter/{self._config.pvinverter_id}/energy/l1",
+                timestamp,
+                pvinverter_values.get(SolarInverter.ENERGY_L1),
             )
             self._database.insert_power(
-                f"pvinverter_{self._config.pvinverter_id}_l1", timestamp, pvinverter_values.get(SolarInverter.POWER_L1)
+                f"victron/pvinverter/{self._config.pvinverter_id}/power/l1",
+                timestamp,
+                pvinverter_values.get(SolarInverter.POWER_L1),
             )
 
         # VEBus registers for each device
@@ -175,58 +183,61 @@ class VictronClient:
         ]
 
         for mp_config in self._mp_configs.values():
+            vebus_prefix = mp_config.battery_config.control.vebus_prefix
+
             vebus_values = self.read_many(mp_config.vebus_id, vebus_regs)
 
             self._database.insert_power(
-                f"vebus_{mp_config.vebus_id}_ac_in_l1", timestamp, vebus_values.get(VEBus.AC_INPUT_POWER_L1)
+                f"{vebus_prefix}/power/ac_in/l1", timestamp, vebus_values.get(VEBus.AC_INPUT_POWER_L1)
             )
             self._database.insert_power(
-                f"vebus_{mp_config.vebus_id}_ac_out_l1", timestamp, vebus_values.get(VEBus.AC_OUTPUT_POWER_L1)
+                f"{vebus_prefix}/power/ac_out/l1", timestamp, vebus_values.get(VEBus.AC_OUTPUT_POWER_L1)
             )
 
             soc = vebus_values.get(VEBus.SOC)
             if soc is not None:
-                self._database.insert_soc(f"vebus_{mp_config.vebus_id}_soc", timestamp, int(soc))
+                self._database.insert_soc(f"{vebus_prefix}/soc", timestamp, int(soc))
 
-            # DC power from MultiPlus: mp_dc → battery
             dc_current = vebus_values.get(VEBus.DC_CURRENT)
             dc_voltage = vebus_values.get(VEBus.DC_VOLTAGE)
+            self._database.insert_voltage(f"{vebus_prefix}/voltage/battery", timestamp, dc_voltage)
             if dc_current is not None and dc_voltage is not None:
                 dc_power = dc_current * dc_voltage
-                self._database.insert_power(f"vebus_{mp_config.vebus_id}_battery", timestamp, dc_power)
-            self._database.insert_power(f"vebus_{mp_config.vebus_id}_battery_voltage", timestamp, dc_voltage)
+                self._database.insert_power(f"{vebus_prefix}/power/battery", timestamp, dc_power)
 
             # Energy flows
             self._database.insert_energy(
-                f"vebus_{mp_config.vebus_id}_ac_in_to_ac_out",
+                f"{vebus_prefix}/energy/ac_in_to_ac_out",
                 timestamp,
                 vebus_values.get(VEBus.ENERGY_AC_IN1_TO_AC_OUT),
             )
             self._database.insert_energy(
-                f"vebus_{mp_config.vebus_id}_ac_in_import", timestamp, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_BATTERY)
+                f"{vebus_prefix}/energy/ac_in_import", timestamp, vebus_values.get(VEBus.ENERGY_AC_IN1_TO_BATTERY)
             )
             # self._database.insert_energy("", timestamp, vebus_values.get(VEBus.ENERGY_AC_IN2_TO_AC_OUT))
             # self._database.insert_energy("", timestamp, vebus_values.get(VEBus.ENERGY_AC_IN2_TO_BATTERY))
             self._database.insert_energy(
-                f"vebus_{mp_config.vebus_id}_ac_out_to_ac_in",
+                f"{vebus_prefix}/energy/ac_out_to_ac_in",
                 timestamp,
                 vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN1),
             )
             # self._database.insert_energy("", timestamp, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_AC_IN2))
             self._database.insert_energy(
-                f"vebus_{mp_config.vebus_id}_ac_in_export", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN1)
+                f"{vebus_prefix}/energy/ac_in_export", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN1)
             )
             # self._database.insert_energy("", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_IN2))
             self._database.insert_energy(
-                f"vebus_{mp_config.vebus_id}_ac_out_export", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_OUT)
+                f"{vebus_prefix}/energy/ac_out_export", timestamp, vebus_values.get(VEBus.ENERGY_BATTERY_TO_AC_OUT)
             )
             self._database.insert_energy(
-                f"vebus_{mp_config.vebus_id}_ac_out_import", timestamp, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_BATTERY)
+                f"{vebus_prefix}/energy/ac_out_import", timestamp, vebus_values.get(VEBus.ENERGY_AC_OUT_TO_BATTERY)
             )
 
-            if mp_config.battery_id is not None:
+            if mp_config.bms_id is not None:
+                bms_prefix = mp_config.battery_config.control.bms_prefix
+
                 bms_values = self.read_many(
-                    mp_config.battery_id,
+                    mp_config.bms_id,
                     [
                         Battery.DC_VOLTAGE,
                         Battery.DC_POWER,
@@ -236,16 +247,11 @@ class VictronClient:
                     ],
                 )
 
-                self._database.insert_power(
-                    f"battery_{mp_config.battery_id}", timestamp, bms_values.get(Battery.DC_POWER)
-                )
+                self._database.insert_power(f"{bms_prefix}/power/battery", timestamp, bms_values.get(Battery.DC_POWER))
                 self._database.insert_voltage(
-                    f"battery_{mp_config.battery_id}_voltage", timestamp, bms_values.get(Battery.DC_VOLTAGE)
+                    f"{bms_prefix}/voltage/battery", timestamp, bms_values.get(Battery.DC_VOLTAGE)
                 )
-                if bms_values.get(Battery.SOC) is not None:
-                    self._database.insert_soc(
-                        f"battery_{mp_config.battery_id}", timestamp, round(bms_values.get(Battery.SOC))
-                    )
+                self._database.insert_soc(f"{bms_prefix}/soc", timestamp, round(bms_values.get(Battery.SOC)))
 
     # --------------------------------#
     #  VictronModbusClient bindings  #
