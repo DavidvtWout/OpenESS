@@ -218,7 +218,7 @@ async def get_power(
         series["Battery (BMS 225)"] = db.get_power("battery_225", start, end, bucket_seconds)
         series["Battery (MP 228)"] = db.get_power("vebus_228_battery", start, end, bucket_seconds)
 
-        series["Solar"] = db.get_power("pvinverter_31_l1", start, end, bucket_seconds)
+        series["Solar"] = [(t, -p) for t, p in db.get_power("pvinverter_31_l1", start, end, bucket_seconds)]
 
         series["Schedule"] = []
         for ts_start, ts_end, v, _ in db.get_schedule("victron_228", start):

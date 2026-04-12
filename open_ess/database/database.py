@@ -196,12 +196,12 @@ class Database:
             )
             samples = cursor.fetchall()
 
-            total_sample_count = 0
+            sample_count = 0
             total_power = 0.0
             for sample in samples:
-                total_sample_count += sample["sample_count"]
+                sample_count += sample["sample_count"]
                 total_power += sample["value"]
-            average_power = total_power / len(samples)
+            average_power = total_power / sample_count
 
             self.conn.execute(
                 "DELETE FROM _power WHERE label_id = ? AND start_time >= ? AND start_time < ?",
@@ -212,7 +212,7 @@ class Database:
                 (label_id, bucket_start, bucket_end, total_samples, average_power),
             )
 
-            total_sample_count += len(samples)
+            total_sample_count += sample_count
             total_bucket_count += 1
 
         self.conn.commit()

@@ -24,10 +24,12 @@ class DatabaseService(Service):
         self._run_compression()
 
     def _run_compression(self):
-        n_samples, n_buckets = self._database.compress_power(datetime.now(timezone.utc), 60)
-        if n_samples > 0:
-            logger.debug(f"Compressed {n_samples}/{n_buckets} power samples/buckets to 1-minute resolution")
-            self._database.conn.execute("PRAGMA incremental_vacuum")
+        if self._config.compression.enable:
+            n_samples, n_buckets = self._database.compress_power(
+                datetime.now(timezone.utc), self._config.compression.bucket_seconds
+            )
+            if n_samples > 0:
+                self._database.conn.execute("PRAGMA incremental_vacuum")
 
     def wait_until_next(self):
         now = datetime.now(timezone.utc)
