@@ -54,7 +54,7 @@ def main():
 
     # Frontend
     if config.frontend.enable:
-        init_dependencies(config.database, config.prices)
+        init_dependencies(config)
         logger.info(f"Starting web server on http://{config.frontend.host}:{config.frontend.port}")
         try:
             app = create_app()

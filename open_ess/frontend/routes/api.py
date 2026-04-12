@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from open_ess.database import Database
+from open_ess.metrics import BatteryConfig
 from open_ess.pricing import PriceConfig
 from .util import find_full_battery_cycles
 
@@ -24,6 +25,12 @@ def get_prices() -> PriceConfig:
     from open_ess.frontend.dependencies import get_price_config
 
     return get_price_config()
+
+
+def get_batteries() -> list[BatteryConfig]:
+    from open_ess.frontend.dependencies import get_battery_configs
+
+    return get_battery_configs()
 
 
 class TimeSeries(BaseModel):
@@ -91,6 +98,15 @@ async def health_check(db: Database = Depends(get_db)):
         return HealthResponse(status="ok", database="connected", tables=tables)
     except Exception as e:
         logger.exception("Health check failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/battery-ids", response_model=list[str])
+async def get_battery_ids(battery_configs: dict[str, BatteryConfig] = Depends(get_batteries)):
+    try:
+        return list(battery_configs.keys())
+    except Exception as e:
+        logger.exception("Failed to get battery ids")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -265,22 +281,28 @@ class BatterySocResponse(BaseModel):
     voltage: TimeSeries
 
 
-@router.get("/battery-soc", response_model=BatterySocResponse)
-async def get_battery_soc(
+@router.get("/battery-graph", response_model=BatterySocResponse)
+async def get_battery_graph(
+    battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     db: Database = Depends(get_db),
+    battery_configs: dict[str, BatteryConfig] = Depends(get_batteries),
 ):
     try:
+        if battery_id is None:
+            battery_config = battery_configs["victron/vebus/228"]
+        else:
+            battery_config = battery_configs[battery_id]
         now = datetime.now(timezone.utc)
         if start is None:
             start = now - timedelta(hours=24)
         if end is None:
             end = now
 
-        actual = db.get_battery_soc("battery_225", start, end)
-        scheduled = [(t, soc) for _, t, _, soc in db.get_schedule("victron/vebus/228", start)]
-        voltage = db.get_voltage("battery_225_voltage", start, end, bucket_seconds=60)
+        actual = db.get_battery_soc(battery_config.metrics.battery_soc, start, end)
+        scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(battery_config.id, start)]
+        voltage = db.get_voltage(battery_config.metrics.battery_voltage, start, end, bucket_seconds=60)
         return BatterySocResponse(
             history=data_to_timeseries(actual),
             future=data_to_timeseries(scheduled),

@@ -106,11 +106,14 @@ class Database:
 
     def get_power(
         self,
-        label: str,
+        label: str | list[str],
         start: datetime | None,
         end: datetime | None,
         bucket_seconds: float | None = 60,
     ) -> list[tuple[datetime, float]]:
+        if isinstance(label, list):
+            label = label[0]
+
         if bucket_seconds is not None:
             bucket_ms = round(bucket_seconds * 1000)
             params: list = [bucket_ms, bucket_ms]
@@ -416,7 +419,6 @@ class Database:
     # -------------------------------------------------------------------------
 
     def insert_soc(self, label: str, timestamp: datetime, soc: int):
-        """Insert battery SOC if changed from previous value."""
         # TODO: also insert if last update was more than 5 minutes ago
         self._conn.execute(
             """
@@ -432,6 +434,8 @@ class Database:
         self._conn.commit()
 
     def get_battery_soc(self, label: str, start: datetime, end: datetime) -> list[tuple[datetime, int]]:
+        if isinstance(label, list):
+            label = label[0]
         cursor = self._conn.execute(
             "SELECT timestamp, value FROM battery_soc WHERE label = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp",
             [label, dt_to_ms(start), dt_to_ms(end)],

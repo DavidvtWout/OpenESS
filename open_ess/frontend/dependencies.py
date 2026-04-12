@@ -1,36 +1,43 @@
-from open_ess.database import Database, DatabaseConfig
+from typing import TYPE_CHECKING
+
+from open_ess.database import Database
+from open_ess.metrics import BatteryConfig
 from open_ess.pricing import PriceConfig
 
-# Global instances (simple approach for now)
+if TYPE_CHECKING:
+    from open_ess.config import Config
+
+_config: "Config | None" = None
 _database: Database | None = None
-_price_config: PriceConfig | None = None
 
 
-def init_dependencies(db_config: DatabaseConfig, price_config: PriceConfig) -> None:
-    """Initialize global dependencies."""
-    global _database, _price_config
-    _database = Database(db_config)
-    _price_config = price_config
+def init_dependencies(config: "Config") -> None:
+    global _config, _database
+    _config = config
+    _database = Database(config.database)
 
 
 def get_database() -> Database:
-    """Get the global database instance."""
     if _database is None:
         raise RuntimeError("Database not initialized. Call init_dependencies() first.")
     return _database
 
 
 def get_price_config() -> PriceConfig:
-    """Get the global price config instance."""
-    if _price_config is None:
+    if _config is None:
         raise RuntimeError("Price config not initialized. Call init_dependencies() first.")
-    return _price_config
+    return _config.prices
+
+
+def get_battery_configs() -> dict[str, BatteryConfig]:
+    if _config is None:
+        raise RuntimeError("Battery configs not initialized. Call init_dependencies() first.")
+    return {battery_config.id: battery_config for battery_config in _config.batteries}
 
 
 def close_dependencies() -> None:
-    """Close global connections."""
-    global _database, _price_config
+    global _config, _database
+    _config = None
     if _database is not None:
         _database.close()
         _database = None
-    _price_config = None

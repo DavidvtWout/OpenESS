@@ -427,11 +427,11 @@ async function loadPricesChartRange(elementId, start, end) {
 async function loadSocChart(elementId, start, end, aggregateMinutes = 1) {
     showLoading(elementId);
 
-    const batterySocUrl = `/api/battery-soc?start=${formatDate(start)}&end=${formatDate(end)}`;
-    console.log('Fetching SoC:', batterySocUrl);
+    const batteryGraphUrl = getBatteryGraphUrl(start, end);
+    console.log('Fetching SoC:', batteryGraphUrl);
 
     try {
-        const response = await fetch(batterySocUrl);
+        const response = await fetch(batteryGraphUrl);
         if (!response.ok) {
             throw new Error(`Failed to fetch battery SoC: ${response.status}`);
         }

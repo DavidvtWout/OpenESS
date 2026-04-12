@@ -151,3 +151,7 @@ function getNowLineShape(start, end, now = null, color = '#e74c3c') {
 function getEnergyGraphUrl(start, end, bucketMinutes) {
     return `/api/energy-graph?start=${formatDate(start)}&end=${formatDate(end)}&bucket_minutes=${bucketMinutes}`;
 }
+
+function getBatteryGraphUrl(start, end) {
+    return `/api/battery-graph?start=${formatDate(start)}&end=${formatDate(end)}`;
+}
