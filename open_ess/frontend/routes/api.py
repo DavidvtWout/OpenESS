@@ -207,13 +207,19 @@ async def get_energy_flow_endpoint(
 
 
 @router.get("/power-graph", response_model=PowerResponse)
-async def get_power(
+async def get_power_graph(
+    battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     aggregate_minutes: int = Query(default=1),
     db: Database = Depends(get_db),
+    battery_configs: dict[str, BatteryConfig] = Depends(get_batteries),
 ):
     try:
+        if battery_id is None:
+            battery_config = battery_configs["victron/vebus/228"]
+        else:
+            battery_config = battery_configs[battery_id]
         now = datetime.now(timezone.utc)
         if start is None:
             start = now - timedelta(hours=24)
@@ -222,22 +228,18 @@ async def get_power(
 
         bucket_seconds = aggregate_minutes * 60
 
-        series = {f"Grid L{i}": db.get_power(f"grid_l{i}", start, end, bucket_seconds) for i in (1, 2, 3)}
+        series = {f"Grid L{i}": db.get_power(f"grid/power/l{i}", start, end, bucket_seconds) for i in (1, 2, 3)}
 
-        series["To MP 228"] = []
-        for (ts, ac_in), (_, ac_out) in zip(
-            db.get_power("vebus_228_ac_in_l1", start, end, bucket_seconds),
-            db.get_power("vebus_228_ac_out_l1", start, end, bucket_seconds),
-        ):
-            series["To MP 228"].append((ts, ac_in - ac_out))
+        series["To MP"] = db.get_power(battery_config.metrics.power_to_system, start, end, bucket_seconds)
 
-        series["Battery (BMS 225)"] = db.get_power("battery_225", start, end, bucket_seconds)
-        series["Battery (MP 228)"] = db.get_power("vebus_228_battery", start, end, bucket_seconds)
+        series["Battery"] = db.get_power(battery_config.metrics.power_to_battery, start, end, bucket_seconds)
 
-        series["Solar"] = [(t, -p) for t, p in db.get_power("pvinverter_31_l1", start, end, bucket_seconds)]
+        series["Solar"] = [
+            (t, -p) for t, p in db.get_power("victron/pvinverter/31/power/l1", start, end, bucket_seconds)
+        ]
 
         series["Schedule"] = []
-        for ts_start, ts_end, v, _ in db.get_schedule("victron/vebus/228", start):
+        for ts_start, ts_end, v, _ in db.get_schedule(battery_config.id, start):
             series["Schedule"].extend([(ts_start, v), (ts_end, v)])
 
         return PowerResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
@@ -291,7 +293,7 @@ async def get_battery_graph(
 ):
     try:
         if battery_id is None:
-            battery_config = battery_configs["victron/vebus/228"]
+            battery_config = battery_configs["victron/vebus/228"]  # TODO
         else:
             battery_config = battery_configs[battery_id]
         now = datetime.now(timezone.utc)

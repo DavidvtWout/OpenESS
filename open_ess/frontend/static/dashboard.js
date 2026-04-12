@@ -288,11 +288,11 @@ async function loadEnergyFlowChart(elementId, start, end, bucketMinutes = 60, fr
 async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
     showLoading(elementId);
 
-    const powerUrl = `/api/power-graph?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
-    console.log('Fetching power:', powerUrl);
+    const powerGraphUrl = getPowerGraphUrl(start, end, aggregateMinutes);
+    console.log('Fetching power:', powerGraphUrl);
 
     try {
-        const response = await fetch(powerUrl);
+        const response = await fetch(powerGraphUrl);
 
         if (!response.ok) {
             throw new Error(`Failed to fetch power data: ${response.status}`);

@@ -152,6 +152,10 @@ function getEnergyGraphUrl(start, end, bucketMinutes) {
     return `/api/energy-graph?start=${formatDate(start)}&end=${formatDate(end)}&bucket_minutes=${bucketMinutes}`;
 }
 
+function getPowerGraphUrl(start, end, aggregateMinutes) {
+    return `/api/power-graph?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
+}
+
 function getBatteryGraphUrl(start, end) {
     return `/api/battery-graph?start=${formatDate(start)}&end=${formatDate(end)}`;
 }
