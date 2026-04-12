@@ -134,12 +134,18 @@ class EnergyGraphResponse(BaseModel):
 
 @router.get("/energy-graph", response_model=EnergyGraphResponse)
 async def get_energy_flow_endpoint(
+    battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     bucket_minutes: int = Query(default=60),
     db: Database = Depends(get_db),
+    battery_configs: dict[str, BatteryConfig] = Depends(get_batteries),
 ):
     try:
+        if battery_id is None:
+            battery_config = battery_configs["victron/vebus/228"]  # TODO
+        else:
+            battery_config = battery_configs[battery_id]
         now = datetime.now(timezone.utc)
         if start is None:
             start = now - timedelta(hours=24)
@@ -148,16 +154,16 @@ async def get_energy_flow_endpoint(
 
         series = {
             "grid_import": db.get_energy_aggregated(
-                "grid_import", bucket_minutes * 60, start, end, center_buckets=True
+                "grid/energy/import/total", bucket_minutes * 60, start, end, center_buckets=True
             ),
             "grid_export": db.get_energy_aggregated(
-                "grid_export", bucket_minutes * 60, start, end, center_buckets=True
+                "grid/energy/export/total", bucket_minutes * 60, start, end, center_buckets=True
             ),
             "vebus_228_import": db.get_energy_aggregated(
-                "vebus_228_ac_in_import", bucket_minutes * 60, start, end, center_buckets=True
+                battery_config.metrics.energy_to_system, bucket_minutes * 60, start, end, center_buckets=True
             ),
             "vebus_228_export": db.get_energy_aggregated(
-                "vebus_228_ac_in_export", bucket_minutes * 60, start, end, center_buckets=True
+                battery_config.metrics.energy_from_system, bucket_minutes * 60, start, end, center_buckets=True
             ),
         }
 
@@ -217,7 +223,7 @@ async def get_power_graph(
 ):
     try:
         if battery_id is None:
-            battery_config = battery_configs["victron/vebus/228"]
+            battery_config = battery_configs["victron/vebus/228"]  # TODO
         else:
             battery_config = battery_configs[battery_id]
         now = datetime.now(timezone.utc)
