@@ -34,14 +34,6 @@ function formatDuration(hours) {
     }
 }
 
-function showLoading(elementId) {
-    document.getElementById(elementId).innerHTML = '<div class="loading">Loading...</div>';
-}
-
-function showError(elementId, message) {
-    document.getElementById(elementId).innerHTML = `<div class="error">${message}</div>`;
-}
-
 // Helper to insert nulls in time series data where gaps exceed threshold
 // Returns { times: [], values: [] } with nulls inserted at gap positions
 function insertGapNulls(timestamps, values, gapThresholdMs) {
@@ -68,14 +60,32 @@ function insertGapNulls(timestamps, values, gapThresholdMs) {
 //  Plotly utility functions  //
 //----------------------------//
 
+function makeTrace(name, timeseries) {
+  return {
+    name: name,
+    x: timeseries.timestamps.map(t => new Date(t)),
+    y: timeseries.values,
+    type: 'scatter',
+    mode: 'lines',
+  }
+}
+
+
 const defaultConfig = {
     responsive: true,
     displayModeBar: false,
 };
 
+function showLoading(elementId) {
+    document.getElementById(elementId).innerHTML = '<div class="loading">Loading...</div>';
+}
+
+function showError(elementId, message) {
+    document.getElementById(elementId).innerHTML = `<div class="error">${message}</div>`;
+}
+
 function makePlot(elementId, traces, layout, config = defaultConfig) {
-    // Remove "Loading..." TODO: find out why PlotLy adds this loading message
-    document.getElementById(elementId).innerHTML = '';
+    document.getElementById(elementId).innerHTML = '';  // Remove 'Loading...'
 
     Plotly.newPlot(elementId, traces, layout, config);
 }

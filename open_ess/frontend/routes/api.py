@@ -1,6 +1,5 @@
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -8,7 +7,7 @@ from pydantic import BaseModel
 from open_ess.database import Database
 from open_ess.metrics import BatteryConfig
 from open_ess.pricing import PriceConfig
-from .util import find_full_battery_cycles
+from .util import TimeSeries, data_to_timeseries, find_full_battery_cycles
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +26,10 @@ def get_prices() -> PriceConfig:
     return get_price_config()
 
 
-def get_batteries() -> list[BatteryConfig]:
+def get_batteries() -> dict[str, BatteryConfig]:
     from open_ess.frontend.dependencies import get_battery_configs
 
     return get_battery_configs()
-
-
-class TimeSeries(BaseModel):
-    timestamps: list[datetime]
-    values: list[float]
 
 
 class PricePoint(BaseModel):
@@ -72,15 +66,6 @@ class EfficiencyScatterPoint(BaseModel):
     efficiency: float | None
     soc: int | None
     category: str
-
-
-def data_to_timeseries(data: Iterable[tuple[datetime, float]]) -> TimeSeries:
-    timestamps = []
-    values = []
-    for t, v in data:
-        timestamps.append(t)
-        values.append(v)
-    return TimeSeries(timestamps=timestamps, values=values)
 
 
 class HealthResponse(BaseModel):
@@ -283,13 +268,13 @@ async def get_price_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class BatterySocResponse(BaseModel):
-    history: TimeSeries
-    future: TimeSeries
+class BatteryGraphResponse(BaseModel):
+    soc: TimeSeries
+    schedule: TimeSeries  # Scheduled (past and future) SoC
     voltage: TimeSeries
 
 
-@router.get("/battery-graph", response_model=BatterySocResponse)
+@router.get("/battery-graph", response_model=dict[str, BatteryGraphResponse])
 async def get_battery_graph(
     battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
@@ -298,24 +283,27 @@ async def get_battery_graph(
     battery_configs: dict[str, BatteryConfig] = Depends(get_batteries),
 ):
     try:
-        if battery_id is None:
-            battery_config = battery_configs["victron/vebus/228"]  # TODO
-        else:
-            battery_config = battery_configs[battery_id]
         now = datetime.now(timezone.utc)
         if start is None:
-            start = now - timedelta(hours=24)
+            start = now - timedelta(hours=48)
         if end is None:
-            end = now
+            end = now + timedelta(hours=24)
 
-        actual = db.get_battery_soc(battery_config.metrics.battery_soc, start, end)
-        scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(battery_config.id, start)]
-        voltage = db.get_voltage(battery_config.metrics.battery_voltage, start, end, bucket_seconds=60)
-        return BatterySocResponse(
-            history=data_to_timeseries(actual),
-            future=data_to_timeseries(scheduled),
-            voltage=data_to_timeseries((t, round(v, 2)) for t, v in voltage),
-        )
+        result = {}
+        for battery_config in battery_configs.values():
+            if battery_id is not None and battery_config.id != battery_id:
+                continue
+
+            soc = db.get_battery_soc(battery_config.metrics.battery_soc, start, end)
+            scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(battery_config.id, start)]
+            voltage = db.get_voltage(battery_config.metrics.battery_voltage, start, end, bucket_seconds=60)
+
+            result[battery_config.name] = BatteryGraphResponse(
+                soc=data_to_timeseries(soc, rounding=1),
+                schedule=data_to_timeseries(scheduled, rounding=1),
+                voltage=data_to_timeseries(voltage, rounding=2),
+            )
+        return result
     except Exception as e:
         logger.exception("Failed to get battery SOC")
         raise HTTPException(status_code=500, detail=str(e))

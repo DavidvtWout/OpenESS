@@ -423,12 +423,11 @@ async function loadPricesChartRange(elementId, start, end) {
     }
 }
 
-// Load and display battery SoC chart with scheduled SoC
 async function loadSocChart(elementId, start, end, aggregateMinutes = 1) {
     showLoading(elementId);
 
     const batteryGraphUrl = getBatteryGraphUrl(start, end);
-    console.log('Fetching SoC:', batteryGraphUrl);
+    console.log('Fetching battery graph data:', batteryGraphUrl);
 
     try {
         const response = await fetch(batteryGraphUrl);
@@ -437,72 +436,67 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 1) {
         }
 
         const data = await response.json();
-
-        const now = new Date();
-
-        // Check if we have any data to show
-        if (data.history.length === 0 && data.future.length === 0) {
-            showError(elementId, 'No SoC data available');
-            return;
-        }
-
+        const multipleSystems = Object.keys(data).length > 1;
         const traces = [];
 
-        // Add historical SoC trace with step interpolation
-        const times = data.history.timestamps.map(t => new Date(t));
-        const socs = data.history.values;
-
-        // Extend the line to "now" with the last known SOC value
-        const lastTime = times[times.length - 1];
-        if (now > lastTime) {
-            times.push(now);
-            socs.push(socs[socs.length - 1]);
+        for (let [name, battery] of Object.entries(data)) {
+            trace = {
+                ...makeTrace('SoC', battery.soc),
+                ...(multipleSystems && {
+                  legendgroup: name,
+                  legendgrouptitle: {text: name},
+                }),
+                line: { color: '#3498db', width: 2 },
+                hovertemplate: '%{y}%<extra>SoC</extra>',
+            };
+            // Extend the line to "now" with the last known SoC value
+            const now = new Date();
+            const lastTime = trace.x[trace.x.length - 1];
+            if (now > lastTime) {
+                trace.x.push(now);
+                trace.y.push(trace.y[trace.y.length - 1]);
+            }
+            traces.push(trace);
+            traces.push({
+                ...makeTrace('Scheduled', battery.schedule),
+                ...(multipleSystems && {
+                  legendgroup: name,
+                  legendgrouptitle: {text: name},
+                }),
+                line: { color: '#2ecc71', width: 2, dash: 'dot' },
+                hovertemplate: '%{y}%<extra>Scheduled</extra>',
+            });
+            traces.push({
+                ...makeTrace('Voltage', battery.voltage),
+                ...(multipleSystems && {
+                  legendgroup: name,
+                  legendgrouptitle: {text: name},
+                }),
+                line: { color: '#ff7171', width: 2},
+                hovertemplate: '%{y}V<extra>Voltage</extra>',
+                yaxis: 'y2',
+            });
         }
 
-        traces.push({
-            x: times,
-            y: socs,
-            type: 'scatter',
-            mode: 'lines',
-            name: 'SoC',
-            line: { color: '#3498db', width: 2 },
-            hovertemplate: '%{y}%<extra>SoC</extra>',
-        });
-        traces.push({
-            x: data.future.timestamps.map(t => new Date(t)),
-            y: data.future.values,
-            type: 'scatter',
-            mode: 'lines',
-            name: 'Scheduled',
-            line: { color: '#2ecc71', width: 2, dash: 'dot' },
-            hovertemplate: '%{y}%<extra>Scheduled</extra>',
-        });
-        traces.push({
-            x: data.voltage.timestamps.map(t => new Date(t)),
-            y: data.voltage.values,
-            type: 'scatter',
-            mode: 'lines',
-            name: 'Voltage',
-            line: { color: '#ff7171', width: 2},
-            hovertemplate: '%{y}V<extra>Voltage</extra>',
-            yaxis: 'y2',
-        });
+        const layout = getDefaultLayout();
+        layoutSetXRange(layout, start, end);
+        layoutAddNowLine(layout, start, end)
+        layout.hovermode = 'x unified';
+        layout.yaxis.side = 'left';
+        layout.yaxis.range = [0, 100];
+        layout.yaxis.title = {text: "SoC (%)"}
+        layout.yaxis2 = {
+            overlaying: 'y',
+            side: 'right',
+            gridcolor: 'transparent',
+            title: {text: "Voltage (V)"},
+        };
+        if (multipleSystems) {
+          layout.legend.y = -0.25;
+        };
 
-
-         const layout = getDefaultLayout();
-         layoutSetXRange(layout, start, end);
-         layoutAddNowLine(layout, start, end)
-         layout.hovermode = 'x unified';
-         layout.yaxis.side = 'left';
-         layout.yaxis.range = [0, 100];
-         layout.yaxis.title = {text: "SoC (%)"}
-         layout.yaxis2 = {
-             overlaying: 'y',
-             side: 'right',
-             gridcolor: 'transparent',
-             title: {text: "Voltage (V)"},
-         };
-         makePlot(elementId, traces, layout);
+        // TODO: wait for https://github.com/plotly/plotly.py/issues/5432 to be merged
+        makePlot(elementId, traces, layout);
     } catch (error) {
         console.error('Error loading SoC data:', error);
         showError(elementId, 'Failed to load SoC data');

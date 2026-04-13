@@ -1,4 +1,24 @@
 from datetime import datetime
+from typing import Iterable
+
+from pydantic import BaseModel
+
+
+class TimeSeries(BaseModel):
+    timestamps: list[datetime]
+    values: list[float]
+
+
+def data_to_timeseries(data: Iterable[tuple[datetime, float]], rounding: int = None) -> TimeSeries:
+    timestamps = []
+    values = []
+    for t, v in data:
+        timestamps.append(t)
+        if rounding is not None:
+            values.append(round(v, rounding))
+        else:
+            values.append(v)
+    return TimeSeries(timestamps=timestamps, values=values)
 
 
 def find_full_battery_cycles(
