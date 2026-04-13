@@ -57,22 +57,29 @@
 </div>
 
 <div class="table-container">
-    <div class="table-header">
-        <div class="column-picker">
-            <button id="column-picker-btn" class="btn-icon" title="Select columns">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="3" width="7" height="7"></rect>
-                    <rect x="3" y="14" width="7" height="7"></rect>
-                    <rect x="14" y="14" width="7" height="7"></rect>
-                </svg>
-            </button>
-            <div id="column-picker-dropdown" class="column-picker-dropdown hidden">
-                <!-- Populated by JS -->
-            </div>
-        </div>
-    </div>
-    <div id="cycles-table"></div>
+    <table id="cycles-table" class="display" style="width:100%">
+        <thead>
+            <tr>
+                <th>Start</th>
+                <th>End</th>
+                <th>Duration</th>
+                <th>Min SOC</th>
+                <th>Max SOC</th>
+                <th>AC In</th>
+                <th>AC Out</th>
+                <th>DC In</th>
+                <th>DC Out</th>
+                <th>Charger Efficiency</th>
+                <th>Battery Efficiency</th>
+                <th>Inverter Efficiency</th>
+                <th>System Efficiency</th>
+                <th>Profit</th>
+                <th>Profit (Scheduled)</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
 </div>
 {% endblock %}
 

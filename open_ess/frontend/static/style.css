@@ -445,148 +445,196 @@ h2 {
     font-weight: 600;
 }
 
-/* Table header with column picker */
-.table-header {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: 0.5rem;
+/* DataTables theme overrides */
+table.dataTable {
+    border-collapse: collapse;
+    width: 100%;
 }
 
-.column-picker {
-    position: relative;
+table.dataTable thead th {
+    background-color: var(--bg-tertiary);
+    color: var(--text-subheading);
+    border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    cursor: grab;
 }
 
-.btn-icon {
-    background: var(--input-bg);
-    border: 1px solid var(--input-border);
-    border-radius: 4px;
-    padding: 0.4rem;
-    cursor: pointer;
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s, color 0.2s;
+table.dataTable thead th:last-child {
+    border-right: none;
 }
 
-.btn-icon:hover {
-    background: var(--bg-tertiary);
+table.dataTable thead th:active {
+    cursor: grabbing;
+}
+
+/* Visual indicator for draggable columns */
+table.dataTable thead th::after {
+    content: '';
+    display: inline-block;
+    width: 0;
+    height: 0;
+    margin-left: 0.3rem;
+    opacity: 0.3;
+    vertical-align: middle;
+}
+
+table.dataTable tbody td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    background-color: var(--bg-secondary);
+}
+
+table.dataTable tbody tr:hover td {
+    background-color: var(--bg-tertiary);
+}
+
+table.dataTable.stripe tbody tr.odd td {
+    background-color: var(--bg-secondary);
+}
+
+table.dataTable.stripe tbody tr.even td {
+    background-color: var(--bg-secondary);
+}
+
+/* ColReorder dragging state */
+table.dataTable thead th.dt-ordering-asc,
+table.dataTable thead th.dt-ordering-desc {
+    cursor: grab;
+}
+
+/* Column being dragged */
+.dt-colReorder-moving {
+    outline: 2px dashed var(--nav-active);
+    outline-offset: -2px;
+}
+
+/* Drop target indicator */
+table.dataTable thead th.dt-colReorder-target {
+    background-color: var(--nav-active) !important;
+    opacity: 0.3;
+}
+
+/* DataTables wrapper */
+div.dt-container {
     color: var(--text-primary);
 }
 
-.column-picker-dropdown {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    margin-top: 0.25rem;
-    background: var(--bg-secondary);
+div.dt-container .dt-search input {
+    background-color: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--text-primary);
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+}
+
+div.dt-container .dt-length select {
+    background-color: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--text-primary);
+    padding: 0.4rem;
+    border-radius: 4px;
+}
+
+div.dt-container .dt-info {
+    color: var(--text-secondary);
+    padding-top: 0.75rem;
+}
+
+div.dt-container .dt-paging .dt-paging-button {
+    background-color: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--text-primary);
+    padding: 0.4rem 0.75rem;
+    border-radius: 4px;
+    margin-left: 0.25rem;
+}
+
+div.dt-container .dt-paging .dt-paging-button:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--input-border);
+    color: var(--text-primary);
+}
+
+div.dt-container .dt-paging .dt-paging-button.current {
+    background-color: var(--nav-active);
+    border-color: var(--nav-active);
+    color: white;
+}
+
+div.dt-container .dt-paging .dt-paging-button.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Column visibility button */
+.btn-colvis {
+    background-color: var(--input-bg) !important;
+    border: 1px solid var(--input-border) !important;
+    color: var(--text-secondary) !important;
+    padding: 0.4rem 0.6rem !important;
+    border-radius: 4px !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-colvis:hover {
+    background-color: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+.btn-colvis svg {
+    display: block;
+}
+
+/* Column visibility dropdown */
+div.dt-button-collection {
+    background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 4px;
     box-shadow: 0 4px 12px var(--shadow-color);
+    z-index: 2000;
     min-width: 180px;
-    max-height: 400px;
+    max-height: 70vh;
     overflow-y: auto;
-    z-index: 1000;
+    padding: 0.25rem 0;
 }
 
-.column-picker-dropdown.hidden {
-    display: none;
-}
-
-.column-picker-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.column-picker-item:hover {
-    background: var(--bg-tertiary);
-}
-
-.column-picker-item input[type="checkbox"] {
-    cursor: pointer;
-}
-
-.column-picker-item label {
-    cursor: pointer;
-    flex: 1;
+div.dt-button-collection .dt-button {
+    background-color: transparent !important;
+    border: none !important;
+    color: var(--text-primary) !important;
+    padding: 0.5rem 1rem !important;
+    text-align: left;
+    width: 100%;
+    display: block;
     font-size: 0.9rem;
-    color: var(--text-primary);
 }
 
-/* AG Grid theme overrides - Light theme */
-.ag-theme-alpine {
-    --ag-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
-    --ag-font-size: 0.9rem;
-    --ag-background-color: var(--bg-secondary);
-    --ag-header-background-color: var(--bg-tertiary);
-    --ag-odd-row-background-color: var(--bg-secondary);
-    --ag-row-hover-color: var(--bg-tertiary);
-    --ag-border-color: var(--border-color);
-    --ag-header-foreground-color: var(--text-subheading);
-    --ag-foreground-color: var(--text-primary);
-    --ag-secondary-foreground-color: var(--text-secondary);
-    --ag-row-border-color: var(--border-color);
-    --ag-selected-row-background-color: rgba(52, 152, 219, 0.1);
-    --ag-range-selection-border-color: var(--nav-active);
+div.dt-button-collection .dt-button:hover {
+    background-color: var(--bg-tertiary) !important;
 }
 
-/* AG Grid theme overrides - Dark theme */
-.ag-theme-alpine-dark {
-    --ag-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
-    --ag-font-size: 0.9rem;
-    --ag-background-color: var(--bg-secondary);
-    --ag-header-background-color: var(--bg-tertiary);
-    --ag-odd-row-background-color: var(--bg-secondary);
-    --ag-row-hover-color: var(--bg-tertiary);
-    --ag-border-color: var(--border-color);
-    --ag-header-foreground-color: var(--text-subheading);
-    --ag-foreground-color: var(--text-primary);
-    --ag-secondary-foreground-color: var(--text-secondary);
-    --ag-row-border-color: var(--border-color);
-    --ag-selected-row-background-color: rgba(52, 152, 219, 0.2);
-    --ag-range-selection-border-color: var(--nav-active);
+div.dt-button-collection .dt-button.dt-button-active {
+    background-color: transparent !important;
 }
 
-/* Common AG Grid styling */
-.ag-theme-alpine,
-.ag-theme-alpine-dark {
-    --ag-grid-size: 6px;
-    --ag-cell-horizontal-padding: 12px;
-    border: none;
+div.dt-button-collection .dt-button.dt-button-active span::before {
+    content: '✓ ';
+    color: var(--nav-active);
+    font-weight: bold;
 }
 
-.ag-theme-alpine .ag-root-wrapper,
-.ag-theme-alpine-dark .ag-root-wrapper {
-    border: none;
-    border-radius: 4px;
+div.dt-button-collection .dt-button span {
+    display: inline-block;
 }
 
-.ag-theme-alpine .ag-header,
-.ag-theme-alpine-dark .ag-header {
-    border-bottom: 1px solid var(--border-color);
-}
-
-/* Column menu styling */
-.ag-theme-alpine .ag-menu,
-.ag-theme-alpine-dark .ag-menu {
-    background-color: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-}
-
-.ag-theme-alpine-dark .ag-menu {
-    background-color: var(--bg-tertiary);
-}
-
-.ag-theme-alpine .ag-menu-option-active,
-.ag-theme-alpine-dark .ag-menu-option-active {
-    background-color: var(--bg-tertiary);
-}
-
-/* No rows overlay */
-.ag-overlay-no-rows {
+/* Empty table message */
+table.dataTable tbody td.dt-empty {
+    text-align: center;
     color: var(--text-secondary);
+    padding: 2rem;
 }

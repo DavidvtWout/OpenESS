@@ -133,146 +133,61 @@ async function loadScatterChart() {
     }
 }
 
-let cyclesGrid = null;
+let cyclesTable = null;
 
-// All available columns for the cycles table
-const allColumns = [
-    { field: 'start_time', headerName: 'Start', valueFormatter: p => formatDateTime(p.value), sort: 'desc' },
-    { field: 'end_time', headerName: 'End', valueFormatter: p => formatDateTime(p.value) },
-    { field: 'duration_hours', headerName: 'Duration', valueFormatter: p => formatDuration(p.value) },
-    { field: 'min_soc', headerName: 'Min SOC', valueFormatter: p => p.value + '%' },
-    { field: 'max_soc', headerName: 'Max SOC', valueFormatter: p => p.value + '%', hide: true },
-    { field: 'ac_energy_in', headerName: 'AC In', valueFormatter: p => formatEnergy(p.value) },
-    { field: 'ac_energy_out', headerName: 'AC Out', valueFormatter: p => formatEnergy(p.value) },
-    { field: 'dc_energy_in', headerName: 'DC In', valueFormatter: p => formatEnergy(p.value), hide: true },
-    { field: 'dc_energy_out', headerName: 'DC Out', valueFormatter: p => formatEnergy(p.value), hide: true },
-    { field: 'charger_efficiency', headerName: 'Charger Eff.', cellRenderer: efficiencyRenderer, hide: true },
-    { field: 'battery_efficiency', headerName: 'Battery Eff.', cellRenderer: efficiencyRenderer, hide: true },
-    { field: 'inverter_efficiency', headerName: 'Inverter Eff.', cellRenderer: efficiencyRenderer, hide: true },
-    { field: 'system_efficiency', headerName: 'System Eff.', cellRenderer: efficiencyRenderer },
-    { field: 'profit', headerName: 'Profit', valueFormatter: p => p.value != null ? p.value.toFixed(2) : '-' },
-    { field: 'scheduled_profit', headerName: 'Profit Sch.', valueFormatter: p => p.value != null ? p.value.toFixed(2) : '-', hide: true },
-];
-
-function efficiencyRenderer(params) {
-    if (params.value == null) return '-';
-    const cls = getEfficiencyClass(params.value);
-    return `<span class="${cls}">${params.value.toFixed(1)}%</span>`;
-}
-
-function saveColumnState(api) {
-    const columnState = api.getColumnState();
-    localStorage.setItem('cycles-table-columns', JSON.stringify(columnState));
-}
-
-function loadColumnState() {
-    const saved = localStorage.getItem('cycles-table-columns');
-    return saved ? JSON.parse(saved) : null;
-}
-
-function buildColumnPicker() {
-    const dropdown = document.getElementById('column-picker-dropdown');
-    dropdown.innerHTML = allColumns.map(col => `
-        <div class="column-picker-item">
-            <input type="checkbox" id="col-${col.field}" data-field="${col.field}" ${col.hide ? '' : 'checked'}>
-            <label for="col-${col.field}">${col.headerName}</label>
-        </div>
-    `).join('');
-
-    // Update checkboxes based on current column state
-    updateColumnPickerState();
-}
-
-function updateColumnPickerState() {
-    if (!cyclesGrid) return;
-    const columnState = cyclesGrid.getColumnState();
-    columnState.forEach(state => {
-        const checkbox = document.querySelector(`#col-${state.colId}`);
-        if (checkbox) {
-            checkbox.checked = !state.hide;
-        }
-    });
-}
-
-function initColumnPicker() {
-    const btn = document.getElementById('column-picker-btn');
-    const dropdown = document.getElementById('column-picker-dropdown');
-
-    // Toggle dropdown
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        dropdown.classList.toggle('hidden');
-        if (!dropdown.classList.contains('hidden')) {
-            updateColumnPickerState();
-        }
-    });
-
-    // Close on outside click
-    document.addEventListener('click', (e) => {
-        if (!dropdown.contains(e.target) && e.target !== btn) {
-            dropdown.classList.add('hidden');
-        }
-    });
-
-    // Handle checkbox changes
-    dropdown.addEventListener('change', (e) => {
-        if (e.target.type === 'checkbox') {
-            const field = e.target.dataset.field;
-            cyclesGrid.setColumnsVisible([field], e.target.checked);
-            saveColumnState(cyclesGrid);
-        }
-    });
-
-    buildColumnPicker();
+function efficiencyRenderer(data) {
+    if (data == null) return '-';
+    const cls = getEfficiencyClass(data);
+    return `<span class="${cls}">${data.toFixed(1)}%</span>`;
 }
 
 function initCyclesTable() {
     const settings = loadSettings();
     const isDark = settings.theme === 'dark';
 
-    const gridOptions = {
-        columnDefs: allColumns,
-        rowData: [],
-        defaultColDef: {
-            sortable: true,
-            resizable: true,
-            suppressMovable: false,
+    cyclesTable = $('#cycles-table').DataTable({
+        data: [],
+        columns: [
+            { data: 'start_time', render: (data) => formatDateTime(data) },
+            { data: 'end_time', render: (data) => formatDateTime(data), visible: false },
+            { data: 'duration_hours', render: (data) => formatDuration(data) },
+            { data: 'min_soc', render: (data) => data + '%', visible: false },
+            { data: 'max_soc', render: (data) => data + '%', visible: false },
+            { data: 'ac_energy_in', render: (data) => formatEnergy(data) },
+            { data: 'ac_energy_out', render: (data) => formatEnergy(data) },
+            { data: 'dc_energy_in', render: (data) => formatEnergy(data), visible: false },
+            { data: 'dc_energy_out', render: (data) => formatEnergy(data), visible: false },
+            { data: 'charger_efficiency', render: efficiencyRenderer },
+            { data: 'battery_efficiency', render: efficiencyRenderer },
+            { data: 'inverter_efficiency', render: efficiencyRenderer },
+            { data: 'system_efficiency', render: efficiencyRenderer },
+            { data: 'profit', render: (data) => data != null ? data.toFixed(2) : '-' },
+            { data: 'scheduled_profit', render: (data) => data != null ? data.toFixed(2) : '-', visible: false },
+        ],
+        order: [[0, 'desc']],
+        colReorder: true,
+        stateSave: true,
+        stateDuration: -1, // Forever
+        language: {
+            emptyTable: 'No cycles found',
+            loadingRecords: 'Loading...',
         },
-        domLayout: 'autoHeight',
-        suppressColumnVirtualisation: true,
-        animateRows: true,
-        rowDragManaged: false,
-
-        // Enable column moving
-        suppressDragLeaveHidesColumns: true,
-
-        // Persistence
-        onColumnMoved: (e) => saveColumnState(e.api),
-        onColumnResized: (e) => { if (e.finished) saveColumnState(e.api); },
-        onColumnVisible: (e) => saveColumnState(e.api),
-        onSortChanged: (e) => saveColumnState(e.api),
-
-        // Restore saved state after grid is ready
-        onGridReady: (e) => {
-            const savedState = loadColumnState();
-            if (savedState) {
-                e.api.applyColumnState({ state: savedState, applyOrder: true });
-            }
-            // Update column picker checkboxes after state is restored
-            setTimeout(updateColumnPickerState, 0);
+        layout: {
+            topStart: null,
+            topEnd: {
+                buttons: [
+                    {
+                        extend: 'colvis',
+                        text: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect></svg>',
+                        titleAttr: 'Select columns',
+                        className: 'btn-colvis',
+                    }
+                ]
+            },
         },
+    });
 
-        // Loading overlay
-        overlayLoadingTemplate: '<span class="ag-overlay-loading">Loading...</span>',
-        overlayNoRowsTemplate: '<span class="ag-overlay-no-rows">No cycles found</span>',
-    };
-
-    const gridDiv = document.getElementById('cycles-table');
-    gridDiv.className = isDark ? 'ag-theme-alpine-dark' : 'ag-theme-alpine';
-
-    cyclesGrid = agGrid.createGrid(gridDiv, gridOptions);
-
-    return cyclesGrid;
+    return cyclesTable;
 }
 
 async function loadCycles() {
@@ -284,8 +199,6 @@ async function loadCycles() {
 
     const url = `/api/cycles?start=${formatDate(start)}&end=${formatDate(now)}&min_soc_swing=${minSwing}`;
 
-    cyclesGrid.setGridOption('loading', true);
-
     try {
         const response = await fetch(url);
         if (!response.ok) {
@@ -294,8 +207,9 @@ async function loadCycles() {
 
         const cycles = await response.json();
 
-        cyclesGrid.setGridOption('rowData', cycles);
-        cyclesGrid.setGridOption('loading', false);
+        cyclesTable.clear();
+        cyclesTable.rows.add(cycles);
+        cyclesTable.draw();
 
         if (cycles.length === 0) {
             document.getElementById('cycle-stats').innerHTML = '';
@@ -328,8 +242,7 @@ async function loadCycles() {
 
     } catch (error) {
         console.error('Error loading cycles:', error);
-        cyclesGrid.setGridOption('rowData', []);
-        cyclesGrid.setGridOption('loading', false);
+        cyclesTable.clear().draw();
     }
 }
 
@@ -351,9 +264,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     loadScatterChart();
 
-    // Initialize AG Grid table and column picker
+    // Initialize DataTables
     initCyclesTable();
-    initColumnPicker();
 
     // Cycles table controls
     document.getElementById('days-select').addEventListener('change', (e) => {
