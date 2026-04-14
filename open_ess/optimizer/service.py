@@ -55,6 +55,8 @@ class OptimizerService(Service):
         """Wait until the start of the next price bracket."""
         now = datetime.now(timezone.utc)
         next_run = now.replace(
-            minute=now.minute // self._price_config.aggregate_minutes, second=0, microsecond=0
+            minute=(now.minute // self._price_config.aggregate_minutes) * self._price_config.aggregate_minutes,
+            second=0,
+            microsecond=0,
         ) + timedelta(minutes=self._price_config.aggregate_minutes)
         self.wait_seconds((next_run - now).total_seconds())

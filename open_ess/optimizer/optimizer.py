@@ -145,7 +145,6 @@ class Optimizer:
             start=start_hour - timedelta(weeks=6),
             aggregate_minutes=self._price_config.aggregate_minutes,
         )
-        print(prices)
 
         if not prices:
             logger.warning("No price data available")
@@ -231,10 +230,12 @@ class Optimizer:
 
             # Energy into battery = charge_power - charger_loss
             # Energy out of battery = discharge_power + inverter_loss
-            net_power = (model.charge_power[t] - model.charger_loss[t]) - (
-                model.discharge_power[t] + model.inverter_loss[t]
+            net_energy = (
+                ((model.charge_power[t] - model.charger_loss[t]) - (model.discharge_power[t] + model.inverter_loss[t]))
+                * self._price_config.aggregate_minutes
+                / 60
             )
-            soc_change = 100 * net_power / self._battery_config.capacity_kwh
+            soc_change = 100 * net_energy / self._battery_config.capacity_kwh
             return model.soc[t] == prev_soc + soc_change
 
         model.soc_balance = pyo.Constraint(model.T, rule=soc_balance_rule)
@@ -253,13 +254,13 @@ class Optimizer:
                 # Revenue from discharge (grid power = discharge - inverter_loss...
                 # but inverter_loss is drawn from battery, so grid gets discharge_power)
                 sell_revenue = model.discharge_power[t] * sell_price_fn(price)
-                total += buy_cost - sell_revenue
+                total += (buy_cost - sell_revenue) * self._price_config.aggregate_minutes / 60
             return total
 
         model.cost = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
         # Solve
-        logger.info("Starting MILP solver")
+        logger.info(f"Starting MILP solver with {n_hours} time periods.")
         cbc_executable = os.environ.get("CBC_EXECUTABLE", "cbc")
         solver = SolverFactory("cbc", executable=cbc_executable)
         result = solver.solve(model, tee=False)
@@ -278,17 +279,17 @@ class Optimizer:
             if hour_start > last_entsoe_hour:
                 break
 
-            hour_end = hour_start + timedelta(hours=1)
+            hour_end = hour_start + timedelta(minutes=self._price_config.aggregate_minutes)
             charge_power = pyo.value(model.charge_power[t])
             discharge_power = pyo.value(model.discharge_power[t])
             power_w = int((charge_power - discharge_power) * 1000)
             expected_soc = round(pyo.value(model.soc[t]), 1)
 
-            # Calculate cost for this hour
+            # Calculate cost for this time bracket
             price = pyo.value(model.market_price[t])
             grid_charge = charge_power + pyo.value(model.charger_loss[t])
             hour_cost = grid_charge * buy_price_fn(price) - discharge_power * sell_price_fn(price)
-            total_cost += hour_cost
+            total_cost += hour_cost * self._price_config.aggregate_minutes / 60
 
             schedule.append((hour_start, hour_end, power_w, expected_soc))
             logger.debug(

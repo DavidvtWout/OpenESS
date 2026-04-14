@@ -490,35 +490,35 @@ class Database:
     # -------------------------------------------------------------------------
 
     def set_schedule(self, battery_id: str, entries: list[tuple[datetime, datetime, int, float]]) -> None:
-        # The view in the actual table already handles OR REPLACE and add OR REPLACE to this query messes up the
+        # The view on the actual table already handles OR REPLACE and add OR REPLACE to this query messes up the
         # insertion... The table_id is then recreated on every conflict.
+        if not entries:
+            return
+
+        entries = sorted(entries, key=lambda row: row[0])
+        first_ts, _, _, _ = entries[0]
+
+        self._conn.execute(
+            "DELETE FROM charge_schedule WHERE label = ? AND start_time >= ?", [battery_id, dt_to_ms(first_ts)]
+        )
         self._conn.executemany(
             "INSERT INTO charge_schedule (label, start_time, end_time, power, expected_soc) VALUES (?, ?, ?, ?, ?)",
             [(battery_id, dt_to_ms(start), dt_to_ms(end), power, soc) for start, end, power, soc in entries],
         )
         self._conn.commit()
 
-    def get_schedule(self, battery_id: str, start: datetime | None = None) -> list[tuple[datetime, datetime, int, int]]:
-        if start is None:
-            cursor = self._conn.execute(
-                "SELECT start_time, end_time, power, expected_soc FROM charge_schedule WHERE label = ? ORDER BY start_time",
-                [battery_id],
-            )
-        else:
-            cursor = self._conn.execute(
-                "SELECT start_time, end_time, power, expected_soc FROM charge_schedule WHERE label = ? AND start_time >= ? ORDER BY start_time",
-                [battery_id, dt_to_ms(start)],
-            )
-        return [(ms_to_dt(row[0]), ms_to_dt(row[1]), row[2], row[3]) for row in cursor.fetchall()]
-
-    def get_current_schedule_entry(self, now: datetime) -> tuple[datetime, datetime, int, int] | None:
-        """Get the schedule entry active at the given time."""
-        now_ms = dt_to_ms(now)
+    def get_schedule(
+        self, battery_id: str, start: datetime | None = None, end: datetime | None = None
+    ) -> list[tuple[datetime, datetime, int, int]]:
+        conditions, params = base_conditions(battery_id, start, end, timestamp_name="start_time")
+        where_clause = "WHERE " + " AND ".join(conditions)
         cursor = self._conn.execute(
-            "SELECT start_time, end_time, power, expected_soc FROM charge_schedule WHERE start_time <= ? AND end_time > ?",
-            [now_ms, now_ms],
+            f"""
+            SELECT start_time, end_time, power, expected_soc
+            FROM charge_schedule
+            {where_clause}
+            ORDER BY start_time
+            """,
+            params,
         )
-        row = cursor.fetchone()
-        if row:
-            return ms_to_dt(row[0]), ms_to_dt(row[1]), row[2], row[3]
-        return None
+        return [(ms_to_dt(row[0]), ms_to_dt(row[1]), row[2], row[3]) for row in cursor.fetchall()]
