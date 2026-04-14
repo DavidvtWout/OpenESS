@@ -131,6 +131,15 @@ h2 {
     font-size: 1.1rem;
 }
 
+.chart {
+    width: 100%;
+    height: 300px;
+}
+
+.chart-large {
+    height: 500px;
+}
+
 .chart-container {
     background: var(--bg-secondary);
     border-radius: 8px;
@@ -204,15 +213,6 @@ h2 {
 .btn-toggle.active {
     background: var(--nav-active);
     color: white;
-}
-
-.chart {
-    width: 100%;
-    height: 300px;
-}
-
-.chart-large {
-    height: 500px;
 }
 
 .controls {
@@ -637,4 +637,50 @@ table.dataTable tbody td.dt-empty {
     text-align: center;
     color: var(--text-secondary);
     padding: 2rem;
+}
+
+/* Service status cards */
+.service-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.service-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.status-icon {
+    font-size: 1.5rem;
+}
+
+.status-ok {
+    color: #2ecc71;
+}
+
+.status-warning {
+    color: #f39c12;
+}
+
+.status-error {
+    color: #e74c3c;
+}
+
+.status-unknown {
+    color: var(--text-secondary);
+}
+
+.service-messages {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.service-message {
+    padding: 0.25rem 0;
 }

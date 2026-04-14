@@ -1,52 +1,21 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - OpenESS{% endblock %}
+{% block title %}OpenESS - Dashboard{% endblock %}
 
 {% block content %}
-<h1>Dashboard</h1>
 
-<div class="controls">
-    <label>
-        Time range:
-        <select id="range-select">
-            <option value="24" selected>1 day</option>
-            <option value="48">2 days</option>
-            <option value="168">7 days</option>
-            <option value="720">30 days</option>
-        </select>
-    </label>
-    <div class="range-nav">
-        <button id="range-prev" class="btn-nav" title="Previous period">&lt;</button>
-        <span id="range-label"></span>
-        <button id="range-next" class="btn-nav" title="Next period" disabled>&gt;</button>
+<div class="chart-container">
+    <h2>Power Distribution</h2>
+    <div id="power-flows-graph" class="chart chart-large">
+        <div class="loading">Power flow graph - coming soon</div>
     </div>
 </div>
 
 <div class="chart-container">
-    <div class="chart-header">
-        <h2>Energy</h2>
-        <div class="button-group" id="for-buttons">
-            <button class="btn-toggle active" data-value="multiplus">MultiPlus</button>
-            <button class="btn-toggle" data-value="grid">Grid</button>
-            <button class="btn-toggle" data-value="consumption">Consumption</button>
-        </div>
+    <h2>Services Status</h2>
+    <div class="stats" id="service-stats">
+        <div class="loading">Loading...</div>
     </div>
-    <div id="energy-chart" class="chart"></div>
-</div>
-
-<div class="chart-container">
-    <h2>Power</h2>
-    <div id="power-chart" class="chart"></div>
-</div>
-
-<div class="chart-container">
-    <h2>Prices</h2>
-    <div id="prices-chart" class="chart"></div>
-</div>
-
-<div class="chart-container">
-    <h2>Battery</h2>
-    <div id="soc-chart" class="chart"></div>
 </div>
 {% endblock %}
 

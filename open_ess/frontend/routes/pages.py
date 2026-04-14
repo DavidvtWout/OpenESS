@@ -16,16 +16,10 @@ async def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
-@router.get("/prices", response_class=HTMLResponse)
-async def prices_page(request: Request):
-    """Energy prices page."""
-    return templates.TemplateResponse("prices.html", {"request": request})
-
-
-@router.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request):
-    """Settings page."""
-    return templates.TemplateResponse("settings.html", {"request": request})
+@router.get("/metrics", response_class=HTMLResponse)
+async def metrics_page(request: Request):
+    """Metrics page."""
+    return templates.TemplateResponse("metrics.html", {"request": request})
 
 
 @router.get("/cycles", response_class=HTMLResponse)
@@ -38,3 +32,9 @@ async def cycles_page(request: Request):
 async def debug_page(request: Request):
     """Debug page showing all power and energy flows."""
     return templates.TemplateResponse("debug.html", {"request": request})
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    """Settings page."""
+    return templates.TemplateResponse("settings.html", {"request": request})
