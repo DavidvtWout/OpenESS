@@ -1,4 +1,4 @@
-import type { ServicesStatusResponse, ServiceStatus, Status } from './types';
+import { servicesStatus, ServicesStatusResponse, ServiceStatus, Status } from './types';
 
 document.addEventListener('DOMContentLoaded', () => {
     loadServicesStatus();
@@ -9,11 +9,7 @@ async function loadServicesStatus(): Promise<void> {
     if (!container) return;
 
     try {
-        const response = await fetch('/api/services-status');
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const data: ServicesStatusResponse = await response.json();
+        const data = await servicesStatus();
         renderServicesStatus(container, data);
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
@@ -37,11 +33,11 @@ function renderServicesStatus(container: HTMLElement, data: ServicesStatusRespon
         if (!status) {
             return createServiceCard(service.label, 'unknown', []);
         }
-        return createServiceCard(service.label, status.status, status.messages || []);
+        return createServiceCard(service.label, status.status ?? 'unknown', status.messages ?? []);
     }).join('');
 }
 
-function createServiceCard(label: string, status: Status | 'unknown', messages: ServiceStatus['messages']): string {
+function createServiceCard(label: string, status: Status | 'unknown', messages: NonNullable<ServiceStatus['messages']>): string {
     const statusClass = getStatusClass(status);
     const statusIcon = getStatusIcon(status);
     const statusText = status.charAt(0).toUpperCase() + status.slice(1);
@@ -76,9 +72,9 @@ function getStatusClass(status: Status | 'unknown'): string {
 
 function getStatusIcon(status: Status | 'unknown'): string {
     switch (status) {
-        case 'ok': return '&#10003;';      // checkmark
-        case 'warning': return '&#9888;';   // warning triangle
-        case 'error': return '&#10007;';    // x mark
+        case 'ok': return '&#10003;';
+        case 'warning': return '&#9888;';
+        case 'error': return '&#10007;';
         default: return '?';
     }
 }
