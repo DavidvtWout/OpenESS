@@ -140,21 +140,26 @@ class Optimizer:
         # Get hourly prices for the planning horizon
         now = datetime.now(timezone.utc)
         start_hour = now.replace(minute=0, second=0, microsecond=0)
-        hourly_prices = self._database.get_hourly_prices(self._price_config.area, start_hour - timedelta(weeks=6))
+        prices = self._database.get_prices(
+            self._price_config.area,
+            start=start_hour - timedelta(weeks=6),
+            aggregate_minutes=self._price_config.aggregate_minutes,
+        )
+        print(prices)
 
-        if not hourly_prices:
+        if not prices:
             logger.warning("No price data available")
             return []
 
-        last_entsoe_hour = hourly_prices[-1][0]
-        next_week = predict_next_week(hourly_prices)
-        hourly_prices.extend(next_week)
+        last_entsoe_hour = prices[-1][0]
+        next_week = predict_next_week(prices)
+        prices.extend(next_week)
 
         # Filter out past hours
-        hourly_prices = [(t, p) for t, p in hourly_prices if t >= start_hour]
-        n_hours = len(hourly_prices)
+        prices = [(t, p) for t, p in prices if t >= start_hour]
+        n_hours = len(prices)
 
-        if not hourly_prices:
+        if not prices:
             logger.warning("No future hours to optimize")
             return []
 
@@ -183,7 +188,7 @@ class Optimizer:
         # Sets and parameters
         model.T = pyo.RangeSet(0, n_hours - 1)
         # TODO: add duration var. Or maybe simply use timestamps and calculate the timedelta in the rules?
-        price_dict = {t: hourly_prices[t][1] for t in range(n_hours)}
+        price_dict = {t: prices[t][1] for t in range(n_hours)}
         model.market_price = pyo.Param(model.T, initialize=price_dict)
 
         # Decision variables
@@ -269,7 +274,7 @@ class Optimizer:
         total_cost = 0.0
 
         for t in model.T:
-            hour_start = hourly_prices[t][0]
+            hour_start = prices[t][0]
             if hour_start > last_entsoe_hour:
                 break
 

@@ -60,6 +60,41 @@ function insertGapNulls(timestamps, values, gapThresholdMs) {
 //  Plotly utility functions  //
 //----------------------------//
 
+/*
+The API makes use of a few different structure for storing time series data. The simplest is the TimeSeries. This is
+an object with timestamps and values.
+
+{
+  timestamps: ["2026-04-14T00:00:00Z", "2026-04-14T01:00:00Z"],
+  values: [1.0, 1.5],
+  unit: "kWh",
+  name: "",
+}
+
+A response may contain many TimeSeries.
+
+
+*/
+
+
+/*
+Extend the timeseries to "now". This is useful for energy and SoC timeseries where the last recorded value
+may be some time in the past. This function makes sure the trace in the graph reaches "now" by adding a copy
+of the last entry to the end with now as timestamp.
+*/
+function timeseriesExtendToNow(timeseries) {
+    if (timeseries.timestamps.length > 0 && timeseries.values.length > 0) {
+        const now = new Date();
+        const lastTs = new Date(timeseries.timestamps[timeseries.timestamps.length - 1]);
+        const lastValue = timeseries.values[timeseries.values.length - 1];
+        if (now > lastTs) {
+            timeseries.timestamps.push(now);
+            timeseries.values.push(lastValue);
+        };
+    };
+    return timeseries;
+}
+
 function makeTrace(name, timeseries) {
   return {
     name: name,
@@ -123,6 +158,7 @@ function getDefaultLayout() {
             y: -0.15,
             font: font,
         },
+        hovermode: 'x unified',
         // Only relevant for bar charts
         barmode: 'relative',
         bargap: 0.02,
@@ -164,6 +200,10 @@ function getEnergyGraphUrl(start, end, bucketMinutes) {
 
 function getPowerGraphUrl(start, end, aggregateMinutes) {
     return `/api/power-graph?start=${formatDate(start)}&end=${formatDate(end)}&aggregate_minutes=${aggregateMinutes}`;
+}
+
+function getPriceUrl(start, end) {
+    return `/api/prices?start=${formatDate(start)}&end=${formatDate(end)}`;
 }
 
 function getBatteryGraphUrl(start, end) {

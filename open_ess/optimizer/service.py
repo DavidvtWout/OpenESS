@@ -44,7 +44,7 @@ class OptimizerService(Service):
 
             if schedule:
                 _, _, power, _ = schedule[0]
-                self._victron_service._client.set_ess_setpoint(batt_cfg.name, power)
+                self._victron_service.client.set_ess_setpoint(batt_cfg.name, power)
                 # TODO: support multiple schedules
                 self._db.set_schedule("victron/vebus/228", schedule)
                 logger.debug(f"Updated schedule with {len(schedule)} entries")
@@ -52,6 +52,9 @@ class OptimizerService(Service):
                 logger.warning("Optimizer returned empty schedule")
 
     def wait_until_next(self):
+        """Wait until the start of the next price bracket."""
         now = datetime.now(timezone.utc)
-        next_run = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        next_run = now.replace(
+            minute=now.minute // self._price_config.aggregate_minutes, second=0, microsecond=0
+        ) + timedelta(minutes=self._price_config.aggregate_minutes)
         self.wait_seconds((next_run - now).total_seconds())

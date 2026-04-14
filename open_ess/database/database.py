@@ -374,17 +374,37 @@ class Database:
         self._conn.commit()
         logger.debug(f"Inserted {len(prices)} price records")
 
-    def get_prices(self, area: str, start: datetime, end: datetime) -> list[tuple[datetime, datetime, float]]:
+    def get_prices(
+        self, area: str, start: datetime, end: datetime = None, aggregate_minutes: float = None
+    ) -> list[tuple[datetime, float]]:
+        conditions, params = base_conditions(area, start, end, label_name="area", timestamp_name="start_time")
+
+        if aggregate_minutes is not None:
+            timestamp_column = "bucket"
+            value_column = "avg_value"
+            select_clause = f"(start_time / ?) * ? as {timestamp_column}, AVG(price) as {value_column}"
+            group_by = f"GROUP BY {timestamp_column}"
+            agg_ms = round(aggregate_minutes * 60000)
+            params = [agg_ms, agg_ms] + params
+        else:
+            timestamp_column = "start_time"
+            group_by = ""
+            value_column = "price"
+            select_clause = f"{timestamp_column}, {value_column}"
+
+        where_clause = "WHERE " + " AND ".join(conditions)
         cursor = self._conn.execute(
-            """
-            SELECT start_time, end_time, price
+            f"""
+            SELECT {select_clause}
             FROM day_ahead_prices
-            WHERE area = ? AND start_time >= ? AND start_time < ?
-            ORDER BY start_time
+            {where_clause}
+            {group_by}
+            ORDER BY {timestamp_column}
             """,
-            (area, dt_to_ms(start), dt_to_ms(end)),
+            params,
         )
-        return [(ms_to_dt(row["start_time"]), ms_to_dt(row["end_time"]), row["price"]) for row in cursor.fetchall()]
+        # TODO: store prices in €/kWh instead of €/MWh
+        return [(ms_to_dt(row[timestamp_column]), row[value_column] / 1000) for row in cursor.fetchall()]
 
     def get_hourly_prices(
         self, area: str, start: datetime, end: datetime | None = None

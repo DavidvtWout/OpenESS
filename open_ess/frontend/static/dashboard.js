@@ -337,85 +337,81 @@ async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
 }
 
 // Load prices chart with start/end range (for dashboard alignment)
-async function loadPricesChartRange(elementId, start, end) {
+async function loadPriceChart(elementId, start, end) {
     showLoading(elementId);
 
     // Extend end by 2 days for future prices
     const extendedEnd = new Date(end.getTime() + 2 * 24 * 60 * 60 * 1000);
 
-    const url = `/api/prices?start=${formatDate(start)}&end=${formatDate(extendedEnd)}`;
-    console.log('Fetching prices:', url);
+    const priceUrl = getPriceUrl(start, extendedEnd);
+    console.log('Fetching prices:', priceUrl);
 
     try {
-        const response = await fetch(url);
+        const response = await fetch(priceUrl);
         if (!response.ok) {
             throw new Error(`Failed to fetch prices: ${response.status}`);
         }
 
         const data = await response.json();
-        console.log('Prices data:', data.length, 'points');
 
-        if (data.length === 0) {
+        if (data.timeseries.length === 0) {
             showError(elementId, 'No price data available');
             return;
         }
 
         const settings = loadSettings();
         const priceMultiplier = settings.priceUnit === 'cent' ? 100 : 1;
-        const priceLabel = settings.priceUnit === 'cent' ? 'ct/kWh' : 'EUR/kWh';
+        const priceLabel = settings.priceUnit === 'cent' ? 'ct/kWh' : data.unit;
 
-        const times = data.map(d => new Date(d.time));
-        const marketPrices = data.map(d => d.market_price * priceMultiplier);
-        const buyPrices = data.map(d => d.buy_price * priceMultiplier);
-        const sellPrices = data.map(d => d.sell_price * priceMultiplier);
+        const timestamps = data.timeseries.map(d => new Date(d.time));
+        const marketPrices = data.timeseries.map(d => d.market * priceMultiplier);
+        const buyPrices = data.timeseries.map(d => d.buy * priceMultiplier);
+        const sellPrices = data.timeseries.map(d => d.sell * priceMultiplier);
 
-        // Extend the last price by 1 hour
-        if (times.length > 0) {
-            const lastTime = times[times.length - 1];
-            const extendedTime = new Date(lastTime.getTime() + 60 * 60 * 1000);
-            times.push(extendedTime);
-            marketPrices.push(marketPrices[marketPrices.length - 1]);
-            buyPrices.push(buyPrices[buyPrices.length - 1]);
-            sellPrices.push(sellPrices[sellPrices.length - 1]);
-        }
+        // Extend the last price by 1 time bracket.
+        const lastTime = timestamps[timestamps.length - 1];
+        const extendedTime = new Date(lastTime.getTime() + data.aggregate_minutes * 60 * 1000);
+        timestamps.push(extendedTime);
+        marketPrices.push(marketPrices[marketPrices.length - 1]);
+        buyPrices.push(buyPrices[buyPrices.length - 1]);
+        sellPrices.push(sellPrices[sellPrices.length - 1]);
 
         const now = new Date();
 
         const marketTrace = {
-            x: times,
+            name: 'Market',
+            x: timestamps,
             y: marketPrices,
             type: 'scatter',
             mode: 'lines',
             line: { shape: 'hv', color: '#95a5a6', width: 1 },
-            name: 'Market',
             hovertemplate: `Market: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
 
         const buyTrace = {
-            x: times,
+            name: 'Buy',
+            x: timestamps,
             y: buyPrices,
             type: 'scatter',
             mode: 'lines',
-            line: { shape: 'hv', color: '#e74c3c', width: 2 },
-            opacity: 0.5,
-            name: 'Buy',
+            line: { shape: 'hv', color: '#e74c3c', width: 1.5 },
             hovertemplate: `Buy: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
 
         const sellTrace = {
-            x: times,
+            name: 'Sell',
+            x: timestamps,
             y: sellPrices,
             type: 'scatter',
             mode: 'lines',
-            line: { shape: 'hv', color: '#2ecc71', width: 2 },
-            opacity: 0.5,
-            name: 'Sell',
+            line: { shape: 'hv', color: '#2ecc71', width: 1.5 },
             hovertemplate: `Sell: %{y:.2f} ${priceLabel}<extra></extra>`,
         };
 
         const layout = getDefaultLayout();
         layoutSetXRange(layout, start, end);
-        layoutAddNowLine(layout, start, end)
+        layoutAddNowLine(layout, start, end);
+        layout.yaxis.title = {text: priceLabel}
         makePlot(elementId, [marketTrace, buyTrace, sellTrace], layout);
     } catch (error) {
         console.error('Error loading prices:', error);
@@ -440,23 +436,15 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 1) {
         const traces = [];
 
         for (let [name, battery] of Object.entries(data)) {
-            trace = {
-                ...makeTrace('SoC', battery.soc),
+            traces.push({
+                ...makeTrace('SoC', timeseriesExtendToNow(battery.soc)),
                 ...(multipleSystems && {
                   legendgroup: name,
                   legendgrouptitle: {text: name},
                 }),
                 line: { color: '#3498db', width: 2 },
                 hovertemplate: '%{y}%<extra>SoC</extra>',
-            };
-            // Extend the line to "now" with the last known SoC value
-            const now = new Date();
-            const lastTime = trace.x[trace.x.length - 1];
-            if (now > lastTime) {
-                trace.x.push(now);
-                trace.y.push(trace.y[trace.y.length - 1]);
-            }
-            traces.push(trace);
+            });
             traces.push({
                 ...makeTrace('Scheduled', battery.schedule),
                 ...(multipleSystems && {
@@ -481,7 +469,6 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 1) {
         const layout = getDefaultLayout();
         layoutSetXRange(layout, start, end);
         layoutAddNowLine(layout, start, end)
-        layout.hovermode = 'x unified';
         layout.yaxis.side = 'left';
         layout.yaxis.range = [0, 100];
         layout.yaxis.title = {text: "SoC (%)"}
@@ -492,10 +479,8 @@ async function loadSocChart(elementId, start, end, aggregateMinutes = 1) {
             title: {text: "Voltage (V)"},
         };
         if (multipleSystems) {
-          layout.legend.y = -0.25;
+            layout.legend.y = -0.25;
         };
-
-        // TODO: wait for https://github.com/plotly/plotly.py/issues/5432 to be merged
         makePlot(elementId, traces, layout);
     } catch (error) {
         console.error('Error loading SoC data:', error);
@@ -523,7 +508,7 @@ async function loadDashboard() {
     await Promise.all([
         loadAndCacheEnergyData(dashboardStart, dashboardEnd, bucketMinutes),
         loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes),
-        loadPricesChartRange('prices-chart', dashboardStart, dashboardEnd),
+        loadPriceChart('prices-chart', dashboardStart, dashboardEnd),
         loadSocChart('soc-chart', dashboardStart, dashboardEnd, aggregateMinutes)
     ]);
 

@@ -20,6 +20,10 @@ class VictronService(Service):
         self._battery_configs = battery_configs
         self._client: VictronClient | None = None
 
+    @property
+    def client(self) -> VictronClient:
+        return self._client
+
     def on_start(self):
         db = Database(self._db_config, run_migrations=False)
         self._client = VictronClient(self._config, self._battery_configs, db)

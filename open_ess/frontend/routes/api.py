@@ -32,13 +32,6 @@ def get_batteries() -> dict[str, BatteryConfig]:
     return get_battery_configs()
 
 
-class PricePoint(BaseModel):
-    time: datetime
-    market_price: float
-    buy_price: float
-    sell_price: float
-
-
 class EnergySample(BaseModel):
     time: datetime
     inverter_output_wh: float
@@ -239,30 +232,56 @@ async def get_power_graph(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/prices", response_model=list[PricePoint])
+class PricePoint(BaseModel):
+    time: datetime
+    market: float | None
+    buy: float | None
+    sell: float | None
+
+
+class PricesResponse(BaseModel):
+    area: str
+    aggregate_minutes: int
+    unit: str = "€/kWh"  # TODO: based on area
+    timeseries: list[PricePoint]
+
+
+@router.get("/prices", response_model=PricesResponse)
 async def get_price_data(
+    area: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
+    aggregate_minutes: int | None = Query(default=None),
     db: Database = Depends(get_db),
     price_config: PriceConfig = Depends(get_prices),
 ):
     try:
+        if area is None:
+            area = price_config.area
         now = datetime.now(timezone.utc)
         if start is None:
             start = now - timedelta(days=7)
         if end is None:
             end = now + timedelta(days=2)
+        if aggregate_minutes is None:
+            aggregate_minutes = price_config.aggregate_minutes
 
-        prices = db.get_hourly_prices(price_config.area, start, end)
-        return [
-            PricePoint(
-                time=hour,
-                market_price=price,
-                buy_price=price_config.buy_price(price),
-                sell_price=price_config.sell_price(price),
+        timeseries = []
+        for timestamp, price in db.get_prices(area, start, end, aggregate_minutes=aggregate_minutes):
+            timeseries.append(
+                PricePoint(
+                    time=timestamp,
+                    market=round(price, 4),
+                    buy=round(price_config.buy_price(price), 4),
+                    sell=round(price_config.sell_price(price), 4),
+                )
             )
-            for hour, price in prices
-        ]
+
+        return PricesResponse(
+            area=area,
+            aggregate_minutes=aggregate_minutes,
+            timeseries=timeseries,
+        )
     except Exception as e:
         logger.exception("Failed to get prices")
         raise HTTPException(status_code=500, detail=str(e))
@@ -462,7 +481,7 @@ async def get_battery_cycles(
                 )
             }
             scheduled = {ts: v for ts, _, v, _ in db.get_schedule(battery_config.id, cycle_start)}
-            for ts, v in db.get_hourly_prices("NL", cycle_start, cycle_end):
+            for ts, v in db.get_prices(price_config.area, cycle_start, cycle_end, aggregate_minutes=60):
                 profit -= price_config.buy_price(v) * e_in.get(ts, 0)
                 profit += price_config.sell_price(v) * e_out.get(ts, 0)
                 scheduled_power = scheduled.get(ts, 0)

@@ -27,6 +27,7 @@ class PriceConfig(BaseModel):
     """
 
     area: str
+    hourly_average: bool = True
 
     entsoe_api_key: str | None = None
     entsoe_api_key_file: Path | None = None
@@ -41,6 +42,10 @@ class PriceConfig(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+    @property
+    def aggregate_minutes(self) -> int:
+        return 60 if self.hourly_average else 15
 
     @model_validator(mode="after")
     def resolve_and_validate(self) -> "PriceConfig":
