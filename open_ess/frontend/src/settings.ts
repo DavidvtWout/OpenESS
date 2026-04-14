@@ -77,6 +77,36 @@ export function loadPagePref(page: string, key: string, defaultValue: string): s
 
 function initSettings(): void {
     const settings = loadSettings();
+
+    // Theme
+    const themeSelect = document.getElementById('theme-select');
+    themeSelect.value = settings.theme;
+    themeSelect.addEventListener('change', function() {
+        saveSetting('theme', this.value);
+        applyTheme(this.value);
+    });
+
+    // Price unit
+    const priceUnitSelect = document.getElementById('price-unit-select');
+    priceUnitSelect.value = settings.priceUnit;
+    priceUnitSelect.addEventListener('change', function() {
+        saveSetting('priceUnit', this.value);
+    });
+
+    // Power unit
+    const powerUnitSelect = document.getElementById('power-unit-select');
+    powerUnitSelect.value = settings.powerUnit;
+    powerUnitSelect.addEventListener('change', function() {
+        saveSetting('powerUnit', this.value);
+    });
+
+    // Week start day
+    const weekStartSelect = document.getElementById('week-start-select');
+    weekStartSelect.value = settings.weekStartDay;
+    weekStartSelect.addEventListener('change', function() {
+        saveSetting('weekStartDay', this.value);
+    });
+
     applyTheme(settings.theme);
 }
 

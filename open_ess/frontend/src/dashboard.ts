@@ -1,21 +1,6 @@
 import { servicesStatus, ServicesStatusResponse, ServiceStatus, Status } from './types';
+import { loadSettings, applyTheme } from './settings';
 
-document.addEventListener('DOMContentLoaded', () => {
-    loadServicesStatus();
-});
-
-async function loadServicesStatus(): Promise<void> {
-    const container = document.getElementById('service-stats');
-    if (!container) return;
-
-    try {
-        const data = await servicesStatus();
-        renderServicesStatus(container, data);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        container.innerHTML = `<div class="error">Failed to load services status: ${message}</div>`;
-    }
-}
 
 interface ServiceDefinition {
     key: keyof ServicesStatusResponse;
@@ -78,3 +63,23 @@ function getStatusIcon(status: Status | 'unknown'): string {
         default: return '?';
     }
 }
+
+async function loadServicesStatus(): Promise<void> {
+    const settings = loadSettings();
+    applyTheme(settings.theme);
+
+    const container = document.getElementById('service-stats');
+    if (!container) return;
+
+    try {
+        const data = await servicesStatus();
+        renderServicesStatus(container, data);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        container.innerHTML = `<div class="error">Failed to load services status: ${message}</div>`;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadServicesStatus();
+});

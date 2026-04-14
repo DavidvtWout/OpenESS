@@ -1,5 +1,5 @@
 import { power, energy } from './types';
-import { loadSettings, loadPagePref, savePagePref } from './settings';
+import { loadSettings, loadPagePref, savePagePref, applyTheme } from './settings';
 import {
     formatDate,
     showLoading,
@@ -140,6 +140,9 @@ function loadAllCharts(): void {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    const settings = loadSettings();
+    applyTheme(settings.theme);
+
     getHoursSelect().value = loadPagePref('debug', 'hours', '24');
     getAggregateSelect().value = loadPagePref('debug', 'aggregate', '1');
 

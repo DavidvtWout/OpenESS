@@ -9,7 +9,7 @@ import 'datatables.net-select-dt';
 import 'datatables.net-staterestore-dt';
 
 import { efficiencyScatter, cycles, EfficiencyScatterPoint, BatteryCycle } from './types';
-import { loadSettings, loadPagePref, savePagePref } from './settings';
+import { loadSettings, loadPagePref, savePagePref, applyTheme } from './settings';
 import { formatDate, formatDateTime, formatDuration, formatEnergy, isDarkTheme } from './utils';
 
 // Plotly is loaded globally from vendor
@@ -272,6 +272,9 @@ async function loadCycles(): Promise<void> {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    const settings = loadSettings();
+    applyTheme(settings.theme);
+
     (document.getElementById('scatter-aggregate-select') as HTMLSelectElement).value = loadPagePref('cycles', 'aggregate', '10');
     (document.getElementById('scatter-limit-select') as HTMLSelectElement).value = loadPagePref('cycles', 'limit', '2000');
     (document.getElementById('days-select') as HTMLSelectElement).value = loadPagePref('cycles', 'days', '30');

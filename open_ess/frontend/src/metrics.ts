@@ -5,7 +5,7 @@ import {
     batteryGraph,
     EnergyGraphResponse,
 } from './types';
-import { loadSettings, loadPagePref, savePagePref } from './settings';
+import { loadSettings, loadPagePref, savePagePref, applyTheme } from './settings';
 import {
     formatDate,
     showLoading,
@@ -440,6 +440,9 @@ function renderEnergyOnly(): void {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    const settings = loadSettings();
+    applyTheme(settings.theme);
+
     const savedRange = loadPagePref('dashboard', 'range', '24');
     const savedFoR = loadPagePref('dashboard', 'for', 'multiplus');
 
