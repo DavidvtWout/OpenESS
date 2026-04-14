@@ -5,6 +5,7 @@ in pkgs.mkShell {
   packages = [
     (pkgs.python3.withPackages (_: open-ess.propagatedBuildInputs))
     pkgs.cbc  # MILP solver for the optimizer
+    pkgs.nodejs # For npm
   ];
 
   shellHook = ''
