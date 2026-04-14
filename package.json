@@ -4,11 +4,17 @@
   "scripts": {
     "build": "esbuild open_ess/frontend/src/*.ts --outdir=open_ess/frontend/static --bundle --minify --sourcemap",
     "watch": "esbuild open_ess/frontend/src/*.ts --outdir=open_ess/frontend/static --bundle --sourcemap --watch",
-    "generate-types": "openapi-typescript http://localhost:8000/openapi.json -o open_ess/frontend/src/api-types.ts"
+    "generate-types": "generate-types"
   },
   "devDependencies": {
+    "@types/datatables.net": "^1.10.28",
+    "@types/jquery": "^4.0.0",
     "esbuild": "^0.20.0",
-    "openapi-typescript": "^7.0.0",
     "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "datatables.net": "^2.3.7",
+    "jquery": "^4.0.0",
+    "plotly.js-dist-min": "^3.5.0"
   }
 }
