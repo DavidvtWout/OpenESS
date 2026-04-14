@@ -106,34 +106,32 @@ class Database:
 
     def get_power(
         self,
-        label: str | list[str],
-        start: datetime | None,
-        end: datetime | None,
+        label: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
         bucket_seconds: float | None = 60,
+        limit: int | None = None,
     ) -> list[tuple[datetime, float]]:
         if isinstance(label, list):
             label = label[0]
 
+        conditions, params = base_conditions(label, start, end, timestamp_name="start_time")
+
         if bucket_seconds is not None:
             bucket_ms = round(bucket_seconds * 1000)
-            params: list = [bucket_ms, bucket_ms]
             select_clause = "(start_time / ?) * ? as bucket, AVG(value) as avg_value"
+            params = [bucket_ms, bucket_ms] + params
             group_by = "GROUP BY bucket"
             order_by = "bucket"
         else:
-            params = []
             select_clause = "start_time, value"
             group_by = ""
             order_by = "start_time"
 
-        conditions = ["label = ?"]
-        params.append(label)
-        if start is not None:
-            conditions.append("start_time >= ?")
-            params.append(dt_to_ms(start))
-        if end is not None:
-            conditions.append("start_time < ?")
-            params.append(dt_to_ms(end))
+        limit_clause = ""
+        if limit:
+            limit_clause = "LIMIT ?"
+            params.append(limit)
 
         where_clause = " AND ".join(conditions)
         query = f"""
@@ -142,6 +140,7 @@ class Database:
             WHERE {where_clause}
             {group_by}
             ORDER BY {order_by}
+            {limit_clause}
         """
         cursor = self.conn.execute(query, params)
         return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]

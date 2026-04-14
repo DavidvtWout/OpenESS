@@ -5,7 +5,7 @@ from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from open_ess.database import Database
+from open_ess.database import Database, ms_to_dt
 from open_ess.metrics import BatteryConfig
 from open_ess.pricing import PriceConfig
 from .util import TimeSeries, data_to_timeseries, find_full_battery_cycles
@@ -33,33 +33,12 @@ def get_batteries() -> dict[str, BatteryConfig]:
     return get_battery_configs()
 
 
-class EnergySample(BaseModel):
-    time: datetime
-    inverter_output_wh: float
-    inverter_losses_wh: float
-    charger_input_wh: float
-    charger_losses_wh: float
-    grid_export_wh: float
-    grid_import_wh: float
-    consumption_wh: float
-
-
 class PowerResponse(BaseModel):
     series: dict[str, TimeSeries]
 
 
 class EnergyResponse(BaseModel):
     series: dict[str, TimeSeries]
-
-
-class EfficiencyScatterPoint(BaseModel):
-    time: datetime
-    battery_power: float
-    inverter_charger_power: float
-    losses: float
-    efficiency: float | None
-    soc: int | None
-    category: str
 
 
 class HealthResponse(BaseModel):
@@ -368,6 +347,16 @@ async def get_battery_graph(
 # ---------------#
 
 
+class EfficiencyScatterPoint(BaseModel):
+    time: datetime
+    battery_power: float
+    inverter_charger_power: float
+    losses: float
+    efficiency: float | None
+    soc: int | None
+    category: str
+
+
 @router.get("/efficiency-scatter", response_model=list[EfficiencyScatterPoint])
 async def get_efficiency_scatter(
     limit: int = Query(default=2000),
@@ -376,47 +365,46 @@ async def get_efficiency_scatter(
     balancing_threshold: int = Query(default=100),
     db: Database = Depends(get_db),
 ):
-    """Get efficiency scatter data for battery power vs inverter/charger power."""
     try:
-        # TODO
+        ac_in = db.get_power("victron/vebus/228/power/ac_in/l1", bucket_seconds=aggregate_minutes * 60, limit=limit)
+        ac_out = db.get_power("victron/vebus/228/power/ac_out/l1", bucket_seconds=aggregate_minutes * 60, limit=limit)
+        dc = db.get_power("victron/vebus/228/power/battery", bucket_seconds=aggregate_minutes * 60, limit=limit)
+        # dc = db.get_power("victron/battery/225/power/battery", bucket_seconds=aggregate_minutes * 60, limit=limit)
 
-        # data = power_flow.get_efficiency_scatter_data(
-        #     db.conn, multiplus_id, battery_id, pool_id, aggregate_minutes * 60, limit
-        # )
+        data = {ts: [v_in - v_out, None] for (ts, v_in), (_, v_out) in zip(ac_in, ac_out)}
+        for ts, v in dc:
+            if ts in data:
+                data[ts][1] = v
 
         points = []
-        # for d in data:
-        #     battery_power = d["battery_power"]
-        #     inverter_charger_power = d["inverter_charger_power"]
-        #     battery_soc = d["battery_soc"]
-        #
-        #     if abs(battery_power) < idle_threshold:
-        #         category = "idling"
-        #     elif battery_power > 0 and battery_soc == 100 and abs(inverter_charger_power) < balancing_threshold:
-        #         category = "balancing"
-        #     elif battery_power > 0:
-        #         category = "charging"
-        #     else:
-        #         category = "discharging"
-        #
-        #     losses = inverter_charger_power - battery_power
-        #     efficiency = None
-        #     if category == "charging" and inverter_charger_power > 0:
-        #         efficiency = (battery_power / inverter_charger_power) * 100
-        #     elif category == "discharging" and battery_power < 0:
-        #         efficiency = (inverter_charger_power / battery_power) * 100
-        #
-        #     points.append(
-        #         EfficiencyScatterPoint(
-        #             time=ms_to_dt(d["bucket"]),
-        #             battery_power=round(abs(battery_power), 1),
-        #             inverter_charger_power=round(inverter_charger_power, 1),
-        #             losses=round(losses, 1),
-        #             efficiency=round(efficiency, 1) if efficiency is not None else None,
-        #             soc=battery_soc,
-        #             category=category,
-        #         )
-        #     )
+        for ts, (ac, dc) in data.items():
+            if abs(dc) < idle_threshold:
+                category = "idling"
+            # elif dc > 0 and soc == 100 and abs(ac) < balancing_threshold:
+            #     category = "balancing"
+            elif dc > 0:
+                category = "charging"
+            else:
+                category = "discharging"
+
+            losses = ac - dc
+            efficiency = None
+            if category == "charging" and ac > 0:
+                efficiency = (dc / ac) * 100
+            elif category == "discharging" and dc < 0:
+                efficiency = (ac / dc) * 100
+
+            points.append(
+                EfficiencyScatterPoint(
+                    time=ts,
+                    battery_power=round(abs(dc), 1),
+                    inverter_charger_power=round(ac, 1),
+                    losses=round(losses, 1),
+                    efficiency=round(efficiency, 1) if efficiency is not None else None,
+                    soc=None,
+                    category=category,
+                )
+            )
 
         return points
     except Exception as e:

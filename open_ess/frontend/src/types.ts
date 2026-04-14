@@ -81,17 +81,6 @@ export interface EnergyResponse {
     series?: Record<string, TimeSeries>;
 }
 
-export interface EnergySample {
-    time?: string;
-    inverter_output_wh?: number;
-    inverter_losses_wh?: number;
-    charger_input_wh?: number;
-    charger_losses_wh?: number;
-    grid_export_wh?: number;
-    grid_import_wh?: number;
-    consumption_wh?: number;
-}
-
 export interface HealthResponse {
     status?: string;
     database?: string;
