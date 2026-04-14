@@ -1,5 +1,12 @@
 import $ from 'jquery';
-import DataTable from 'datatables.net';
+import DataTable from 'datatables.net-dt';
+import 'datatables.net-buttons-dt';
+import 'datatables.net-buttons/js/buttons.colVis.mjs';
+import 'datatables.net-buttons/js/buttons.html5.mjs';
+import 'datatables.net-colreorder-dt';
+import 'datatables.net-columncontrol-dt';
+import 'datatables.net-select-dt';
+import 'datatables.net-staterestore-dt';
 
 import { efficiencyScatter, cycles, EfficiencyScatterPoint, BatteryCycle } from './types';
 import { loadSettings, loadPagePref, savePagePref } from './settings';
