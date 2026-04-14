@@ -171,7 +171,7 @@ def upgrade(conn) -> None:
         CREATE TABLE _battery_soc (
             label_id INTEGER NOT NULL,
             timestamp INTEGER NOT NULL,
-            value INTEGER NOT NULL,
+            value REAL NOT NULL,
             PRIMARY KEY (label_id, timestamp),
             FOREIGN KEY (label_id) REFERENCES labels(label_id)
         )

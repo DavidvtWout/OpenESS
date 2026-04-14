@@ -463,7 +463,7 @@ async def get_battery_cycles(
             end = now
 
         battery_soc = db.get_battery_soc(battery_config.metrics.battery_soc, start, end)
-        raw_cycles = find_full_battery_cycles(battery_soc, min_soc_swing=min_soc_swing)
+        raw_cycles = find_full_battery_cycles(battery_soc, full_threshold=90, min_soc_swing=min_soc_swing)
 
         cycles = []
         for cycle_start, cycle_end, min_soc in raw_cycles:
