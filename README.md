@@ -4,7 +4,7 @@ An open-source battery charge/discharge scheduler that optimizes based on day-ah
 
 > **WARNING: Use at your own risk.** This software controls battery charging and discharging. Incorrect configuration or bugs could damage your equipment, void warranties, or cause safety hazards. The author accept no liability for any damages. Make sure you understand what you're doing before using this software.
 
-**Early Development:** OpenESS is a work in progress. It is usable but currently only supports a single MultiPlus/battery system. Multi-system support is planned for the future. Breaking changes such as database changes without proper migration may still happen in the near future.
+**Early Development:** OpenESS is a work in progress. The config file structure is still expected to change.
 
 ## Why OpenESS?
 
@@ -34,7 +34,7 @@ cd OpenESS
 python -m venv venv
 source venv/bin/activate
 
-# Install
+# Install OpenEss and its dependencies into the venv environment
 pip install -e .
 ```
 
@@ -46,22 +46,18 @@ Copy the example configuration and edit it:
 cp config.example.yaml config.yaml
 ```
 
-See [docs/settings.md](docs/settings.md) for a complete reference of all configuration options.
+See [docs/getting-started.md](docs/getting-started.md) for a reference of the steps to take to create a complete config file.
 
 ## Usage
 
 ```bash
-# Run the scheduler (fetches prices, optimizes, controls battery)
 open-ess --config config.yaml
-
-# Run the web dashboard
-open-ess-web --config config.yaml
 ```
 
 ## Planned Features
 
-- **Multi-system support** - Multiple batteries/inverters
 - **MQTT integration** - Subscribe to external metrics and publish control commands to non-Victron battery systems
+- **Improved system flexibility** - Multi-battery setups do work but only if each multiplus is connected to exactly one battery. One battery on multiple inverter/chargers or multiple batteries on a single invertere/charger may also be supported in the future.
 
 ## Screenshot
 
