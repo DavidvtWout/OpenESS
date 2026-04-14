@@ -4,11 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}OpenESS{% endblock %}</title>
-    <script src="/static/settings.js"></script>
-    <script src="/static/utils.js"></script>
     <script src="/static/vendor/plotly-3.4.0.min.js" charset="utf-8"></script>
-    <script src="/static/vendor/jquery-3.7.1.min.js"></script>
-    <script src="/static/vendor/datatables.min.js"></script>
     <link rel="stylesheet" href="/static/vendor/datatables.min.css">
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -17,7 +13,7 @@
         <div class="nav-brand">OpenESS</div>
         <ul class="nav-links">
             <li><a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a></li>
-            <li><a href="/prices" class="{% if request.url.path == '/prices' %}active{% endif %}">Prices</a></li>
+            <li><a href="/metrics" class="{% if request.url.path == '/metrics' %}active{% endif %}">Metrics</a></li>
             <li><a href="/cycles" class="{% if request.url.path == '/cycles' %}active{% endif %}">Cycles</a></li>
             <li><a href="/debug" class="{% if request.url.path == '/debug' %}active{% endif %}">Debug</a></li>
         </ul>

@@ -2,9 +2,10 @@
 
 let open-ess = pkgs.python3.pkgs.callPackage ./default.nix { };
 in pkgs.mkShell {
-  packages = [
-    (pkgs.python3.withPackages (_: open-ess.propagatedBuildInputs))
-    pkgs.cbc  # MILP solver for the optimizer
+  packages = with pkgs; [
+    (python3.withPackages (_: open-ess.propagatedBuildInputs))
+    cbc  # MILP solver for the optimizer
+    esbuild
   ];
 
   shellHook = ''

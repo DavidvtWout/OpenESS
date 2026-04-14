@@ -8,6 +8,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["open_ess*"]
 
+[tool.setuptools.package-data]
+open_ess = ["*.js", "*.html", "*.css"]
+
+[tool.black]
+line-length = 120
+
 
 [project]
 name = "open-ess"
@@ -32,6 +38,4 @@ dev = ["black", "pre-commit"]
 
 [project.scripts]
 open-ess = "open_ess.main:main"
-
-[tool.black]
-line-length = 120
+generate-types = "open_ess.scripts.generate_types:main"

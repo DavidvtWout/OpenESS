@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -74,6 +75,40 @@ async def health_check(db: Database = Depends(get_db)):
         cursor = db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = [row["name"] for row in cursor.fetchall()]
         return HealthResponse(status="ok", database="connected", tables=tables)
+    except Exception as e:
+        logger.exception("Health check failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class Status(str, Enum):
+    OK = "ok"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class ServiceMessage(BaseModel):
+    timestamp: datetime
+    status: Status
+    message: str
+
+
+class ServiceStatus(BaseModel):
+    status: Status
+    messages: list[ServiceMessage]
+
+
+class ServicesStatusResponse(BaseModel):
+    database: ServiceStatus | None
+    optimizer: ServiceStatus | None
+
+
+@router.get("/services-status", response_model=ServicesStatusResponse)
+async def services_status(db: Database = Depends(get_db)):
+    try:
+        return ServicesStatusResponse(
+            database=ServiceStatus(status=Status.OK, messages=[]),
+            optimizer=ServiceStatus(status=Status.OK, messages=[]),
+        )
     except Exception as e:
         logger.exception("Health check failed")
         raise HTTPException(status_code=500, detail=str(e))
