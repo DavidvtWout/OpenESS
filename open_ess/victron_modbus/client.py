@@ -90,6 +90,9 @@ class VictronClient:
 
         now = datetime.now(tz=timezone.utc)
         for mp_config in self._mp_configs.values():
+            if mp_config.battery_config.monitor_only:
+                continue
+
             with self._lock:
                 if mp_config.setpoint_expiration is None or now >= mp_config.setpoint_expiration:
                     mp_config.setpoint = None
