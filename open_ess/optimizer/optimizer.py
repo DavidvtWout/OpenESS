@@ -117,24 +117,16 @@ class Optimizer:
         model = pyo.ConcreteModel()
 
         model_length = len(timestamps)
-        model.current_soc = pyo.Param(initialize=current_soc)
         model.T = pyo.RangeSet(0, model_length - 1)
 
         # Market price param
         price_dict = {t: prices[t][1] for t in range(model_length)}
         model.market_price = pyo.Param(model.T, initialize=price_dict)
 
-        # Duration param.
-        durations = [(ts - prices[i][0]).total_seconds() for i, (ts, _) in enumerate(prices[1:])]
-        durations.append(self._price_config.aggregate_minutes * 60)
-        durations[0] = (timestamps[1] - now).total_seconds()
-        model.duration = pyo.Param(model.T, initialize=durations)
-
         # Decision variables
         model.charge_power = pyo.Var(model.T, bounds=(0, self._battery_config.max_charge_power_kw))
         model.discharge_power = pyo.Var(model.T, bounds=(0, self._battery_config.max_invert_power_kw))
         model.soc = pyo.Var(model.T, bounds=(self._battery_config.min_soc, self._battery_config.max_soc))
-        model.soc[0].fix(current_soc)
 
         # Auxiliary variables for piecewise linear losses
         max_charger_loss = charger_loss_vals[-1]
@@ -162,11 +154,42 @@ class Optimizer:
             pw_repn="SOS2",
         )
 
-        model.soc_balance = pyo.Constraint(model.T, rule=self._soc_balance_rule)
+        # SOC dynamics constraint
+        def soc_balance_rule(model, t):
+            if t == 0:
+                prev_soc = current_soc
+            else:
+                prev_soc = model.soc[t - 1]
+
+            # Energy into battery = charge_power - charger_loss
+            # Energy out of battery = discharge_power + inverter_loss
+            net_energy = (
+                ((model.charge_power[t] - model.charger_loss[t]) - (model.discharge_power[t] + model.inverter_loss[t]))
+                * self._price_config.aggregate_minutes
+                / 60
+            )
+            soc_change = 100 * net_energy / self._battery_config.capacity_kwh
+            return model.soc[t] == prev_soc + soc_change
+
+        model.soc_balance = pyo.Constraint(model.T, rule=soc_balance_rule)
         model.final_soc = pyo.Constraint(expr=model.soc[model_length - 1] == current_soc)
         # ^ Final SoC should equal starting SOC (energy neutral over horizon)
 
-        model.cost = pyo.Objective(rule=self._objective_rule, sense=pyo.minimize)
+        # Objective: minimize cost (buy cost - sell revenue)
+        def objective_rule(model):
+            total = 0
+            for t in model.T:
+                price = model.market_price[t]
+                # Cost to charge (grid power = charge + charger_loss)
+                grid_charge = model.charge_power[t] + model.charger_loss[t]
+                buy_cost = grid_charge * self._price_config.buy_price(price)
+                # Revenue from discharge (grid power = discharge - inverter_loss...
+                # but inverter_loss is drawn from battery, so grid gets discharge_power)
+                sell_revenue = model.discharge_power[t] * self._price_config.sell_price(price)
+                total += (buy_cost - sell_revenue) * self._price_config.aggregate_minutes / 60
+            return total
+
+        model.cost = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
         # Solve
         logger.info(f"Starting MILP solver with {model_length} time periods.")
