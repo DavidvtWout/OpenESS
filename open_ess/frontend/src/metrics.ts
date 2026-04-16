@@ -50,25 +50,12 @@ function getBucketMinutes(hours: number): number {
 }
 
 function getTimeRange(hours: number, offset = 0): { start: Date; end: Date } {
-    const now = new Date();
-
-    if (hours === 24) {
-        const start = new Date(now);
-        start.setHours(0, 0, 0, 0);
-        start.setDate(start.getDate() - offset);
-        const end = new Date(start);
-        end.setDate(end.getDate() + 1);
-        return { start, end };
-    } else {
-        const periodMs = hours * 60 * 60 * 1000;
-        const end = new Date(now.getTime() - offset * periodMs);
-        const start = new Date(end.getTime() - periodMs);
-        start.setHours(0, 0, 0, 0);
-        if (offset === 0) {
-            return { start, end: now };
-        }
-        return { start, end };
-    }
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    end.setDate(end.getDate() + 1 - offset)
+    const start = new Date(end);
+    start.setDate(start.getDate() - hours / 24)
+    return { start, end };
 }
 
 function updateRangeLabel(): void {
