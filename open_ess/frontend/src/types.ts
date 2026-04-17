@@ -57,6 +57,11 @@ export interface BatteryGraphResponse {
     voltage?: TimeSeries;
 }
 
+export interface BatterySystemInfo {
+    id?: string;
+    name?: string;
+}
+
 export interface EfficiencyScatterPoint {
     time?: string;
     battery_power?: number;
@@ -85,6 +90,13 @@ export interface HealthResponse {
     status?: string;
     database?: string;
     tables?: Array<string>;
+}
+
+export interface PowerFlowData {
+    grid?: Record<string, number>;
+    solar?: number | null;
+    consumption?: Record<string, number>;
+    batteries?: Record<string, number>;
 }
 
 export interface PowerResponse {
@@ -128,6 +140,12 @@ export interface ServiceStatus {
 export interface ServicesStatusResponse {
     database?: ServiceStatus | null;
     optimizer?: ServiceStatus | null;
+}
+
+export interface SystemLayout {
+    phases?: Array<number>;
+    has_solar?: boolean;
+    battery_systems?: Array<BatterySystemInfo>;
 }
 
 export interface TimeSeries {
@@ -255,6 +273,20 @@ export async function energy(params: { start?: string | null; end?: string | nul
     if (params.end !== undefined) searchParams.set('end', String(params.end));
     const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
     const response = await fetch(`/api/energy${query}`);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();}
+
+export async function systemLayout(): Promise<SystemLayout> {
+    const response = await fetch(`/api/system-layout`);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();}
+
+export async function powerFlow(): Promise<PowerFlowData> {
+    const response = await fetch(`/api/power-flow`);
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
     }
