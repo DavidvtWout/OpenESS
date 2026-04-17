@@ -1,37 +1,5 @@
-import { servicesStatus, ServicesStatusResponse, ServiceStatus, Status } from './types';
+import { servicesStatus, ServicesStatusResponse, ServiceStatus, Status, SystemLayoutData, systemLayout, powerFlow, PowerFlowData, BatterySystemInfo } from './types';
 import { loadSettings, applyTheme } from './settings';
-
-// Power Flow Types
-interface BatterySystemInfo {
-    id: string;
-    name: string;
-}
-
-interface SystemLayout {
-    phases: number[];
-    has_solar: boolean;
-    battery_systems: BatterySystemInfo[];
-}
-
-interface PowerFlowData {
-    grid: Record<string, number>;
-    solar: number | null;
-    consumption: Record<string, number>;
-    batteries: Record<string, number>;
-}
-
-// API Functions
-async function systemLayout(): Promise<SystemLayout> {
-    const response = await fetch('/api/system-layout');
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
-}
-
-async function powerFlow(): Promise<PowerFlowData> {
-    const response = await fetch('/api/power-flow');
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
-}
 
 // Power Flow Rendering
 function formatPower(watts: number): string {
@@ -42,7 +10,7 @@ function formatPower(watts: number): string {
     return `${Math.round(watts)} W`;
 }
 
-function renderPowerFlowDiagram(container: HTMLElement, layout: SystemLayout): void {
+function renderPowerFlowDiagram(container: HTMLElement, layout: SystemLayoutData): void {
     const batteryCount = layout.battery_systems.length;
 
     // Build the HTML structure
@@ -117,7 +85,7 @@ function renderPowerFlowDiagram(container: HTMLElement, layout: SystemLayout): v
     requestAnimationFrame(() => drawConnectingLines(layout));
 }
 
-function drawConnectingLines(layout: SystemLayout): void {
+function drawConnectingLines(layout: SystemLayoutData): void {
     const svg = document.getElementById('power-flow-svg');
     if (!svg) return;
 
@@ -181,7 +149,7 @@ function drawConnectingLines(layout: SystemLayout): void {
     svg.innerHTML = paths;
 }
 
-function updatePowerFlowData(layout: SystemLayout, data: PowerFlowData): void {
+function updatePowerFlowData(layout: SystemLayoutData, data: PowerFlowData): void {
     // Update grid values
     let gridTotal = 0;
     for (const phase of layout.phases) {
@@ -232,7 +200,7 @@ function updatePowerFlowData(layout: SystemLayout, data: PowerFlowData): void {
     updateFlowLines(layout, data);
 }
 
-function updateFlowLines(layout: SystemLayout, data: PowerFlowData): void {
+function updateFlowLines(layout: SystemLayoutData, data: PowerFlowData): void {
     // Grid line
     const gridTotal = Object.values(data.grid).reduce((a, b) => a + b, 0);
     const gridLine = document.getElementById('line-grid');
@@ -331,7 +299,7 @@ function getStatusIcon(status: Status | 'unknown'): string {
 }
 
 // Main initialization
-let currentLayout: SystemLayout | null = null;
+let currentLayout: SystemLayoutData | null = null;
 let pollInterval: number | null = null;
 
 async function loadPowerFlow(): Promise<void> {

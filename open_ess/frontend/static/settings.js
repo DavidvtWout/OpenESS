@@ -1,1 +1,86 @@
-"use strict";(()=>{var g={theme:"dark",priceUnit:"eur",powerUnit:"w",weekStartDay:1};function s(t){let e=`; ${document.cookie}`.split(`; ${t}=`);return e.length===2?e.pop()?.split(";").shift()??null:null}function u(t,n){let e=new Date;e.setFullYear(e.getFullYear()+10),document.cookie=`${t}=${n}; expires=${e.toUTCString()}; path=/; SameSite=Lax`}function c(){let t={...g},n=s("theme");n&&(t.theme=n);let e=s("priceUnit");e&&(t.priceUnit=e);let i=s("powerUnit");i&&(t.powerUnit=i);let r=s("weekStartDay");return r!==null&&(t.weekStartDay=parseInt(r,10)),t}function o(t,n){u(t,n)}function a(t){document.documentElement.setAttribute("data-theme",t)}function p(){return c().priceUnit==="cent"?100:1}function d(){return c().priceUnit==="cent"?"ct/kWh":"EUR/kWh"}function m(t,n,e){u(`${t}_${n}`,e)}function h(t,n,e){let i=s(`${t}_${n}`);return i!==null?i:e}function l(){let t=c(),n=document.getElementById("theme-select");n.value=t.theme,n.addEventListener("change",function(){o("theme",this.value),a(this.value)});let e=document.getElementById("price-unit-select");e.value=t.priceUnit,e.addEventListener("change",function(){o("priceUnit",this.value)});let i=document.getElementById("power-unit-select");i.value=t.powerUnit,i.addEventListener("change",function(){o("powerUnit",this.value)});let r=document.getElementById("week-start-select");r.value=t.weekStartDay,r.addEventListener("change",function(){o("weekStartDay",this.value)}),a(t.theme)}document.addEventListener("DOMContentLoaded",l);document.readyState!=="loading"&&l();})();
+"use strict";
+(() => {
+  // open_ess/frontend/src/settings.ts
+  var defaultSettings = {
+    theme: "dark",
+    priceUnit: "eur",
+    powerUnit: "w",
+    weekStartDay: 1
+  };
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) {
+      const val = parts.pop()?.split(";").shift();
+      return val ?? null;
+    }
+    return null;
+  }
+  function setCookie(name, value) {
+    const expires = /* @__PURE__ */ new Date();
+    expires.setFullYear(expires.getFullYear() + 10);
+    document.cookie = `${name}=${value}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+  }
+  function loadSettings() {
+    const settings = { ...defaultSettings };
+    const theme = getCookie("theme");
+    if (theme) settings.theme = theme;
+    const priceUnit = getCookie("priceUnit");
+    if (priceUnit) settings.priceUnit = priceUnit;
+    const powerUnit = getCookie("powerUnit");
+    if (powerUnit) settings.powerUnit = powerUnit;
+    const weekStartDay = getCookie("weekStartDay");
+    if (weekStartDay !== null) settings.weekStartDay = parseInt(weekStartDay, 10);
+    return settings;
+  }
+  function saveSetting(name, value) {
+    setCookie(name, value);
+  }
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+  function getPriceMultiplier() {
+    const settings = loadSettings();
+    return settings.priceUnit === "cent" ? 100 : 1;
+  }
+  function getPriceUnitLabel() {
+    const settings = loadSettings();
+    return settings.priceUnit === "cent" ? "ct/kWh" : "EUR/kWh";
+  }
+  function savePagePref(page, key, value) {
+    setCookie(`${page}_${key}`, value);
+  }
+  function loadPagePref(page, key, defaultValue) {
+    const value = getCookie(`${page}_${key}`);
+    return value !== null ? value : defaultValue;
+  }
+  function initSettings() {
+    const settings = loadSettings();
+    const themeSelect = document.getElementById("theme-select");
+    themeSelect.value = settings.theme;
+    themeSelect.addEventListener("change", function() {
+      saveSetting("theme", this.value);
+      applyTheme(this.value);
+    });
+    const priceUnitSelect = document.getElementById("price-unit-select");
+    priceUnitSelect.value = settings.priceUnit;
+    priceUnitSelect.addEventListener("change", function() {
+      saveSetting("priceUnit", this.value);
+    });
+    const powerUnitSelect = document.getElementById("power-unit-select");
+    powerUnitSelect.value = settings.powerUnit;
+    powerUnitSelect.addEventListener("change", function() {
+      saveSetting("powerUnit", this.value);
+    });
+    const weekStartSelect = document.getElementById("week-start-select");
+    weekStartSelect.value = settings.weekStartDay;
+    weekStartSelect.addEventListener("change", function() {
+      saveSetting("weekStartDay", this.value);
+    });
+    applyTheme(settings.theme);
+  }
+  document.addEventListener("DOMContentLoaded", initSettings);
+  if (document.readyState !== "loading") {
+    initSettings();
+  }
+})();

@@ -602,7 +602,7 @@ class BatterySystemInfo(BaseModel):
     name: str
 
 
-class SystemLayout(BaseModel):
+class SystemLayoutData(BaseModel):
     phases: list[int]
     has_solar: bool
     battery_systems: list[BatterySystemInfo]
@@ -615,14 +615,14 @@ class PowerFlowData(BaseModel):
     batteries: dict[str, float]  # e.g. {"bat1": -500, "bat2": 200} positive=charging
 
 
-@router.get("/system-layout", response_model=SystemLayout)
+@router.get("/system-layout", response_model=SystemLayoutData)
 async def get_system_layout():
     """Returns the system layout for the power flow dashboard.
 
     This is a stub endpoint - actual implementation will discover battery systems
     from the database and configuration.
     """
-    return SystemLayout(
+    return SystemLayoutData(
         phases=[1, 2, 3],
         has_solar=True,
         battery_systems=[

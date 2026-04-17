@@ -1,1 +1,624 @@
-"use strict";(()=>{async function H(e){let t=new URLSearchParams;e.battery_id!==void 0&&t.set("battery_id",String(e.battery_id)),e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end)),e.bucket_minutes!==void 0&&t.set("bucket_minutes",String(e.bucket_minutes));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/energy-graph${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function I(e){let t=new URLSearchParams;e.battery_id!==void 0&&t.set("battery_id",String(e.battery_id)),e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end)),e.aggregate_minutes!==void 0&&t.set("aggregate_minutes",String(e.aggregate_minutes));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/power-graph${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function F(e){let t=new URLSearchParams;e.area!==void 0&&t.set("area",String(e.area)),e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end)),e.aggregate_minutes!==void 0&&t.set("aggregate_minutes",String(e.aggregate_minutes));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/prices${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function G(e){let t=new URLSearchParams;e.battery_id!==void 0&&t.set("battery_id",String(e.battery_id)),e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/battery-graph${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}var W={theme:"dark",priceUnit:"eur",powerUnit:"w",weekStartDay:1};function E(e){let n=`; ${document.cookie}`.split(`; ${e}=`);return n.length===2?n.pop()?.split(";").shift()??null:null}function j(e,t){let n=new Date;n.setFullYear(n.getFullYear()+10),document.cookie=`${e}=${t}; expires=${n.toUTCString()}; path=/; SameSite=Lax`}function y(){let e={...W},t=E("theme");t&&(e.theme=t);let n=E("priceUnit");n&&(e.priceUnit=n);let r=E("powerUnit");r&&(e.powerUnit=r);let o=E("weekStartDay");return o!==null&&(e.weekStartDay=parseInt(o,10)),e}function T(e,t){j(e,t)}function L(e){document.documentElement.setAttribute("data-theme",e)}function A(e,t,n){j(`${e}_${t}`,n)}function U(e,t,n){let r=E(`${e}_${t}`);return r!==null?r:n}function q(){let e=y(),t=document.getElementById("theme-select");t.value=e.theme,t.addEventListener("change",function(){T("theme",this.value),L(this.value)});let n=document.getElementById("price-unit-select");n.value=e.priceUnit,n.addEventListener("change",function(){T("priceUnit",this.value)});let r=document.getElementById("power-unit-select");r.value=e.powerUnit,r.addEventListener("change",function(){T("powerUnit",this.value)});let o=document.getElementById("week-start-select");o.value=e.weekStartDay,o.addEventListener("change",function(){T("weekStartDay",this.value)}),L(e.theme)}document.addEventListener("DOMContentLoaded",q);document.readyState!=="loading"&&q();function z(){return y().theme==="dark"}function f(e){return e.toISOString()}function O(e){let t=e.timestamps??[],n=e.values??[];if(t.length>0&&n.length>0){let r=new Date,o=new Date(t[t.length-1]),a=n[n.length-1];if(r>o)return{timestamps:[...t,r.toISOString()],values:[...n,a]}}return e}function R(e,t){return{name:e,x:(t.timestamps??[]).map(n=>new Date(n)),y:t.values??[],type:"scatter",mode:"lines"}}var X={responsive:!0,displayModeBar:!1};function $(e){let t=document.getElementById(e);t&&(t.innerHTML='<div class="loading">Loading...</div>')}function D(e,t){let n=document.getElementById(e);n&&(n.innerHTML=`<div class="error">${t}</div>`)}function w(e,t,n,r=X){let o=document.getElementById(e);o&&(o.innerHTML="",Plotly.newPlot(e,t,n,r))}function S(){let e=z(),t={family:'-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',color:e?"#e4e4e4":"#333333"};return{margin:{t:30,r:60,b:50,l:60},paper_bgcolor:"transparent",plot_bgcolor:"transparent",font:t,hoverlabel:{bgcolor:e?"#2a2a4a":"#ffffff",bordercolor:e?"#4a4a6a":"#cccccc",font:t},xaxis:{gridcolor:e?"#2a2a4a":"#eeeeee",linecolor:e?"#3a3a5a":"#dddddd"},yaxis:{gridcolor:e?"#2a2a4a":"#eeeeee",linecolor:e?"#3a3a5a":"#dddddd",zeroline:!0,zerolinecolor:e?"#4a4a6a":"#cccccc"},legend:{orientation:"h",y:-.15,font:t},hovermode:"x unified",barmode:"relative",bargap:.02}}function _(e,t,n){e.xaxis&&(e.xaxis.range=[t,n])}function P(e,t,n,r="#e74c3c"){e.shapes=Y(t,n,null,r)}function Y(e,t,n=null,r="#e74c3c"){let o=n?n.getTime():new Date().getTime(),a=e.getTime(),i=t.getTime();return o>=a&&o<i?[{type:"line",x0:o,y0:0,x1:o,y1:1,yref:"paper",line:{color:r,width:2,dash:"dash"}}]:[]}var d=null,m=null,k="multiplus",h=null,Z=60,v=0,C=!1,V=["soc-chart","power-chart","energy-chart","prices-chart"];function J(e){return e<=48?1:e<=168?5:15}function Q(e){return e<=48?60:e<=168?120:e<=768?360:1440}function ee(e,t=0){let n=new Date;n.setHours(0,0,0,0),n.setDate(n.getDate()+1-t);let r=new Date(n);return r.setDate(r.getDate()-e/24),{start:r,end:n}}function te(){let e=parseInt(document.getElementById("range-select").value),t=document.getElementById("range-label"),n=document.getElementById("range-next");if(n.disabled=v<=-1,d&&m&&t){let r={month:"short",day:"numeric"},o=d.toLocaleDateString(void 0,r),a=m.toLocaleDateString(void 0,r);o===a||e===24?t.textContent=o:t.textContent=`${o} - ${a}`}}function ne(){V.forEach(e=>{let t=document.getElementById(e);!t||!t.on||t.on("plotly_relayout",n=>{if(C)return;let r=n["xaxis.range[0]"]!==void 0?[n["xaxis.range[0]"],n["xaxis.range[1]"]]:n["xaxis.range"];r&&(C=!0,V.forEach(o=>{if(o!==e){let a=document.getElementById(o);a&&a.data&&Plotly.relayout(a,{"xaxis.range[0]":r[0],"xaxis.range[1]":r[1]})}}),setTimeout(()=>{C=!1},100))})})}function re(e,t,n,r){let i=y().powerUnit==="kw"?s=>s?s/1e3:0:s=>s??0,l=(t.timestamps??[]).map(s=>new Date(s)),u=[{x:l,y:(t.grid_export?.["From MP"]??[]).map(s=>i(s)),type:"bar",name:"From MP",marker:{color:"#278e60"},textposition:"none"},{x:l,y:(t.grid_import?.Consumption??[]).map(s=>-i(s)),type:"bar",name:"Consumption",marker:{color:"#3498db"},textposition:"none"},{x:l,y:(t.grid_import?.["To MP"]??[]).map(s=>-i(s)),type:"bar",name:"To MP",marker:{color:"#3498ab"},textposition:"none"}],g=S();_(g,n,r),P(g,n,r),w(e,u,g)}function oe(e,t,n,r){let i=y().powerUnit==="kw"?c=>c?c/1e3:0:c=>c??0,l=(t.timestamps??[]).map(c=>new Date(c)),u=t.battery_systems?.MultiPlus,g=[{x:l,y:(u?.energy_from_inverter??[]).map(c=>i(c)),type:"bar",name:"Inverter Output",marker:{color:"#f39c12"},textposition:"none"},{x:l,y:(u?.energy_to_charger??[]).map(c=>-i(c)),type:"bar",name:"Charger Input",marker:{color:"#3498db"},textposition:"none"}],s=S();_(s,n,r),P(s,n,r),w(e,g,s)}function K(e,t,n,r,o="multiplus"){o==="grid"?re(e,t,n,r):oe(e,t,n,r)}async function ie(e,t,n,r=5){$(e);try{let o=await I({start:f(t),end:f(n),aggregate_minutes:r}),l=y().powerUnit==="kw"?"kW":"W",u=[],g=Object.keys(o.series??{}).sort();for(let c of g){let b=o.series[c];!b.timestamps||!b.values||u.push({x:b.timestamps.map(B=>new Date(B)),y:b.values,type:"scatter",mode:"lines",name:c,line:{width:1.5},connectgaps:!1,hovertemplate:`%{y:.1f} ${l}<extra>${c}</extra>`})}let s=S();_(s,t,n),P(s,t,n),w(e,u,s)}catch(o){console.error("Error loading power data:",o),D(e,"Failed to load power data")}}async function se(e,t,n){$(e);let r=new Date(n.getTime()+2*24*60*60*1e3);try{let o=await F({start:f(t),end:f(r)});if(!o.timeseries||o.timeseries.length===0){D(e,"No price data available");return}let a=y(),i=a.priceUnit==="cent"?100:1,l=a.priceUnit==="cent"?"ct/kWh":o.unit??"\u20AC/kWh",u=o.timeseries.map(p=>new Date(p.time)),g=o.timeseries.map(p=>(p.market??0)*i),s=o.timeseries.map(p=>(p.buy??0)*i),c=o.timeseries.map(p=>(p.sell??0)*i),b=u[u.length-1],B=new Date(b.getTime()+(o.aggregate_minutes??60)*60*1e3);u.push(B),g.push(g[g.length-1]),s.push(s[s.length-1]),c.push(c[c.length-1]);let N=[{name:"Market",x:u,y:g,type:"scatter",mode:"lines",line:{shape:"hv",color:"#95a5a6",width:1},hovertemplate:`Market: %{y:.2f} ${l}<extra></extra>`},{name:"Buy",x:u,y:s,type:"scatter",mode:"lines",line:{shape:"hv",color:"#e74c3c",width:1.5},hovertemplate:`Buy: %{y:.2f} ${l}<extra></extra>`},{name:"Sell",x:u,y:c,type:"scatter",mode:"lines",line:{shape:"hv",color:"#2ecc71",width:1.5},hovertemplate:`Sell: %{y:.2f} ${l}<extra></extra>`}],x=S();_(x,t,n),P(x,t,n),x.yaxis=x.yaxis??{},x.yaxis.title={text:l},w(e,N,x)}catch(o){console.error("Error loading prices:",o),D(e,"Failed to load prices")}}async function ae(e,t,n){$(e);try{let r=await G({start:f(t),end:f(n)}),o=Object.keys(r).length>1,a=[];for(let[l,u]of Object.entries(r))a.push({...R("SoC",O(u.soc??{timestamps:[],values:[]})),...o&&{legendgroup:l,legendgrouptitle:{text:l}},line:{color:"#3498db",width:2},hovertemplate:"%{y}%<extra>SoC</extra>"}),a.push({...R("Scheduled",u.schedule??{timestamps:[],values:[]}),...o&&{legendgroup:l,legendgrouptitle:{text:l}},line:{color:"#2ecc71",width:2,dash:"dot"},hovertemplate:"%{y}%<extra>Scheduled</extra>"}),a.push({...R("Voltage",u.voltage??{timestamps:[],values:[]}),...o&&{legendgroup:l,legendgrouptitle:{text:l}},line:{color:"#ff7171",width:2},hovertemplate:"%{y}V<extra>Voltage</extra>",yaxis:"y2"});let i=S();_(i,t,n),P(i,t,n),i.yaxis=i.yaxis??{},i.yaxis.side="left",i.yaxis.range=[0,100],i.yaxis.title={text:"SoC (%)"},i.yaxis2={overlaying:"y",side:"right",gridcolor:"transparent",title:{text:"Voltage (V)"}},o&&i.legend&&(i.legend.y=-.25),w(e,a,i)}catch(r){console.error("Error loading SoC data:",r),D(e,"Failed to load SoC data")}}async function le(e,t,n){try{h=await H({start:f(e),end:f(t),bucket_minutes:n})}catch(r){console.error("Error fetching energy data:",r),h=null}}async function M(){let e=parseInt(document.getElementById("range-select").value),t=J(e),n=Q(e),r=ee(e,v);d=r.start,m=r.end,te(),h=null,Z=n,await Promise.all([le(d,m,n),ie("power-chart",d,m,t),se("prices-chart",d,m),ae("soc-chart",d,m)]),h&&K("energy-chart",h,d,m,k),ne()}function ce(){d&&m&&h&&K("energy-chart",h,d,m,k)}document.addEventListener("DOMContentLoaded",()=>{let e=y();L(e.theme);let t=U("dashboard","range","24"),n=U("dashboard","for","multiplus");document.getElementById("range-select").value=t,k=n,document.querySelectorAll("#for-buttons .btn-toggle").forEach(r=>{r.classList.toggle("active",r.dataset.value===n)}),document.getElementById("range-select").addEventListener("change",r=>{A("dashboard","range",r.target.value),v=0,M()}),document.getElementById("range-prev").addEventListener("click",()=>{v++,M()}),document.getElementById("range-next").addEventListener("click",()=>{v>-1&&(v--,M())}),document.querySelectorAll("#for-buttons .btn-toggle").forEach(r=>{r.addEventListener("click",()=>{document.querySelectorAll("#for-buttons .btn-toggle").forEach(o=>o.classList.remove("active")),r.classList.add("active"),k=r.dataset.value??"multiplus",A("dashboard","for",k),ce()})}),M()});})();
+"use strict";
+(() => {
+  // open_ess/frontend/src/types.ts
+  async function energyGraph(params) {
+    const searchParams = new URLSearchParams();
+    if (params.battery_id !== void 0) searchParams.set("battery_id", String(params.battery_id));
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    if (params.bucket_minutes !== void 0) searchParams.set("bucket_minutes", String(params.bucket_minutes));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/energy-graph${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function powerGraph(params) {
+    const searchParams = new URLSearchParams();
+    if (params.battery_id !== void 0) searchParams.set("battery_id", String(params.battery_id));
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    if (params.aggregate_minutes !== void 0) searchParams.set("aggregate_minutes", String(params.aggregate_minutes));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/power-graph${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function prices(params) {
+    const searchParams = new URLSearchParams();
+    if (params.area !== void 0) searchParams.set("area", String(params.area));
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    if (params.aggregate_minutes !== void 0) searchParams.set("aggregate_minutes", String(params.aggregate_minutes));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/prices${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function batteryGraph(params) {
+    const searchParams = new URLSearchParams();
+    if (params.battery_id !== void 0) searchParams.set("battery_id", String(params.battery_id));
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/battery-graph${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  // open_ess/frontend/src/settings.ts
+  var defaultSettings = {
+    theme: "dark",
+    priceUnit: "eur",
+    powerUnit: "w",
+    weekStartDay: 1
+  };
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) {
+      const val = parts.pop()?.split(";").shift();
+      return val ?? null;
+    }
+    return null;
+  }
+  function setCookie(name, value) {
+    const expires = /* @__PURE__ */ new Date();
+    expires.setFullYear(expires.getFullYear() + 10);
+    document.cookie = `${name}=${value}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+  }
+  function loadSettings() {
+    const settings = { ...defaultSettings };
+    const theme = getCookie("theme");
+    if (theme) settings.theme = theme;
+    const priceUnit = getCookie("priceUnit");
+    if (priceUnit) settings.priceUnit = priceUnit;
+    const powerUnit = getCookie("powerUnit");
+    if (powerUnit) settings.powerUnit = powerUnit;
+    const weekStartDay = getCookie("weekStartDay");
+    if (weekStartDay !== null) settings.weekStartDay = parseInt(weekStartDay, 10);
+    return settings;
+  }
+  function saveSetting(name, value) {
+    setCookie(name, value);
+  }
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+  function savePagePref(page, key, value) {
+    setCookie(`${page}_${key}`, value);
+  }
+  function loadPagePref(page, key, defaultValue) {
+    const value = getCookie(`${page}_${key}`);
+    return value !== null ? value : defaultValue;
+  }
+  function initSettings() {
+    const settings = loadSettings();
+    const themeSelect = document.getElementById("theme-select");
+    themeSelect.value = settings.theme;
+    themeSelect.addEventListener("change", function() {
+      saveSetting("theme", this.value);
+      applyTheme(this.value);
+    });
+    const priceUnitSelect = document.getElementById("price-unit-select");
+    priceUnitSelect.value = settings.priceUnit;
+    priceUnitSelect.addEventListener("change", function() {
+      saveSetting("priceUnit", this.value);
+    });
+    const powerUnitSelect = document.getElementById("power-unit-select");
+    powerUnitSelect.value = settings.powerUnit;
+    powerUnitSelect.addEventListener("change", function() {
+      saveSetting("powerUnit", this.value);
+    });
+    const weekStartSelect = document.getElementById("week-start-select");
+    weekStartSelect.value = settings.weekStartDay;
+    weekStartSelect.addEventListener("change", function() {
+      saveSetting("weekStartDay", this.value);
+    });
+    applyTheme(settings.theme);
+  }
+  document.addEventListener("DOMContentLoaded", initSettings);
+  if (document.readyState !== "loading") {
+    initSettings();
+  }
+
+  // open_ess/frontend/src/utils.ts
+  function isDarkTheme() {
+    const settings = loadSettings();
+    return settings.theme === "dark";
+  }
+  function formatDate(date) {
+    return date.toISOString();
+  }
+  function timeseriesExtendToNow(timeseries) {
+    const timestamps = timeseries.timestamps ?? [];
+    const values = timeseries.values ?? [];
+    if (timestamps.length > 0 && values.length > 0) {
+      const now = /* @__PURE__ */ new Date();
+      const lastTs = new Date(timestamps[timestamps.length - 1]);
+      const lastValue = values[values.length - 1];
+      if (now > lastTs) {
+        return {
+          timestamps: [...timestamps, now.toISOString()],
+          values: [...values, lastValue]
+        };
+      }
+    }
+    return timeseries;
+  }
+  function makeTrace(name, timeseries) {
+    return {
+      name,
+      x: (timeseries.timestamps ?? []).map((t) => new Date(t)),
+      y: timeseries.values ?? [],
+      type: "scatter",
+      mode: "lines"
+    };
+  }
+  var defaultConfig = {
+    responsive: true,
+    displayModeBar: false
+  };
+  function showLoading(elementId) {
+    const el = document.getElementById(elementId);
+    if (el) el.innerHTML = '<div class="loading">Loading...</div>';
+  }
+  function showError(elementId, message) {
+    const el = document.getElementById(elementId);
+    if (el) el.innerHTML = `<div class="error">${message}</div>`;
+  }
+  function makePlot(elementId, traces, layout, config = defaultConfig) {
+    const el = document.getElementById(elementId);
+    if (el) {
+      el.innerHTML = "";
+      Plotly.newPlot(elementId, traces, layout, config);
+    }
+  }
+  function getDefaultLayout() {
+    const isDark = isDarkTheme();
+    const font = {
+      family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      color: isDark ? "#e4e4e4" : "#333333"
+    };
+    return {
+      margin: { t: 30, r: 60, b: 50, l: 60 },
+      paper_bgcolor: "transparent",
+      plot_bgcolor: "transparent",
+      font,
+      hoverlabel: {
+        bgcolor: isDark ? "#2a2a4a" : "#ffffff",
+        bordercolor: isDark ? "#4a4a6a" : "#cccccc",
+        font
+      },
+      xaxis: {
+        gridcolor: isDark ? "#2a2a4a" : "#eeeeee",
+        linecolor: isDark ? "#3a3a5a" : "#dddddd"
+      },
+      yaxis: {
+        gridcolor: isDark ? "#2a2a4a" : "#eeeeee",
+        linecolor: isDark ? "#3a3a5a" : "#dddddd",
+        zeroline: true,
+        zerolinecolor: isDark ? "#4a4a6a" : "#cccccc"
+      },
+      legend: {
+        orientation: "h",
+        y: -0.15,
+        font
+      },
+      hovermode: "x unified",
+      barmode: "relative",
+      bargap: 0.02
+    };
+  }
+  function layoutSetXRange(layout, start, end) {
+    if (layout.xaxis) {
+      layout.xaxis.range = [start, end];
+    }
+  }
+  function layoutAddNowLine(layout, start, end, color = "#e74c3c") {
+    layout.shapes = getNowLineShape(start, end, null, color);
+  }
+  function getNowLineShape(start, end, now = null, color = "#e74c3c") {
+    const nowTime = now ? now.getTime() : (/* @__PURE__ */ new Date()).getTime();
+    const startTime = start.getTime();
+    const endTime = end.getTime();
+    if (nowTime >= startTime && nowTime < endTime) {
+      return [{
+        type: "line",
+        x0: nowTime,
+        y0: 0,
+        x1: nowTime,
+        y1: 1,
+        yref: "paper",
+        line: { color, width: 2, dash: "dash" }
+      }];
+    }
+    return [];
+  }
+
+  // open_ess/frontend/src/metrics.ts
+  var dashboardStart = null;
+  var dashboardEnd = null;
+  var currentFoR = "multiplus";
+  var cachedEnergyData = null;
+  var cachedBucketMinutes = 60;
+  var rangeOffset = 0;
+  var isRelayoutInProgress = false;
+  var chartIds = ["soc-chart", "power-chart", "energy-chart", "prices-chart"];
+  function getAggregateMinutes(hours) {
+    if (hours <= 48) return 1;
+    if (hours <= 168) return 5;
+    return 15;
+  }
+  function getBucketMinutes(hours) {
+    if (hours <= 48) return 60;
+    if (hours <= 168) return 120;
+    if (hours <= 768) return 360;
+    return 1440;
+  }
+  function getTimeRange(hours, offset = 0) {
+    const end = /* @__PURE__ */ new Date();
+    end.setHours(0, 0, 0, 0);
+    end.setDate(end.getDate() + 1 - offset);
+    const start = new Date(end);
+    start.setDate(start.getDate() - hours / 24);
+    return { start, end };
+  }
+  function updateRangeLabel() {
+    const hours = parseInt(document.getElementById("range-select").value);
+    const labelEl = document.getElementById("range-label");
+    const nextBtn = document.getElementById("range-next");
+    nextBtn.disabled = rangeOffset <= -1;
+    if (dashboardStart && dashboardEnd && labelEl) {
+      const opts = { month: "short", day: "numeric" };
+      const startStr = dashboardStart.toLocaleDateString(void 0, opts);
+      const endStr = dashboardEnd.toLocaleDateString(void 0, opts);
+      if (startStr === endStr || hours === 24) {
+        labelEl.textContent = startStr;
+      } else {
+        labelEl.textContent = `${startStr} - ${endStr}`;
+      }
+    }
+  }
+  function setupZoomSync() {
+    chartIds.forEach((chartId) => {
+      const chartEl = document.getElementById(chartId);
+      if (!chartEl || !chartEl.on) return;
+      chartEl.on("plotly_relayout", (eventData) => {
+        if (isRelayoutInProgress) return;
+        const xRange = eventData["xaxis.range[0]"] !== void 0 ? [eventData["xaxis.range[0]"], eventData["xaxis.range[1]"]] : eventData["xaxis.range"];
+        if (!xRange) return;
+        isRelayoutInProgress = true;
+        chartIds.forEach((otherId) => {
+          if (otherId !== chartId) {
+            const otherEl = document.getElementById(otherId);
+            if (otherEl && otherEl.data) {
+              Plotly.relayout(otherEl, {
+                "xaxis.range[0]": xRange[0],
+                "xaxis.range[1]": xRange[1]
+              });
+            }
+          }
+        });
+        setTimeout(() => {
+          isRelayoutInProgress = false;
+        }, 100);
+      });
+    });
+  }
+  function renderGridEnergyChart(elementId, data, start, end) {
+    const settings = loadSettings();
+    const useKw = settings.powerUnit === "kw";
+    const toDisplay = useKw ? (wh) => wh ? wh / 1e3 : 0 : (wh) => wh ?? 0;
+    const timestamps = (data.timestamps ?? []).map((t) => new Date(t));
+    const traces = [
+      {
+        x: timestamps,
+        y: (data.grid_export?.["From MP"] ?? []).map((v) => toDisplay(v)),
+        type: "bar",
+        name: "From MP",
+        marker: { color: "#278e60" },
+        textposition: "none"
+      },
+      {
+        x: timestamps,
+        y: (data.grid_import?.["Consumption"] ?? []).map((v) => -toDisplay(v)),
+        type: "bar",
+        name: "Consumption",
+        marker: { color: "#3498db" },
+        textposition: "none"
+      },
+      {
+        x: timestamps,
+        y: (data.grid_import?.["To MP"] ?? []).map((v) => -toDisplay(v)),
+        type: "bar",
+        name: "To MP",
+        marker: { color: "#3498ab" },
+        textposition: "none"
+      }
+    ];
+    const layout = getDefaultLayout();
+    layoutSetXRange(layout, start, end);
+    layoutAddNowLine(layout, start, end);
+    makePlot(elementId, traces, layout);
+  }
+  function renderBatteryEnergyChart(elementId, data, start, end) {
+    const settings = loadSettings();
+    const useKw = settings.powerUnit === "kw";
+    const toDisplay = useKw ? (wh) => wh ? wh / 1e3 : 0 : (wh) => wh ?? 0;
+    const timestamps = (data.timestamps ?? []).map((t) => new Date(t));
+    const mpData = data.battery_systems?.["MultiPlus"];
+    const traces = [
+      {
+        x: timestamps,
+        y: (mpData?.energy_from_inverter ?? []).map((v) => toDisplay(v)),
+        type: "bar",
+        name: "Inverter Output",
+        marker: { color: "#f39c12" },
+        textposition: "none"
+      },
+      {
+        x: timestamps,
+        y: (mpData?.energy_to_charger ?? []).map((v) => -toDisplay(v)),
+        type: "bar",
+        name: "Charger Input",
+        marker: { color: "#3498db" },
+        textposition: "none"
+      }
+    ];
+    const layout = getDefaultLayout();
+    layoutSetXRange(layout, start, end);
+    layoutAddNowLine(layout, start, end);
+    makePlot(elementId, traces, layout);
+  }
+  function renderEnergyFlowChart(elementId, data, start, end, frameOfReference = "multiplus") {
+    if (frameOfReference === "grid") {
+      renderGridEnergyChart(elementId, data, start, end);
+    } else {
+      renderBatteryEnergyChart(elementId, data, start, end);
+    }
+  }
+  async function loadPowerChart(elementId, start, end, aggregateMinutes = 5) {
+    showLoading(elementId);
+    try {
+      const data = await powerGraph({
+        start: formatDate(start),
+        end: formatDate(end),
+        aggregate_minutes: aggregateMinutes
+      });
+      const settings = loadSettings();
+      const useKw = settings.powerUnit === "kw";
+      const unit = useKw ? "kW" : "W";
+      const traces = [];
+      const sortedKeys = Object.keys(data.series ?? {}).sort();
+      for (const key of sortedKeys) {
+        const series = data.series[key];
+        if (!series.timestamps || !series.values) continue;
+        traces.push({
+          x: series.timestamps.map((t) => new Date(t)),
+          y: series.values,
+          type: "scatter",
+          mode: "lines",
+          name: key,
+          line: { width: 1.5 },
+          connectgaps: false,
+          hovertemplate: `%{y:.1f} ${unit}<extra>${key}</extra>`
+        });
+      }
+      const layout = getDefaultLayout();
+      layoutSetXRange(layout, start, end);
+      layoutAddNowLine(layout, start, end);
+      makePlot(elementId, traces, layout);
+    } catch (error) {
+      console.error("Error loading power data:", error);
+      showError(elementId, "Failed to load power data");
+    }
+  }
+  async function loadPriceChart(elementId, start, end) {
+    showLoading(elementId);
+    const extendedEnd = new Date(end.getTime() + 2 * 24 * 60 * 60 * 1e3);
+    try {
+      const data = await prices({
+        start: formatDate(start),
+        end: formatDate(extendedEnd)
+      });
+      if (!data.timeseries || data.timeseries.length === 0) {
+        showError(elementId, "No price data available");
+        return;
+      }
+      const settings = loadSettings();
+      const priceMultiplier = settings.priceUnit === "cent" ? 100 : 1;
+      const priceLabel = settings.priceUnit === "cent" ? "ct/kWh" : data.unit ?? "\u20AC/kWh";
+      const timestamps = data.timeseries.map((d) => new Date(d.time));
+      const marketPrices = data.timeseries.map((d) => (d.market ?? 0) * priceMultiplier);
+      const buyPrices = data.timeseries.map((d) => (d.buy ?? 0) * priceMultiplier);
+      const sellPrices = data.timeseries.map((d) => (d.sell ?? 0) * priceMultiplier);
+      const lastTime = timestamps[timestamps.length - 1];
+      const extendedTime = new Date(lastTime.getTime() + (data.aggregate_minutes ?? 60) * 60 * 1e3);
+      timestamps.push(extendedTime);
+      marketPrices.push(marketPrices[marketPrices.length - 1]);
+      buyPrices.push(buyPrices[buyPrices.length - 1]);
+      sellPrices.push(sellPrices[sellPrices.length - 1]);
+      const traces = [
+        {
+          name: "Market",
+          x: timestamps,
+          y: marketPrices,
+          type: "scatter",
+          mode: "lines",
+          line: { shape: "hv", color: "#95a5a6", width: 1 },
+          hovertemplate: `Market: %{y:.2f} ${priceLabel}<extra></extra>`
+        },
+        {
+          name: "Buy",
+          x: timestamps,
+          y: buyPrices,
+          type: "scatter",
+          mode: "lines",
+          line: { shape: "hv", color: "#e74c3c", width: 1.5 },
+          hovertemplate: `Buy: %{y:.2f} ${priceLabel}<extra></extra>`
+        },
+        {
+          name: "Sell",
+          x: timestamps,
+          y: sellPrices,
+          type: "scatter",
+          mode: "lines",
+          line: { shape: "hv", color: "#2ecc71", width: 1.5 },
+          hovertemplate: `Sell: %{y:.2f} ${priceLabel}<extra></extra>`
+        }
+      ];
+      const layout = getDefaultLayout();
+      layoutSetXRange(layout, start, end);
+      layoutAddNowLine(layout, start, end);
+      layout.yaxis = layout.yaxis ?? {};
+      layout.yaxis.title = { text: priceLabel };
+      makePlot(elementId, traces, layout);
+    } catch (error) {
+      console.error("Error loading prices:", error);
+      showError(elementId, "Failed to load prices");
+    }
+  }
+  async function loadSocChart(elementId, start, end) {
+    showLoading(elementId);
+    try {
+      const data = await batteryGraph({
+        start: formatDate(start),
+        end: formatDate(end)
+      });
+      const multipleSystems = Object.keys(data).length > 1;
+      const traces = [];
+      for (const [name, battery] of Object.entries(data)) {
+        traces.push({
+          ...makeTrace("SoC", timeseriesExtendToNow(battery.soc ?? { timestamps: [], values: [] })),
+          ...multipleSystems && {
+            legendgroup: name,
+            legendgrouptitle: { text: name }
+          },
+          line: { color: "#3498db", width: 2 },
+          hovertemplate: "%{y}%<extra>SoC</extra>"
+        });
+        traces.push({
+          ...makeTrace("Scheduled", battery.schedule ?? { timestamps: [], values: [] }),
+          ...multipleSystems && {
+            legendgroup: name,
+            legendgrouptitle: { text: name }
+          },
+          line: { color: "#2ecc71", width: 2, dash: "dot" },
+          hovertemplate: "%{y}%<extra>Scheduled</extra>"
+        });
+        traces.push({
+          ...makeTrace("Voltage", battery.voltage ?? { timestamps: [], values: [] }),
+          ...multipleSystems && {
+            legendgroup: name,
+            legendgrouptitle: { text: name }
+          },
+          line: { color: "#ff7171", width: 2 },
+          hovertemplate: "%{y}V<extra>Voltage</extra>",
+          yaxis: "y2"
+        });
+      }
+      const layout = getDefaultLayout();
+      layoutSetXRange(layout, start, end);
+      layoutAddNowLine(layout, start, end);
+      layout.yaxis = layout.yaxis ?? {};
+      layout.yaxis.side = "left";
+      layout.yaxis.range = [0, 100];
+      layout.yaxis.title = { text: "SoC (%)" };
+      layout.yaxis2 = {
+        overlaying: "y",
+        side: "right",
+        gridcolor: "transparent",
+        title: { text: "Voltage (V)" }
+      };
+      if (multipleSystems && layout.legend) {
+        layout.legend.y = -0.25;
+      }
+      makePlot(elementId, traces, layout);
+    } catch (error) {
+      console.error("Error loading SoC data:", error);
+      showError(elementId, "Failed to load SoC data");
+    }
+  }
+  async function loadAndCacheEnergyData(start, end, bucketMinutes) {
+    try {
+      cachedEnergyData = await energyGraph({
+        start: formatDate(start),
+        end: formatDate(end),
+        bucket_minutes: bucketMinutes
+      });
+    } catch (error) {
+      console.error("Error fetching energy data:", error);
+      cachedEnergyData = null;
+    }
+  }
+  async function loadDashboard() {
+    const hours = parseInt(document.getElementById("range-select").value);
+    const aggregateMinutes = getAggregateMinutes(hours);
+    const bucketMinutes = getBucketMinutes(hours);
+    const range = getTimeRange(hours, rangeOffset);
+    dashboardStart = range.start;
+    dashboardEnd = range.end;
+    updateRangeLabel();
+    cachedEnergyData = null;
+    cachedBucketMinutes = bucketMinutes;
+    await Promise.all([
+      loadAndCacheEnergyData(dashboardStart, dashboardEnd, bucketMinutes),
+      loadPowerChart("power-chart", dashboardStart, dashboardEnd, aggregateMinutes),
+      loadPriceChart("prices-chart", dashboardStart, dashboardEnd),
+      loadSocChart("soc-chart", dashboardStart, dashboardEnd)
+    ]);
+    if (cachedEnergyData) {
+      renderEnergyFlowChart("energy-chart", cachedEnergyData, dashboardStart, dashboardEnd, currentFoR);
+    }
+    setupZoomSync();
+  }
+  function renderEnergyOnly() {
+    if (dashboardStart && dashboardEnd && cachedEnergyData) {
+      renderEnergyFlowChart("energy-chart", cachedEnergyData, dashboardStart, dashboardEnd, currentFoR);
+    }
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    const settings = loadSettings();
+    applyTheme(settings.theme);
+    const savedRange = loadPagePref("dashboard", "range", "24");
+    const savedFoR = loadPagePref("dashboard", "for", "multiplus");
+    document.getElementById("range-select").value = savedRange;
+    currentFoR = savedFoR;
+    document.querySelectorAll("#for-buttons .btn-toggle").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.value === savedFoR);
+    });
+    document.getElementById("range-select").addEventListener("change", (e) => {
+      savePagePref("dashboard", "range", e.target.value);
+      rangeOffset = 0;
+      loadDashboard();
+    });
+    document.getElementById("range-prev").addEventListener("click", () => {
+      rangeOffset++;
+      loadDashboard();
+    });
+    document.getElementById("range-next").addEventListener("click", () => {
+      if (rangeOffset > -1) {
+        rangeOffset--;
+        loadDashboard();
+      }
+    });
+    document.querySelectorAll("#for-buttons .btn-toggle").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#for-buttons .btn-toggle").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentFoR = btn.dataset.value ?? "multiplus";
+        savePagePref("dashboard", "for", currentFoR);
+        renderEnergyOnly();
+      });
+    });
+    loadDashboard();
+  });
+})();

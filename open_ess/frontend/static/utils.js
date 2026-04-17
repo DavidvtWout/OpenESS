@@ -1,1 +1,221 @@
-"use strict";(()=>{var d={theme:"dark",priceUnit:"eur",powerUnit:"w",weekStartDay:1};function a(t){let n=`; ${document.cookie}`.split(`; ${t}=`);return n.length===2?n.pop()?.split(";").shift()??null:null}function m(t,e){let n=new Date;n.setFullYear(n.getFullYear()+10),document.cookie=`${t}=${e}; expires=${n.toUTCString()}; path=/; SameSite=Lax`}function s(){let t={...d},e=a("theme");e&&(t.theme=e);let n=a("priceUnit");n&&(t.priceUnit=n);let o=a("powerUnit");o&&(t.powerUnit=o);let r=a("weekStartDay");return r!==null&&(t.weekStartDay=parseInt(r,10)),t}function l(t,e){m(t,e)}function g(t){document.documentElement.setAttribute("data-theme",t)}function u(){let t=s(),e=document.getElementById("theme-select");e.value=t.theme,e.addEventListener("change",function(){l("theme",this.value),g(this.value)});let n=document.getElementById("price-unit-select");n.value=t.priceUnit,n.addEventListener("change",function(){l("priceUnit",this.value)});let o=document.getElementById("power-unit-select");o.value=t.powerUnit,o.addEventListener("change",function(){l("powerUnit",this.value)});let r=document.getElementById("week-start-select");r.value=t.weekStartDay,r.addEventListener("change",function(){l("weekStartDay",this.value)}),g(t.theme)}document.addEventListener("DOMContentLoaded",u);document.readyState!=="loading"&&u();function p(){return s().theme==="dark"}function v(t){return t.toISOString()}function b(t){return t==null?"-":t+" kWh"}function D(t){let e=new Date(t);return e.toLocaleDateString()+" "+e.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}function S(t){if(t<1)return Math.round(t*60)+" min";if(t<24){let e=Math.floor(t),n=Math.round((t-e)*60);return e+"h "+n+"m"}else{let e=Math.floor(t/24),n=Math.round(t%24);return e+"d "+n+"h"}}function w(t,e,n){if(t.length===0)return{timestamps:[],values:[]};let o=[t[0]],r=[e[0]];for(let i=1;i<t.length;i++)t[i].getTime()-t[i-1].getTime()>n&&(o.push(new Date(t[i-1].getTime()+1)),r.push(null)),o.push(t[i]),r.push(e[i]);return{timestamps:o,values:r}}function P(t){let e=t.timestamps??[],n=t.values??[];if(e.length>0&&n.length>0){let o=new Date,r=new Date(e[e.length-1]),i=n[n.length-1];if(o>r)return{timestamps:[...e,o.toISOString()],values:[...n,i]}}return t}function T(t,e){return{name:t,x:(e.timestamps??[]).map(n=>new Date(n)),y:e.values??[],type:"scatter",mode:"lines"}}var f={responsive:!0,displayModeBar:!1};function k(t){let e=document.getElementById(t);e&&(e.innerHTML='<div class="loading">Loading...</div>')}function L(t,e){let n=document.getElementById(t);n&&(n.innerHTML=`<div class="error">${e}</div>`)}function U(t,e,n,o=f){let r=document.getElementById(t);r&&(r.innerHTML="",Plotly.newPlot(t,e,n,o))}function E(){let t=p(),e={family:'-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',color:t?"#e4e4e4":"#333333"};return{margin:{t:30,r:60,b:50,l:60},paper_bgcolor:"transparent",plot_bgcolor:"transparent",font:e,hoverlabel:{bgcolor:t?"#2a2a4a":"#ffffff",bordercolor:t?"#4a4a6a":"#cccccc",font:e},xaxis:{gridcolor:t?"#2a2a4a":"#eeeeee",linecolor:t?"#3a3a5a":"#dddddd"},yaxis:{gridcolor:t?"#2a2a4a":"#eeeeee",linecolor:t?"#3a3a5a":"#dddddd",zeroline:!0,zerolinecolor:t?"#4a4a6a":"#cccccc"},legend:{orientation:"h",y:-.15,font:e},hovermode:"x unified",barmode:"relative",bargap:.02}}function M(t,e,n){t.xaxis&&(t.xaxis.range=[e,n])}function I(t,e,n,o="#e74c3c"){t.shapes=y(e,n,null,o)}function y(t,e,n=null,o="#e74c3c"){let r=n?n.getTime():new Date().getTime(),i=t.getTime(),c=e.getTime();return r>=i&&r<c?[{type:"line",x0:r,y0:0,x1:r,y1:1,yref:"paper",line:{color:o,width:2,dash:"dash"}}]:[]}})();
+"use strict";
+(() => {
+  // open_ess/frontend/src/settings.ts
+  var defaultSettings = {
+    theme: "dark",
+    priceUnit: "eur",
+    powerUnit: "w",
+    weekStartDay: 1
+  };
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) {
+      const val = parts.pop()?.split(";").shift();
+      return val ?? null;
+    }
+    return null;
+  }
+  function setCookie(name, value) {
+    const expires = /* @__PURE__ */ new Date();
+    expires.setFullYear(expires.getFullYear() + 10);
+    document.cookie = `${name}=${value}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+  }
+  function loadSettings() {
+    const settings = { ...defaultSettings };
+    const theme = getCookie("theme");
+    if (theme) settings.theme = theme;
+    const priceUnit = getCookie("priceUnit");
+    if (priceUnit) settings.priceUnit = priceUnit;
+    const powerUnit = getCookie("powerUnit");
+    if (powerUnit) settings.powerUnit = powerUnit;
+    const weekStartDay = getCookie("weekStartDay");
+    if (weekStartDay !== null) settings.weekStartDay = parseInt(weekStartDay, 10);
+    return settings;
+  }
+  function saveSetting(name, value) {
+    setCookie(name, value);
+  }
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+  function initSettings() {
+    const settings = loadSettings();
+    const themeSelect = document.getElementById("theme-select");
+    themeSelect.value = settings.theme;
+    themeSelect.addEventListener("change", function() {
+      saveSetting("theme", this.value);
+      applyTheme(this.value);
+    });
+    const priceUnitSelect = document.getElementById("price-unit-select");
+    priceUnitSelect.value = settings.priceUnit;
+    priceUnitSelect.addEventListener("change", function() {
+      saveSetting("priceUnit", this.value);
+    });
+    const powerUnitSelect = document.getElementById("power-unit-select");
+    powerUnitSelect.value = settings.powerUnit;
+    powerUnitSelect.addEventListener("change", function() {
+      saveSetting("powerUnit", this.value);
+    });
+    const weekStartSelect = document.getElementById("week-start-select");
+    weekStartSelect.value = settings.weekStartDay;
+    weekStartSelect.addEventListener("change", function() {
+      saveSetting("weekStartDay", this.value);
+    });
+    applyTheme(settings.theme);
+  }
+  document.addEventListener("DOMContentLoaded", initSettings);
+  if (document.readyState !== "loading") {
+    initSettings();
+  }
+
+  // open_ess/frontend/src/utils.ts
+  function isDarkTheme() {
+    const settings = loadSettings();
+    return settings.theme === "dark";
+  }
+  function formatDate(date) {
+    return date.toISOString();
+  }
+  function formatEnergy(kwh) {
+    if (kwh == null) return "-";
+    return kwh + " kWh";
+  }
+  function formatDateTime(isoString) {
+    const date = new Date(isoString);
+    return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  function formatDuration(hours) {
+    if (hours < 1) {
+      return Math.round(hours * 60) + " min";
+    } else if (hours < 24) {
+      const h = Math.floor(hours);
+      const m = Math.round((hours - h) * 60);
+      return h + "h " + m + "m";
+    } else {
+      const d = Math.floor(hours / 24);
+      const h = Math.round(hours % 24);
+      return d + "d " + h + "h";
+    }
+  }
+  function insertGapNulls(timestamps, values, gapThresholdMs) {
+    if (timestamps.length === 0) return { timestamps: [], values: [] };
+    const newTimestamps = [timestamps[0]];
+    const newValues = [values[0]];
+    for (let i = 1; i < timestamps.length; i++) {
+      const timeDiff = timestamps[i].getTime() - timestamps[i - 1].getTime();
+      if (timeDiff > gapThresholdMs) {
+        newTimestamps.push(new Date(timestamps[i - 1].getTime() + 1));
+        newValues.push(null);
+      }
+      newTimestamps.push(timestamps[i]);
+      newValues.push(values[i]);
+    }
+    return { timestamps: newTimestamps, values: newValues };
+  }
+  function timeseriesExtendToNow(timeseries) {
+    const timestamps = timeseries.timestamps ?? [];
+    const values = timeseries.values ?? [];
+    if (timestamps.length > 0 && values.length > 0) {
+      const now = /* @__PURE__ */ new Date();
+      const lastTs = new Date(timestamps[timestamps.length - 1]);
+      const lastValue = values[values.length - 1];
+      if (now > lastTs) {
+        return {
+          timestamps: [...timestamps, now.toISOString()],
+          values: [...values, lastValue]
+        };
+      }
+    }
+    return timeseries;
+  }
+  function makeTrace(name, timeseries) {
+    return {
+      name,
+      x: (timeseries.timestamps ?? []).map((t) => new Date(t)),
+      y: timeseries.values ?? [],
+      type: "scatter",
+      mode: "lines"
+    };
+  }
+  var defaultConfig = {
+    responsive: true,
+    displayModeBar: false
+  };
+  function showLoading(elementId) {
+    const el = document.getElementById(elementId);
+    if (el) el.innerHTML = '<div class="loading">Loading...</div>';
+  }
+  function showError(elementId, message) {
+    const el = document.getElementById(elementId);
+    if (el) el.innerHTML = `<div class="error">${message}</div>`;
+  }
+  function makePlot(elementId, traces, layout, config = defaultConfig) {
+    const el = document.getElementById(elementId);
+    if (el) {
+      el.innerHTML = "";
+      Plotly.newPlot(elementId, traces, layout, config);
+    }
+  }
+  function getDefaultLayout() {
+    const isDark = isDarkTheme();
+    const font = {
+      family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      color: isDark ? "#e4e4e4" : "#333333"
+    };
+    return {
+      margin: { t: 30, r: 60, b: 50, l: 60 },
+      paper_bgcolor: "transparent",
+      plot_bgcolor: "transparent",
+      font,
+      hoverlabel: {
+        bgcolor: isDark ? "#2a2a4a" : "#ffffff",
+        bordercolor: isDark ? "#4a4a6a" : "#cccccc",
+        font
+      },
+      xaxis: {
+        gridcolor: isDark ? "#2a2a4a" : "#eeeeee",
+        linecolor: isDark ? "#3a3a5a" : "#dddddd"
+      },
+      yaxis: {
+        gridcolor: isDark ? "#2a2a4a" : "#eeeeee",
+        linecolor: isDark ? "#3a3a5a" : "#dddddd",
+        zeroline: true,
+        zerolinecolor: isDark ? "#4a4a6a" : "#cccccc"
+      },
+      legend: {
+        orientation: "h",
+        y: -0.15,
+        font
+      },
+      hovermode: "x unified",
+      barmode: "relative",
+      bargap: 0.02
+    };
+  }
+  function layoutSetXRange(layout, start, end) {
+    if (layout.xaxis) {
+      layout.xaxis.range = [start, end];
+    }
+  }
+  function layoutAddNowLine(layout, start, end, color = "#e74c3c") {
+    layout.shapes = getNowLineShape(start, end, null, color);
+  }
+  function getNowLineShape(start, end, now = null, color = "#e74c3c") {
+    const nowTime = now ? now.getTime() : (/* @__PURE__ */ new Date()).getTime();
+    const startTime = start.getTime();
+    const endTime = end.getTime();
+    if (nowTime >= startTime && nowTime < endTime) {
+      return [{
+        type: "line",
+        x0: nowTime,
+        y0: 0,
+        x1: nowTime,
+        y1: 1,
+        yref: "paper",
+        line: { color, width: 2, dash: "dash" }
+      }];
+    }
+    return [];
+  }
+})();

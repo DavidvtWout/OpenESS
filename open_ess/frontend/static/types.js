@@ -1,1 +1,139 @@
-"use strict";(()=>{async function i(){let e=await fetch("/api/health");if(!e.ok)throw new Error(`HTTP ${e.status}`);return e.json()}async function s(){let e=await fetch("/api/services-status");if(!e.ok)throw new Error(`HTTP ${e.status}`);return e.json()}async function o(){let e=await fetch("/api/battery-ids");if(!e.ok)throw new Error(`HTTP ${e.status}`);return e.json()}async function a(e){let t=new URLSearchParams;e.battery_id!==void 0&&t.set("battery_id",String(e.battery_id)),e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end)),e.bucket_minutes!==void 0&&t.set("bucket_minutes",String(e.bucket_minutes));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/energy-graph${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function u(e){let t=new URLSearchParams;e.battery_id!==void 0&&t.set("battery_id",String(e.battery_id)),e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end)),e.aggregate_minutes!==void 0&&t.set("aggregate_minutes",String(e.aggregate_minutes));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/power-graph${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function g(e){let t=new URLSearchParams;e.area!==void 0&&t.set("area",String(e.area)),e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end)),e.aggregate_minutes!==void 0&&t.set("aggregate_minutes",String(e.aggregate_minutes));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/prices${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function c(e){let t=new URLSearchParams;e.battery_id!==void 0&&t.set("battery_id",String(e.battery_id)),e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/battery-graph${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function l(e){let t=new URLSearchParams;e.limit!==void 0&&t.set("limit",String(e.limit)),e.aggregate_minutes!==void 0&&t.set("aggregate_minutes",String(e.aggregate_minutes)),e.idle_threshold!==void 0&&t.set("idle_threshold",String(e.idle_threshold)),e.balancing_threshold!==void 0&&t.set("balancing_threshold",String(e.balancing_threshold));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/efficiency-scatter${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function f(e){let t=new URLSearchParams;e.battery_id!==void 0&&t.set("battery_id",String(e.battery_id)),e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end)),e.min_soc_swing!==void 0&&t.set("min_soc_swing",String(e.min_soc_swing));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/cycles${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function d(e){let t=new URLSearchParams;e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end)),e.aggregate_minutes!==void 0&&t.set("aggregate_minutes",String(e.aggregate_minutes));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/power${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function y(e){let t=new URLSearchParams;e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/energy${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function m(){let e=await fetch("/api/system-layout");if(!e.ok)throw new Error(`HTTP ${e.status}`);return e.json()}async function _(){let e=await fetch("/api/power-flow");if(!e.ok)throw new Error(`HTTP ${e.status}`);return e.json()}})();
+"use strict";
+(() => {
+  // open_ess/frontend/src/types.ts
+  async function health() {
+    const response = await fetch(`/api/health`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function servicesStatus() {
+    const response = await fetch(`/api/services-status`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function batteryIds() {
+    const response = await fetch(`/api/battery-ids`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function energyGraph(params) {
+    const searchParams = new URLSearchParams();
+    if (params.battery_id !== void 0) searchParams.set("battery_id", String(params.battery_id));
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    if (params.bucket_minutes !== void 0) searchParams.set("bucket_minutes", String(params.bucket_minutes));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/energy-graph${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function powerGraph(params) {
+    const searchParams = new URLSearchParams();
+    if (params.battery_id !== void 0) searchParams.set("battery_id", String(params.battery_id));
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    if (params.aggregate_minutes !== void 0) searchParams.set("aggregate_minutes", String(params.aggregate_minutes));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/power-graph${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function prices(params) {
+    const searchParams = new URLSearchParams();
+    if (params.area !== void 0) searchParams.set("area", String(params.area));
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    if (params.aggregate_minutes !== void 0) searchParams.set("aggregate_minutes", String(params.aggregate_minutes));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/prices${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function batteryGraph(params) {
+    const searchParams = new URLSearchParams();
+    if (params.battery_id !== void 0) searchParams.set("battery_id", String(params.battery_id));
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/battery-graph${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function efficiencyScatter(params) {
+    const searchParams = new URLSearchParams();
+    if (params.limit !== void 0) searchParams.set("limit", String(params.limit));
+    if (params.aggregate_minutes !== void 0) searchParams.set("aggregate_minutes", String(params.aggregate_minutes));
+    if (params.idle_threshold !== void 0) searchParams.set("idle_threshold", String(params.idle_threshold));
+    if (params.balancing_threshold !== void 0) searchParams.set("balancing_threshold", String(params.balancing_threshold));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/efficiency-scatter${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function cycles(params) {
+    const searchParams = new URLSearchParams();
+    if (params.battery_id !== void 0) searchParams.set("battery_id", String(params.battery_id));
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    if (params.min_soc_swing !== void 0) searchParams.set("min_soc_swing", String(params.min_soc_swing));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/cycles${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function power(params) {
+    const searchParams = new URLSearchParams();
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    if (params.aggregate_minutes !== void 0) searchParams.set("aggregate_minutes", String(params.aggregate_minutes));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/power${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function energy(params) {
+    const searchParams = new URLSearchParams();
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/energy${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function systemLayout() {
+    const response = await fetch(`/api/system-layout`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function powerFlow() {
+    const response = await fetch(`/api/power-flow`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+})();

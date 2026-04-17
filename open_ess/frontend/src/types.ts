@@ -142,7 +142,7 @@ export interface ServicesStatusResponse {
     optimizer?: ServiceStatus | null;
 }
 
-export interface SystemLayout {
+export interface SystemLayoutData {
     phases?: Array<number>;
     has_solar?: boolean;
     battery_systems?: Array<BatterySystemInfo>;
@@ -278,7 +278,7 @@ export async function energy(params: { start?: string | null; end?: string | nul
     }
     return response.json();}
 
-export async function systemLayout(): Promise<SystemLayout> {
+export async function systemLayout(): Promise<SystemLayoutData> {
     const response = await fetch(`/api/system-layout`);
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);

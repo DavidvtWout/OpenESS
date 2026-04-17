@@ -1,1 +1,293 @@
-"use strict";(()=>{async function $(e){let t=new URLSearchParams;e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end)),e.aggregate_minutes!==void 0&&t.set("aggregate_minutes",String(e.aggregate_minutes));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/power${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}async function R(e){let t=new URLSearchParams;e.start!==void 0&&t.set("start",String(e.start)),e.end!==void 0&&t.set("end",String(e.end));let n=t.toString()?`?${t.toString()}`:"",r=await fetch(`/api/energy${n}`);if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json()}var B={theme:"dark",priceUnit:"eur",powerUnit:"w",weekStartDay:1};function g(e){let n=`; ${document.cookie}`.split(`; ${e}=`);return n.length===2?n.pop()?.split(";").shift()??null:null}function U(e,t){let n=new Date;n.setFullYear(n.getFullYear()+10),document.cookie=`${e}=${t}; expires=${n.toUTCString()}; path=/; SameSite=Lax`}function l(){let e={...B},t=g("theme");t&&(e.theme=t);let n=g("priceUnit");n&&(e.priceUnit=n);let r=g("powerUnit");r&&(e.powerUnit=r);let i=g("weekStartDay");return i!==null&&(e.weekStartDay=parseInt(i,10)),e}function p(e,t){U(e,t)}function h(e){document.documentElement.setAttribute("data-theme",e)}function S(e,t,n){U(`${e}_${t}`,n)}function _(e,t,n){let r=g(`${e}_${t}`);return r!==null?r:n}function A(){let e=l(),t=document.getElementById("theme-select");t.value=e.theme,t.addEventListener("change",function(){p("theme",this.value),h(this.value)});let n=document.getElementById("price-unit-select");n.value=e.priceUnit,n.addEventListener("change",function(){p("priceUnit",this.value)});let r=document.getElementById("power-unit-select");r.value=e.powerUnit,r.addEventListener("change",function(){p("powerUnit",this.value)});let i=document.getElementById("week-start-select");i.value=e.weekStartDay,i.addEventListener("change",function(){p("weekStartDay",this.value)}),h(e.theme)}document.addEventListener("DOMContentLoaded",A);document.readyState!=="loading"&&A();function C(){return l().theme==="dark"}function d(e){return e.toISOString()}var j={responsive:!0,displayModeBar:!1};function x(e){let t=document.getElementById(e);t&&(t.innerHTML='<div class="loading">Loading...</div>')}function f(e,t){let n=document.getElementById(e);n&&(n.innerHTML=`<div class="error">${t}</div>`)}function P(e,t,n,r=j){let i=document.getElementById(e);i&&(i.innerHTML="",Plotly.newPlot(e,t,n,r))}function v(){let e=C(),t={family:'-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',color:e?"#e4e4e4":"#333333"};return{margin:{t:30,r:60,b:50,l:60},paper_bgcolor:"transparent",plot_bgcolor:"transparent",font:t,hoverlabel:{bgcolor:e?"#2a2a4a":"#ffffff",bordercolor:e?"#4a4a6a":"#cccccc",font:t},xaxis:{gridcolor:e?"#2a2a4a":"#eeeeee",linecolor:e?"#3a3a5a":"#dddddd"},yaxis:{gridcolor:e?"#2a2a4a":"#eeeeee",linecolor:e?"#3a3a5a":"#dddddd",zeroline:!0,zerolinecolor:e?"#4a4a6a":"#cccccc"},legend:{orientation:"h",y:-.15,font:t},hovermode:"x unified",barmode:"relative",bargap:.02}}function T(e,t,n){e.xaxis&&(e.xaxis.range=[t,n])}function b(){return document.getElementById("hours-select")}function D(){return document.getElementById("aggregate-select")}async function F(){let e="power-chart";x(e);let t=parseInt(b().value),n=parseInt(D().value),r=new Date,i=new Date(r.getTime()-t*60*60*1e3);try{let a=await $({start:d(i),end:d(r),aggregate_minutes:n});if(!a.series||Object.keys(a.series).length===0){f(e,"No power flow data available");return}let m=l().powerUnit==="kw"?"kW":"W",y=[],c=Object.keys(a.series).sort();for(let o of c){let u=a.series[o];!u.timestamps||!u.values||y.push({x:u.timestamps.map(w=>new Date(w)),y:u.values,type:"scatter",mode:"lines",name:o,line:{width:1.5},connectgaps:!1,hovertemplate:`%{y:.1f} ${m}<extra>${o}</extra>`})}let s=v();T(s,i,r),s.hovermode="x unified",P(e,y,s)}catch(a){console.error("Error loading power flows:",a),f(e,"Failed to load power flows")}}async function q(){let e="energy-chart";x(e);let t=parseInt(b().value),n=new Date,r=new Date(n.getTime()-t*60*60*1e3);try{let i=await R({start:d(r),end:d(n)});if(!i.series||Object.keys(i.series).length===0){f(e,"No energy flow data available");return}let E=l().powerUnit==="kw"?"kWh":"Wh",m=[],y=Object.keys(i.series).sort();for(let s of y){let o=i.series[s];if(!o.timestamps||!o.values)continue;let u=[...o.timestamps.map(I=>new Date(I)),new Date],w=o.values[o.values.length-1],M=[...o.values,w],L=s.includes("[integrated]");m.push({x:u,y:M,type:"scatter",mode:"lines",name:s,line:{width:L?1.5:2,dash:L?"dot":"solid"},hovertemplate:`%{y:.2f} ${E}<extra>${s}</extra>`})}let c=v();T(c,r,n),c.hovermode="x unified",P(e,m,c)}catch(i){console.error("Error loading energy flows:",i),f(e,"Failed to load energy flows")}}function k(){F(),q()}document.addEventListener("DOMContentLoaded",()=>{let e=l();h(e.theme),b().value=_("debug","hours","24"),D().value=_("debug","aggregate","1"),b().addEventListener("change",t=>{S("debug","hours",t.target.value),k()}),D().addEventListener("change",t=>{S("debug","aggregate",t.target.value),k()}),k()});})();
+"use strict";
+(() => {
+  // open_ess/frontend/src/types.ts
+  async function power(params) {
+    const searchParams = new URLSearchParams();
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    if (params.aggregate_minutes !== void 0) searchParams.set("aggregate_minutes", String(params.aggregate_minutes));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/power${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function energy(params) {
+    const searchParams = new URLSearchParams();
+    if (params.start !== void 0) searchParams.set("start", String(params.start));
+    if (params.end !== void 0) searchParams.set("end", String(params.end));
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    const response = await fetch(`/api/energy${query}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  // open_ess/frontend/src/settings.ts
+  var defaultSettings = {
+    theme: "dark",
+    priceUnit: "eur",
+    powerUnit: "w",
+    weekStartDay: 1
+  };
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) {
+      const val = parts.pop()?.split(";").shift();
+      return val ?? null;
+    }
+    return null;
+  }
+  function setCookie(name, value) {
+    const expires = /* @__PURE__ */ new Date();
+    expires.setFullYear(expires.getFullYear() + 10);
+    document.cookie = `${name}=${value}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+  }
+  function loadSettings() {
+    const settings = { ...defaultSettings };
+    const theme = getCookie("theme");
+    if (theme) settings.theme = theme;
+    const priceUnit = getCookie("priceUnit");
+    if (priceUnit) settings.priceUnit = priceUnit;
+    const powerUnit = getCookie("powerUnit");
+    if (powerUnit) settings.powerUnit = powerUnit;
+    const weekStartDay = getCookie("weekStartDay");
+    if (weekStartDay !== null) settings.weekStartDay = parseInt(weekStartDay, 10);
+    return settings;
+  }
+  function saveSetting(name, value) {
+    setCookie(name, value);
+  }
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
+  function savePagePref(page, key, value) {
+    setCookie(`${page}_${key}`, value);
+  }
+  function loadPagePref(page, key, defaultValue) {
+    const value = getCookie(`${page}_${key}`);
+    return value !== null ? value : defaultValue;
+  }
+  function initSettings() {
+    const settings = loadSettings();
+    const themeSelect = document.getElementById("theme-select");
+    themeSelect.value = settings.theme;
+    themeSelect.addEventListener("change", function() {
+      saveSetting("theme", this.value);
+      applyTheme(this.value);
+    });
+    const priceUnitSelect = document.getElementById("price-unit-select");
+    priceUnitSelect.value = settings.priceUnit;
+    priceUnitSelect.addEventListener("change", function() {
+      saveSetting("priceUnit", this.value);
+    });
+    const powerUnitSelect = document.getElementById("power-unit-select");
+    powerUnitSelect.value = settings.powerUnit;
+    powerUnitSelect.addEventListener("change", function() {
+      saveSetting("powerUnit", this.value);
+    });
+    const weekStartSelect = document.getElementById("week-start-select");
+    weekStartSelect.value = settings.weekStartDay;
+    weekStartSelect.addEventListener("change", function() {
+      saveSetting("weekStartDay", this.value);
+    });
+    applyTheme(settings.theme);
+  }
+  document.addEventListener("DOMContentLoaded", initSettings);
+  if (document.readyState !== "loading") {
+    initSettings();
+  }
+
+  // open_ess/frontend/src/utils.ts
+  function isDarkTheme() {
+    const settings = loadSettings();
+    return settings.theme === "dark";
+  }
+  function formatDate(date) {
+    return date.toISOString();
+  }
+  var defaultConfig = {
+    responsive: true,
+    displayModeBar: false
+  };
+  function showLoading(elementId) {
+    const el = document.getElementById(elementId);
+    if (el) el.innerHTML = '<div class="loading">Loading...</div>';
+  }
+  function showError(elementId, message) {
+    const el = document.getElementById(elementId);
+    if (el) el.innerHTML = `<div class="error">${message}</div>`;
+  }
+  function makePlot(elementId, traces, layout, config = defaultConfig) {
+    const el = document.getElementById(elementId);
+    if (el) {
+      el.innerHTML = "";
+      Plotly.newPlot(elementId, traces, layout, config);
+    }
+  }
+  function getDefaultLayout() {
+    const isDark = isDarkTheme();
+    const font = {
+      family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      color: isDark ? "#e4e4e4" : "#333333"
+    };
+    return {
+      margin: { t: 30, r: 60, b: 50, l: 60 },
+      paper_bgcolor: "transparent",
+      plot_bgcolor: "transparent",
+      font,
+      hoverlabel: {
+        bgcolor: isDark ? "#2a2a4a" : "#ffffff",
+        bordercolor: isDark ? "#4a4a6a" : "#cccccc",
+        font
+      },
+      xaxis: {
+        gridcolor: isDark ? "#2a2a4a" : "#eeeeee",
+        linecolor: isDark ? "#3a3a5a" : "#dddddd"
+      },
+      yaxis: {
+        gridcolor: isDark ? "#2a2a4a" : "#eeeeee",
+        linecolor: isDark ? "#3a3a5a" : "#dddddd",
+        zeroline: true,
+        zerolinecolor: isDark ? "#4a4a6a" : "#cccccc"
+      },
+      legend: {
+        orientation: "h",
+        y: -0.15,
+        font
+      },
+      hovermode: "x unified",
+      barmode: "relative",
+      bargap: 0.02
+    };
+  }
+  function layoutSetXRange(layout, start, end) {
+    if (layout.xaxis) {
+      layout.xaxis.range = [start, end];
+    }
+  }
+
+  // open_ess/frontend/src/debug.ts
+  function getHoursSelect() {
+    return document.getElementById("hours-select");
+  }
+  function getAggregateSelect() {
+    return document.getElementById("aggregate-select");
+  }
+  async function loadPowerChart() {
+    const elementId = "power-chart";
+    showLoading(elementId);
+    const hours = parseInt(getHoursSelect().value);
+    const aggregateMinutes = parseInt(getAggregateSelect().value);
+    const now = /* @__PURE__ */ new Date();
+    const start = new Date(now.getTime() - hours * 60 * 60 * 1e3);
+    try {
+      const data = await power({
+        start: formatDate(start),
+        end: formatDate(now),
+        aggregate_minutes: aggregateMinutes
+      });
+      if (!data.series || Object.keys(data.series).length === 0) {
+        showError(elementId, "No power flow data available");
+        return;
+      }
+      const settings = loadSettings();
+      const useKw = settings.powerUnit === "kw";
+      const powerUnit = useKw ? "kW" : "W";
+      const traces = [];
+      const sortedKeys = Object.keys(data.series).sort();
+      for (const key of sortedKeys) {
+        const series = data.series[key];
+        if (!series.timestamps || !series.values) continue;
+        traces.push({
+          x: series.timestamps.map((t) => new Date(t)),
+          y: series.values,
+          type: "scatter",
+          mode: "lines",
+          name: key,
+          line: { width: 1.5 },
+          connectgaps: false,
+          hovertemplate: `%{y:.1f} ${powerUnit}<extra>${key}</extra>`
+        });
+      }
+      const layout = getDefaultLayout();
+      layoutSetXRange(layout, start, now);
+      layout.hovermode = "x unified";
+      makePlot(elementId, traces, layout);
+    } catch (error) {
+      console.error("Error loading power flows:", error);
+      showError(elementId, "Failed to load power flows");
+    }
+  }
+  async function loadEnergyChart() {
+    const elementId = "energy-chart";
+    showLoading(elementId);
+    const hours = parseInt(getHoursSelect().value);
+    const now = /* @__PURE__ */ new Date();
+    const start = new Date(now.getTime() - hours * 60 * 60 * 1e3);
+    try {
+      const data = await energy({
+        start: formatDate(start),
+        end: formatDate(now)
+      });
+      if (!data.series || Object.keys(data.series).length === 0) {
+        showError(elementId, "No energy flow data available");
+        return;
+      }
+      const settings = loadSettings();
+      const useKw = settings.powerUnit === "kw";
+      const energyUnit = useKw ? "kWh" : "Wh";
+      const traces = [];
+      const sortedKeys = Object.keys(data.series).sort();
+      for (const key of sortedKeys) {
+        const series = data.series[key];
+        if (!series.timestamps || !series.values) continue;
+        const timestamps = [...series.timestamps.map((t) => new Date(t)), /* @__PURE__ */ new Date()];
+        const lastValue = series.values[series.values.length - 1];
+        const values = [...series.values, lastValue];
+        const isIntegrated = key.includes("[integrated]");
+        traces.push({
+          x: timestamps,
+          y: values,
+          type: "scatter",
+          mode: "lines",
+          name: key,
+          line: {
+            width: isIntegrated ? 1.5 : 2,
+            dash: isIntegrated ? "dot" : "solid"
+          },
+          hovertemplate: `%{y:.2f} ${energyUnit}<extra>${key}</extra>`
+        });
+      }
+      const layout = getDefaultLayout();
+      layoutSetXRange(layout, start, now);
+      layout.hovermode = "x unified";
+      makePlot(elementId, traces, layout);
+    } catch (error) {
+      console.error("Error loading energy flows:", error);
+      showError(elementId, "Failed to load energy flows");
+    }
+  }
+  function loadAllCharts() {
+    loadPowerChart();
+    loadEnergyChart();
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    const settings = loadSettings();
+    applyTheme(settings.theme);
+    getHoursSelect().value = loadPagePref("debug", "hours", "24");
+    getAggregateSelect().value = loadPagePref("debug", "aggregate", "1");
+    getHoursSelect().addEventListener("change", (e) => {
+      savePagePref("debug", "hours", e.target.value);
+      loadAllCharts();
+    });
+    getAggregateSelect().addEventListener("change", (e) => {
+      savePagePref("debug", "aggregate", e.target.value);
+      loadAllCharts();
+    });
+    loadAllCharts();
+  });
+})();
