@@ -59,6 +59,66 @@ async def health_check(db: DatabaseConnection = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ---------------------------- #
+#  Power overview (Dashboard)  #
+# ---------------------------- #
+
+
+class BatterySystemInfo(BaseModel):
+    id: str
+    name: str
+
+
+class SystemLayoutData(BaseModel):
+    phases: list[int]
+    has_solar: bool
+    battery_systems: list[BatterySystemInfo]
+
+
+class PowerFlowData(BaseModel):
+    grid: dict[str, float]  # e.g. {"L1": 500, "L2": 200, "L3": 100}
+    solar: float | None
+    consumption: dict[str, float]  # e.g. {"L1": 800, "L2": 300, "L3": 200}
+    batteries: dict[str, float]  # e.g. {"bat1": -500, "bat2": 200} positive=charging
+
+
+@router.get("/system-layout", response_model=SystemLayoutData)
+async def get_system_layout():
+    """Returns the system layout for the power flow dashboard.
+
+    This is a stub endpoint - actual implementation will discover battery systems
+    from the database and configuration.
+    """
+    return SystemLayoutData(
+        phases=[1, 2, 3],
+        has_solar=True,
+        battery_systems=[
+            BatterySystemInfo(id="bat1", name="MultiPlus 1"),
+            BatterySystemInfo(id="bat2", name="MultiPlus 2"),
+            BatterySystemInfo(id="bat3", name="MultiPlus 3"),
+        ],
+    )
+
+
+@router.get("/power-flow", response_model=PowerFlowData)
+async def get_power_flow():
+    """Returns real-time power flow data for the dashboard.
+
+    This is a stub endpoint - actual implementation will read from database.
+    """
+    return PowerFlowData(
+        grid={"L1": 0.0, "L2": 0.0, "L3": 0.0},
+        solar=0.0,
+        consumption={"L1": 0.0, "L2": 0.0, "L3": 0.0},
+        batteries={"bat1": 0.0, "bat2": 0.0, "bat3": 0.0},
+    )
+
+
+# ------------------------------- #
+#  Services overview (Dashboard)  #
+# ------------------------------- #
+
+
 class Status(str, Enum):
     OK = "ok"
     WARNING = "warning"
@@ -100,6 +160,11 @@ async def get_battery_ids(battery_configs: dict[str, BatteryConfig] = Depends(ge
     except Exception as e:
         logger.exception("Failed to get battery ids")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ------------------------ #
+#  Metrics page endpoints  #
+# ------------------------ #
 
 
 class BatteryEnergySeries(BaseModel):
@@ -590,58 +655,3 @@ async def get_energy(
     except Exception as e:
         logger.exception("Failed to get debug energy flows")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ------------------------#
-#  Power Flow Dashboard  #
-# ------------------------#
-
-
-class BatterySystemInfo(BaseModel):
-    id: str
-    name: str
-
-
-class SystemLayoutData(BaseModel):
-    phases: list[int]
-    has_solar: bool
-    battery_systems: list[BatterySystemInfo]
-
-
-class PowerFlowData(BaseModel):
-    grid: dict[str, float]  # e.g. {"L1": 500, "L2": 200, "L3": 100}
-    solar: float | None
-    consumption: dict[str, float]  # e.g. {"L1": 800, "L2": 300, "L3": 200}
-    batteries: dict[str, float]  # e.g. {"bat1": -500, "bat2": 200} positive=charging
-
-
-@router.get("/system-layout", response_model=SystemLayoutData)
-async def get_system_layout():
-    """Returns the system layout for the power flow dashboard.
-
-    This is a stub endpoint - actual implementation will discover battery systems
-    from the database and configuration.
-    """
-    return SystemLayoutData(
-        phases=[1, 2, 3],
-        has_solar=True,
-        battery_systems=[
-            BatterySystemInfo(id="bat1", name="MultiPlus 1"),
-            BatterySystemInfo(id="bat2", name="MultiPlus 2"),
-            BatterySystemInfo(id="bat3", name="MultiPlus 3"),
-        ],
-    )
-
-
-@router.get("/power-flow", response_model=PowerFlowData)
-async def get_power_flow():
-    """Returns real-time power flow data for the dashboard.
-
-    This is a stub endpoint - actual implementation will read from database.
-    """
-    return PowerFlowData(
-        grid={"L1": 0.0, "L2": 0.0, "L3": 0.0},
-        solar=0.0,
-        consumption={"L1": 0.0, "L2": 0.0, "L3": 0.0},
-        batteries={"bat1": 0.0, "bat2": 0.0, "bat3": 0.0},
-    )
