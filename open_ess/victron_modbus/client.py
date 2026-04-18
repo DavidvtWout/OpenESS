@@ -4,7 +4,7 @@ from threading import Lock
 
 from pydantic import BaseModel
 
-from open_ess.database import Database
+from open_ess.database import DatabaseConnection
 from open_ess.metrics import BatteryConfig, VictronControl
 from .config import VictronConfig
 from .modbus_client import VictronModbusClient
@@ -28,7 +28,7 @@ class MultiPlusConfig(BaseModel):
 
 
 class VictronClient:
-    def __init__(self, config: VictronConfig, battery_configs: list[BatteryConfig], database: Database):
+    def __init__(self, config: VictronConfig, battery_configs: list[BatteryConfig], database: DatabaseConnection):
         self._config = config
         self._mp_configs: dict[str, MultiPlusConfig] = {
             cfg.name: MultiPlusConfig(battery_config=cfg)

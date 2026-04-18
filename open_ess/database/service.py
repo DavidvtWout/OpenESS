@@ -2,22 +2,20 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from open_ess.service import Service
-from .config import DatabaseConfig
-from .database import Database
+from .database import Database, DatabaseConnection
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseService(Service):
-    """Periodically compresses time series data to reduce storage."""
-
-    def __init__(self, config: DatabaseConfig):
+    def __init__(self, database: Database):
         super().__init__("DatabaseService")
-        self._config = config
-        self._database: Database | None = None
+        self._database = database
+        self._config = database.config
+        self._db_conn: DatabaseConnection | None = None
 
     def on_start(self):
-        self._database = Database(self._config, run_migrations=False)
+        self._db_conn = self._database.connect()
         logger.info("DatabaseService started")
 
     def tick(self):
@@ -25,11 +23,11 @@ class DatabaseService(Service):
 
     def _run_compression(self):
         if self._config.compression.enable:
-            n_samples, n_buckets = self._database.compress_power(
+            n_samples, n_buckets = self._db_conn.compress_power(
                 datetime.now(timezone.utc), self._config.compression.bucket_seconds
             )
             if n_samples > 0:
-                self._database.conn.execute("PRAGMA incremental_vacuum")
+                self._db_conn.vacuum()
 
     def wait_until_next(self):
         now = datetime.now(timezone.utc)

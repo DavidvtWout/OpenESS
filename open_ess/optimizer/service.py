@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from open_ess.database import Database, DatabaseConfig
+from open_ess.database import Database, DatabaseConnection
 from open_ess.metrics import BatteryConfig
 from open_ess.pricing import PriceConfig
 from open_ess.service import Service
@@ -16,23 +16,24 @@ class OptimizerService(Service):
 
     def __init__(
         self,
-        db_config: DatabaseConfig,
+        db: Database,
         victron_service: VictronService,
         price_config: PriceConfig,
         battery_configs: list[BatteryConfig],
     ):
         super().__init__("SchedulerService")
-        self._db_config = db_config
+        self._db = db
         self._victron_service = victron_service
         self._price_config = price_config
         self._battery_configs = battery_configs
-        self._db: Database | None = None
         self._optimizers: list[Optimizer] | None = None
+        self._db_conn: DatabaseConnection | None = None
 
     def on_start(self):
-        self._db = Database(self._db_config, run_migrations=False)
+        self._db_conn = self._db.connect()
         self._optimizers = [
-            Optimizer(self._db, price_config=self._price_config, battery_config=cfg) for cfg in self._battery_configs
+            Optimizer(self._db_conn, price_config=self._price_config, battery_config=cfg)
+            for cfg in self._battery_configs
         ]
 
     def tick(self):
@@ -46,7 +47,7 @@ class OptimizerService(Service):
                 _, _, power, _ = schedule[0]
                 self._victron_service.client.set_ess_setpoint(batt_cfg.name, power)
                 # TODO: support multiple schedules
-                self._db.set_schedule("victron/vebus/228", schedule)
+                self._db_conn.set_schedule("victron/vebus/228", schedule)
                 logger.debug(f"Updated schedule with {len(schedule)} entries")
             else:
                 logger.warning("Optimizer returned empty schedule")

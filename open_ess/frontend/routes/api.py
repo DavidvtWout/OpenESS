@@ -5,7 +5,7 @@ from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from open_ess.database import Database, ms_to_dt
+from open_ess.database import DatabaseConnection
 from open_ess.metrics import BatteryConfig
 from open_ess.pricing import PriceConfig
 from .util import TimeSeries, data_to_timeseries, find_full_battery_cycles
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["api"])
 
 
-def get_db() -> Database:
+def get_db() -> DatabaseConnection:
     from open_ess.frontend.dependencies import get_database
 
     return get_database()
@@ -48,10 +48,10 @@ class HealthResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(db: Database = Depends(get_db)):
+async def health_check(db: DatabaseConnection = Depends(get_db)):
     try:
         # TODO:
-        cursor = db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        cursor = db.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = [row["name"] for row in cursor.fetchall()]
         return HealthResponse(status="ok", database="connected", tables=tables)
     except Exception as e:
@@ -82,7 +82,7 @@ class ServicesStatusResponse(BaseModel):
 
 
 @router.get("/services-status", response_model=ServicesStatusResponse)
-async def services_status(db: Database = Depends(get_db)):
+async def services_status(db: DatabaseConnection = Depends(get_db)):
     try:
         return ServicesStatusResponse(
             database=ServiceStatus(status=Status.OK, messages=[]),
@@ -130,7 +130,7 @@ async def get_energy_flow_endpoint(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     bucket_minutes: int = Query(default=60),
-    db: Database = Depends(get_db),
+    db: DatabaseConnection = Depends(get_db),
     battery_configs: dict[str, BatteryConfig] = Depends(get_batteries),
 ):
     try:
@@ -210,7 +210,7 @@ async def get_power_graph(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     aggregate_minutes: int = Query(default=1),
-    db: Database = Depends(get_db),
+    db: DatabaseConnection = Depends(get_db),
     battery_configs: dict[str, BatteryConfig] = Depends(get_batteries),
 ):
     try:
@@ -266,7 +266,7 @@ async def get_price_data(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     aggregate_minutes: int | None = Query(default=None),
-    db: Database = Depends(get_db),
+    db: DatabaseConnection = Depends(get_db),
     price_config: PriceConfig = Depends(get_prices),
 ):
     try:
@@ -312,7 +312,7 @@ async def get_battery_graph(
     battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
-    db: Database = Depends(get_db),
+    db: DatabaseConnection = Depends(get_db),
     battery_configs: dict[str, BatteryConfig] = Depends(get_batteries),
 ):
     try:
@@ -363,7 +363,7 @@ async def get_efficiency_scatter(
     aggregate_minutes: int = Query(default=10),
     idle_threshold: int = Query(default=5),
     balancing_threshold: int = Query(default=100),
-    db: Database = Depends(get_db),
+    db: DatabaseConnection = Depends(get_db),
 ):
     try:
         ac_in = db.get_power("victron/vebus/228/power/ac_in/l1", bucket_seconds=aggregate_minutes * 60, limit=limit)
@@ -435,7 +435,7 @@ async def get_battery_cycles(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     min_soc_swing: int = Query(default=10),
-    db: Database = Depends(get_db),
+    db: DatabaseConnection = Depends(get_db),
     battery_configs: dict[str, BatteryConfig] = Depends(get_batteries),
     price_config: PriceConfig = Depends(get_prices),
 ):
@@ -549,7 +549,7 @@ async def get_power(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     aggregate_minutes: int = Query(default=1),
-    db: Database = Depends(get_db),
+    db: DatabaseConnection = Depends(get_db),
 ):
     try:
         now = datetime.now(timezone.utc)
@@ -570,7 +570,7 @@ async def get_power(
 async def get_energy(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
-    db: Database = Depends(get_db),
+    db: DatabaseConnection = Depends(get_db),
 ):
     try:
         now = datetime.now(timezone.utc)

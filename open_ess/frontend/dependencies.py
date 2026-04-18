@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from open_ess.database import Database
+from open_ess.database import Database, DatabaseConnection
 from open_ess.metrics import BatteryConfig
 from open_ess.pricing import PriceConfig
 
@@ -8,16 +8,16 @@ if TYPE_CHECKING:
     from open_ess.config import Config
 
 _config: "Config | None" = None
-_database: Database | None = None
+_database: DatabaseConnection | None = None
 
 
-def init_dependencies(config: "Config") -> None:
+def init_dependencies(db: Database, config: "Config") -> None:
     global _config, _database
     _config = config
-    _database = Database(config.database)
+    _database = db.connect()
 
 
-def get_database() -> Database:
+def get_database() -> DatabaseConnection:
     if _database is None:
         raise RuntimeError("Database not initialized. Call init_dependencies() first.")
     return _database

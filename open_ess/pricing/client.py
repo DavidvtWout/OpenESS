@@ -8,7 +8,7 @@ from entsoe.Market import EnergyPrices
 from entsoe.utils import add_timestamps, extract_records
 from pandas import DataFrame
 
-from open_ess.database import Database
+from open_ess.database import DatabaseConnection
 from .areas import AREAS
 from .config import PriceConfig
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class EntsoeClient:
-    def __init__(self, config: PriceConfig, db: Database):
+    def __init__(self, config: PriceConfig, db: DatabaseConnection):
         if config.area not in AREAS:
             raise ValueError(f"Unknown area code: '{config.area}'")
 

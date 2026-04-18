@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
-from open_ess.database import Database
+from open_ess.database import DatabaseConnection
 from open_ess.metrics import BatteryConfig
 from open_ess.pricing import PriceConfig
 
@@ -24,7 +24,7 @@ class Optimizer:
     the need for a separate binary variable.
     """
 
-    def __init__(self, db: Database, price_config: PriceConfig, battery_config: BatteryConfig):
+    def __init__(self, db: DatabaseConnection, price_config: PriceConfig, battery_config: BatteryConfig):
         self._database = db
         self._price_config = price_config
         self._battery_config = battery_config
@@ -173,6 +173,7 @@ class Optimizer:
 
         model.soc_balance = pyo.Constraint(model.T, rule=soc_balance_rule)
         model.final_soc = pyo.Constraint(expr=model.soc[model_length - 1] == current_soc)
+
         # ^ Final SoC should equal starting SOC (energy neutral over horizon)
 
         # Objective: minimize cost (buy cost - sell revenue)

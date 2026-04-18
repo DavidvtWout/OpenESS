@@ -1,7 +1,10 @@
-"""Initial migration: create tables."""
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..database import DatabaseConnection
 
 
-def upgrade(conn) -> None:
+def upgrade(conn: "DatabaseConnection") -> None:
     conn.execute("PRAGMA foreign_keys = ON")
 
     # -------------

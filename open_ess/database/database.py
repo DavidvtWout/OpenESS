@@ -1,62 +1,42 @@
-"""Core database class and utilities."""
-
 import logging
 import sqlite3
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
+from pathlib import Path
 
 from .config import DatabaseConfig
-from .runner import get_migrations, run_migration
+from .migration_runner import run_migrations
 from .util import dt_to_ms, ms_to_dt, base_conditions
 
 logger = logging.getLogger(__name__)
 
 
 class Database:
-    def __init__(self, config: DatabaseConfig, run_migrations: bool = True):
+    def __init__(self, config: DatabaseConfig):
         self._config = config
         config.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(config.path)
-        self._conn.row_factory = sqlite3.Row
-        # WAL mode allows concurrent reads/writes without blocking
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        # Wait up to 30 seconds for locks instead of failing immediately
-        self._conn.execute("PRAGMA busy_timeout = 30000")
-        if run_migrations:
-            self._run_migrations()
+        with self.connect() as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            # ^ WAL mode allows concurrent reads/writes without blocking
+            conn.execute("PRAGMA busy_timeout = 30000")
+            # ^ Wait up to 30 seconds for locks instead of failing immediately
 
     @property
-    def conn(self) -> sqlite3.Connection:
-        """Get the underlying database connection."""
-        return self._conn
+    def config(self) -> DatabaseConfig:
+        return self._config
 
-    def new_connection(self) -> "Database":
-        """Create a new Database instance with its own connection (for use in other threads)."""
-        return Database(self._config, run_migrations=False)
+    def connect(self) -> "DatabaseConnection":
+        return DatabaseConnection(self._config.path)
 
-    def _run_migrations(self):
-        """Run all pending migrations."""
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER PRIMARY KEY,
-                applied_at TEXT NOT NULL
-            )
-        """)
-        self._conn.commit()
+    def run_migrations(self):
+        with self.connect() as conn:
+            run_migrations(conn)
 
-        cursor = self._conn.execute("SELECT MAX(version) as version FROM schema_version")
-        row = cursor.fetchone()
-        current_version = row["version"] or 0
 
-        for version, module_name in get_migrations():
-            if version > current_version:
-                logger.info(f"Running migration {version}: {module_name}")
-                run_migration(version, module_name, self._conn)
-                self._conn.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-                    (version, datetime.now(timezone.utc)),
-                )
-                self._conn.commit()
-                logger.info(f"Migration {version} complete")
+class DatabaseConnection:
+    def __init__(self, path: Path):
+        self._conn = sqlite3.connect(path)
+        self._conn.row_factory = sqlite3.Row
+        # ^ Makes column access by name possible
 
     def close(self):
         self._conn.close()
@@ -66,6 +46,17 @@ class Database:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    def execute(self, sql: str, parameters=None) -> sqlite3.Cursor:
+        if parameters is None:
+            parameters = []
+        return self._conn.execute(sql, parameters)
+
+    def commit(self):
+        return self._conn.commit()
+
+    def vacuum(self):
+        self._conn.execute("PRAGMA incremental_vacuum")
 
     def _get_labels(
         self, table_name: str, timestamp_name: str, start: datetime | None = None, end: datetime | None = None
@@ -88,7 +79,7 @@ class Database:
             FROM {table_name}
             {where_clause}
         """
-        cursor = self.conn.execute(query, params)
+        cursor = self._conn.execute(query, params)
         return [row[0] for row in cursor.fetchall()]
 
     # -------------------------------------------------------------------------
@@ -98,11 +89,11 @@ class Database:
     def insert_power(self, label: str, timestamp: datetime, power: float):
         if power is None:
             return
-        self.conn.execute(
+        self._conn.execute(
             "INSERT INTO power (label, start_time, sample_count, value) VALUES (?, ?, 1, ?)",
             (label, dt_to_ms(timestamp), power),
         )
-        self.conn.commit()
+        self._conn.commit()
 
     def get_power(
         self,
@@ -142,7 +133,7 @@ class Database:
             ORDER BY {order_by}
             {limit_clause}
         """
-        cursor = self.conn.execute(query, params)
+        cursor = self._conn.execute(query, params)
         return [(ms_to_dt(row[0]), row[1]) for row in cursor.fetchall()]
 
     def get_power_labels(self, start: datetime | None = None, end: datetime | None = None) -> list[str]:
@@ -176,7 +167,7 @@ class Database:
             HAVING row_count > 1
             ORDER BY bucket
         """
-        cursor = self.conn.execute(bucket_query, (bucket_ms, bucket_ms, cutoff_ms))
+        cursor = self._conn.execute(bucket_query, (bucket_ms, bucket_ms, cutoff_ms))
         buckets = cursor.fetchall()
 
         total_sample_count = 0
@@ -187,7 +178,7 @@ class Database:
             bucket_end = bucket_start + bucket_ms
             total_samples = row["total_samples"]
 
-            cursor = self.conn.execute(
+            cursor = self._conn.execute(
                 """
                 SELECT start_time, end_time, sample_count, value
                 FROM _power
@@ -205,11 +196,11 @@ class Database:
                 total_power += sample["value"]
             average_power = total_power / sample_count
 
-            self.conn.execute(
+            self._conn.execute(
                 "DELETE FROM _power WHERE label_id = ? AND start_time >= ? AND start_time < ?",
                 (label_id, bucket_start, bucket_end),
             )
-            self.conn.execute(
+            self._conn.execute(
                 "INSERT INTO _power (label_id, start_time, end_time, sample_count, value) VALUES (?, ?, ?, ?, ?)",
                 (label_id, bucket_start, bucket_end, total_samples, average_power),
             )
@@ -217,7 +208,7 @@ class Database:
             total_sample_count += sample_count
             total_bucket_count += 1
 
-        self.conn.commit()
+        self._conn.commit()
         return total_sample_count, total_bucket_count
 
     # "Abuse" power table for voltages because the compression algorithm also works perfectly fine for voltages.
@@ -234,7 +225,7 @@ class Database:
         timestamp: datetime,
         energy: float,
     ):
-        self.conn.execute(
+        self._conn.execute(
             """
             INSERT INTO energy (label, timestamp, value)
             SELECT ?, ?, ?
@@ -247,7 +238,7 @@ class Database:
             """,
             (label, dt_to_ms(timestamp), energy, energy, label),
         )
-        self.conn.commit()
+        self._conn.commit()
 
     def get_energy(
         self,
@@ -264,7 +255,7 @@ class Database:
             {where_clause}
             ORDER BY timestamp
         """
-        cursor = self.conn.execute(query, params)
+        cursor = self._conn.execute(query, params)
 
         result = [(row[0], row[1]) for row in cursor.fetchall()]
         if normalize and result:
@@ -307,7 +298,7 @@ class Database:
             GROUP BY bucket
             ORDER BY bucket
         """
-        cursor = self.conn.execute(query, [agg_ms, agg_ms] + params)
+        cursor = self._conn.execute(query, [agg_ms, agg_ms] + params)
 
         center_offset = agg_ms // 2 if center_buckets else 0
         return [(ms_to_dt(r[0] + center_offset), round(r[1], 3)) for r in cursor.fetchall()]
