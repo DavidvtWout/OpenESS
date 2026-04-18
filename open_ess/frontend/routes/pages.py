@@ -1,40 +1,46 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-router = APIRouter(tags=["pages"])
-
+STATIC_DIR = Path(__file__).parent.parent / "static"
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+
+router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse(STATIC_DIR / "images/openess-16x16.png")
+
+
+@router.get("/logo-32x32.png", include_in_schema=False)
+async def favicon():
+    return FileResponse(STATIC_DIR / "images/openess-32x32.png")
 
 
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    """Main dashboard page."""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(request, "dashboard.html")
 
 
 @router.get("/metrics", response_class=HTMLResponse)
 async def metrics_page(request: Request):
-    """Metrics page."""
-    return templates.TemplateResponse("metrics.html", {"request": request})
+    return templates.TemplateResponse(request, "metrics.html")
 
 
 @router.get("/cycles", response_class=HTMLResponse)
 async def cycles_page(request: Request):
-    """Battery cycles efficiency page."""
-    return templates.TemplateResponse("cycles.html", {"request": request})
+    return templates.TemplateResponse(request, "cycles.html")
 
 
 @router.get("/debug", response_class=HTMLResponse)
 async def debug_page(request: Request):
-    """Debug page showing all power and energy flows."""
-    return templates.TemplateResponse("debug.html", {"request": request})
+    return templates.TemplateResponse(request, "debug.html")
 
 
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
-    """Settings page."""
-    return templates.TemplateResponse("settings.html", {"request": request})
+    return templates.TemplateResponse(request, "settings.html")
