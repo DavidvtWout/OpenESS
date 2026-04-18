@@ -3,11 +3,13 @@ import signal
 
 import uvicorn
 
+from open_ess.battery_system import BatterySystem
 from open_ess.config import Config
 from open_ess.database import Database, DatabaseService
 from open_ess.frontend import init_dependencies, create_app, close_dependencies
 from open_ess.optimizer import OptimizerService
 from open_ess.pricing import EntsoeService
+from open_ess.service import Service
 from open_ess.util import setup_logging, parse_args, EndpointFilter
 from open_ess.victron_modbus import VictronService
 
@@ -19,29 +21,25 @@ def main():
     args = parse_args("Open Energy Storage System - optimize charging based on day-ahead prices")
     config = Config.from_file(args.config)
 
-    # Run migrations on startup
     database = Database(config.database)
     database.run_migrations()
 
-    # Services create their own connections in their threads
+    # Create services
     database_service = DatabaseService(database)
     entsoe_service = EntsoeService(database, config.prices)
-    victron_services = []
-    optimizer_services = []
-    for battery_system in config.battery_systems:
-        if battery_system.is_victron:
-            victron_service = VictronService(database, battery_system)
-            victron_services.append(victron_service)
-            optimizer_services.append(
+    services: list[Service] = [database_service, entsoe_service]
+    for battery_config in config.battery_systems:
+        if battery_config.is_victron:
+            victron_service = VictronService(database, battery_config)
+            battery_system = BatterySystem(battery_config, victron_service.client)
+            services.append(victron_service)
+            services.append(
                 OptimizerService(
                     database,
-                    victron_service=victron_service,
+                    battery_system=battery_system,
                     price_config=config.prices,
-                    battery_configs=config.battery_systems,
                 )
             )
-
-    services = [database_service, entsoe_service] + victron_services + optimizer_services
 
     # Shutdown handler
     def shutdown(signum, frame):

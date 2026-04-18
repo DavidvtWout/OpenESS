@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from open_ess.database import Database, DatabaseConnection
-from open_ess.metrics import BatteryConfig
+from open_ess.battery_system import BatteryConfig
 from open_ess.pricing import PriceConfig
 
 if TYPE_CHECKING:
