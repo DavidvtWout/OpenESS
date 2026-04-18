@@ -821,6 +821,25 @@ table.dataTable tbody td.dt-empty {
     color: #9b59b6;
 }
 
+.block-arrows {
+    display: flex;
+    gap: 0.25rem;
+    justify-content: center;
+}
+
+.arrow-icon {
+    width: 20px;
+    height: 20px;
+}
+
+.arrow-red {
+    fill: #e74c3c;
+}
+
+.arrow-green {
+    fill: #2ecc71;
+}
+
 .battery-status {
     font-size: 0.8rem;
     font-weight: 500;

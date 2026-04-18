@@ -28,10 +28,12 @@ def main():
     database_service = DatabaseService(database)
     entsoe_service = EntsoeService(database, config.prices)
     services: list[Service] = [database_service, entsoe_service]
+    battery_systems = []
     for battery_config in config.battery_systems:
         if battery_config.is_victron:
             victron_service = VictronService(database, battery_config)
             battery_system = BatterySystem(battery_config, victron_service.client)
+            battery_systems.append(battery_system)
             services.append(victron_service)
             services.append(
                 OptimizerService(
@@ -55,7 +57,7 @@ def main():
 
     # Frontend
     if config.frontend.enable:
-        init_dependencies(database, config)
+        init_dependencies(database, config, battery_systems)
         logger.info(f"Starting web server on http://{config.frontend.host}:{config.frontend.port}")
 
         logging.getLogger("uvicorn.access").addFilter(EndpointFilter(["/api/power-flow"]))

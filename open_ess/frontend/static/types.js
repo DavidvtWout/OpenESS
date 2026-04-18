@@ -8,6 +8,20 @@
     }
     return response.json();
   }
+  async function systemLayout() {
+    const response = await fetch(`/api/system-layout`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function powerFlow() {
+    const response = await fetch(`/api/power-flow`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
   async function servicesStatus() {
     const response = await fetch(`/api/services-status`);
     if (!response.ok) {
@@ -117,20 +131,6 @@
     if (params.end !== void 0) searchParams.set("end", String(params.end));
     const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
     const response = await fetch(`/api/energy${query}`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-  }
-  async function systemLayout() {
-    const response = await fetch(`/api/system-layout`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-  }
-  async function powerFlow() {
-    const response = await fetch(`/api/power-flow`);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }

@@ -1,13 +1,6 @@
 "use strict";
 (() => {
   // open_ess/frontend/src/types.ts
-  async function servicesStatus() {
-    const response = await fetch(`/api/services-status`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-  }
   async function systemLayout() {
     const response = await fetch(`/api/system-layout`);
     if (!response.ok) {
@@ -17,6 +10,13 @@
   }
   async function powerFlow() {
     const response = await fetch(`/api/power-flow`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+  async function servicesStatus() {
+    const response = await fetch(`/api/services-status`);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -106,6 +106,14 @@
         <div class="power-flow-grid">
             <svg class="power-flow-lines" id="power-flow-svg"></svg>
             <div class="power-block grid-block" id="block-grid">
+                <div class="block-arrows">
+                    <svg class="arrow-icon arrow-green" viewBox="0 0 24 24" fill="currentColor" title="Exporting">
+                        <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                    </svg>
+                    <svg class="arrow-icon arrow-red" viewBox="0 0 24 24" fill="currentColor" title="Importing">
+                        <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
+                    </svg>
+                </div>
                 <div class="block-label">Grid</div>
                 <div class="block-values" id="grid-values">
                     ${layout.phases.map((p) => `<div class="phase-value" id="grid-L${p}">L${p}: -- W</div>`).join("")}
@@ -127,29 +135,39 @@
         `;
     }
     html += `
-            <div class="power-block consumption-block" id="block-consumption">
-                <div class="block-label">Consumption</div>
-                <div class="block-values" id="consumption-values">
-                    ${layout.phases.map((p) => `<div class="phase-value" id="consumption-L${p}">L${p}: -- W</div>`).join("")}
-                </div>
-                <div class="block-total" id="consumption-total">-- W</div>
+        <div class="power-block consumption-block" id="block-consumption">
+            <div class="block-arrows">
+                <svg class="arrow-icon arrow-red" viewBox="0 0 24 24" fill="currentColor" title="Consuming">
+                    <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
+                </svg>
             </div>
+            <div class="block-label">Consumption</div>
+            <div class="block-values" id="consumption-values">
+                ${layout.phases.map((p) => `<div class="phase-value" id="consumption-L${p}">L${p}: -- W</div>`).join("")}
+            </div>
+            <div class="block-total" id="consumption-total">-- W</div>
+        </div>
     `;
     html += `
             <div class="battery-row" id="battery-row" style="--battery-count: ${batteryCount}">
     `;
     for (const battery of layout.battery_systems) {
       html += `
-                <div class="power-block battery-block" id="block-${battery.id}">
-                    <div class="block-icon">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4zM11 20v-5.5H9L13 7v5.5h2L11 20z"/>
-                        </svg>
-                    </div>
-                    <div class="block-label">${battery.name}</div>
-                    <div class="block-total" id="${battery.id}-power">-- W</div>
-                    <div class="battery-status" id="${battery.id}-status">--</div>
+            <div class="power-block battery-block" id="block-${battery.id}">
+                <div class="block-icon">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4zM11 20v-5.5H9L13 7v5.5h2L11 20z"/>
+                    </svg>
                 </div>
+                <div class="block-label">${battery.name}</div>
+                <div class="block-values">
+                    <div class="phase-value" id="${battery.id}-charger-power">Charger:</div>
+                    <div class="phase-value" id="${battery.id}-inverter-power">Inverter:</div>
+                    <div class="phase-value" id="${battery.id}-battery-power">Battery:</div>
+                    <div class="phase-value" id="${battery.id}-power-losses">Losses:</div>
+                </div>
+                <div class="battery-status" id="${battery.id}-status">--</div>
+            </div>
         `;
     }
     html += `
@@ -238,16 +256,22 @@
       if (solarEl) solarEl.textContent = formatPower(data.solar);
     }
     for (const battery of layout.battery_systems) {
-      const power = data.batteries[battery.id] ?? 0;
-      const powerEl = document.getElementById(`${battery.id}-power`);
+      const chargerPwr = data.batteries[battery.id].charger ?? 0;
+      const chargerEl = document.getElementById(`${battery.id}-charger-power`);
+      if (chargerEl) chargerEl.textContent = `Charger: ${formatPower(chargerPwr)}`;
+      const inverterPwr = data.batteries[battery.id].inverter ?? 0;
+      const inverterEl = document.getElementById(`${battery.id}-inverter-power`);
+      if (inverterEl) inverterEl.textContent = `Inverter: ${formatPower(inverterPwr)}`;
+      const batteryPwr = data.batteries[battery.id].battery ?? 0;
+      const batteryEl = document.getElementById(`${battery.id}-battery-power`);
+      if (batteryEl) batteryEl.textContent = `Battery: ${formatPower(batteryPwr)}`;
+      const lossesPwr = data.batteries[battery.id].losses ?? 0;
+      const lossesEl = document.getElementById(`${battery.id}-power-losses`);
+      if (lossesEl) lossesEl.textContent = `Losses: ${formatPower(lossesPwr)}`;
       const statusEl = document.getElementById(`${battery.id}-status`);
-      if (powerEl) {
-        powerEl.textContent = formatPower(Math.abs(power));
-        powerEl.className = `block-total ${power > 0 ? "charging" : power < 0 ? "discharging" : ""}`;
-      }
       if (statusEl) {
-        statusEl.textContent = power > 0 ? "Charging" : power < 0 ? "Discharging" : "Idle";
-        statusEl.className = `battery-status ${power > 0 ? "charging" : power < 0 ? "discharging" : "idle"}`;
+        statusEl.textContent = chargerPwr > 0 ? "Charging" : inverterPwr > 100 ? "Discharging" : "Idle";
+        statusEl.className = `battery-status ${chargerPwr > 0 ? "charging" : inverterPwr > 100 ? "discharging" : "idle"}`;
       }
     }
     updateFlowLines(layout, data);
@@ -356,7 +380,7 @@
         } catch (e) {
           console.error("Failed to update power flow:", e);
         }
-      }, 2e3);
+      }, 1e3);
       window.addEventListener("resize", () => {
         if (currentLayout) drawConnectingLines(currentLayout);
       });

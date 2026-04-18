@@ -156,7 +156,7 @@ def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str 
 
     for param_name, param in sig.parameters.items():
         # Skip dependency injection parameters
-        if param_name in ("db", "battery_configs", "price_config"):
+        if param_name in ("db", "battery_configs", "price_config", "battery_systems"):
             continue
 
         annotation = param.annotation

@@ -21,7 +21,7 @@ export interface BatteryConfig {
     idle_threshold_w?: number;
     min_soc?: number;
     max_soc?: number;
-    control?: VictronControl | MqttControl;
+    control?: VictronConfig | MqttControl;
     metrics?: MetricsConfig;
 }
 
@@ -55,6 +55,13 @@ export interface BatteryGraphResponse {
     soc?: TimeSeries;
     schedule?: TimeSeries;
     voltage?: TimeSeries;
+}
+
+export interface BatteryPowerValues {
+    charger?: number | null;
+    inverter?: number | null;
+    battery?: number | null;
+    losses?: number | null;
 }
 
 export interface BatterySystemInfo {
@@ -93,10 +100,10 @@ export interface HealthResponse {
 }
 
 export interface PowerFlowData {
-    grid?: Record<string, number>;
+    grid?: Record<string, number | null>;
     solar?: number | null;
     consumption?: Record<string, number>;
-    batteries?: Record<string, number>;
+    batteries?: Record<string, BatteryPowerValues>;
 }
 
 export interface PowerResponse {
@@ -159,6 +166,20 @@ export interface TimeSeries {
 
 export async function health(): Promise<HealthResponse> {
     const response = await fetch(`/api/health`);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();}
+
+export async function systemLayout(): Promise<SystemLayoutData> {
+    const response = await fetch(`/api/system-layout`);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();}
+
+export async function powerFlow(): Promise<PowerFlowData> {
+    const response = await fetch(`/api/power-flow`);
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
     }
@@ -273,20 +294,6 @@ export async function energy(params: { start?: string | null; end?: string | nul
     if (params.end !== undefined) searchParams.set('end', String(params.end));
     const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
     const response = await fetch(`/api/energy${query}`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();}
-
-export async function systemLayout(): Promise<SystemLayoutData> {
-    const response = await fetch(`/api/system-layout`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();}
-
-export async function powerFlow(): Promise<PowerFlowData> {
-    const response = await fetch(`/api/power-flow`);
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
     }
