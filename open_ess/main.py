@@ -8,7 +8,7 @@ from open_ess.database import Database, DatabaseService
 from open_ess.frontend import init_dependencies, create_app, close_dependencies
 from open_ess.optimizer import OptimizerService
 from open_ess.pricing import EntsoeService
-from open_ess.util import setup_logging, parse_args
+from open_ess.util import setup_logging, parse_args, EndpointFilter
 from open_ess.victron_modbus import VictronService
 
 setup_logging()
@@ -26,20 +26,22 @@ def main():
     # Services create their own connections in their threads
     database_service = DatabaseService(database)
     entsoe_service = EntsoeService(database, config.prices)
-    victron_service = VictronService(database, config.victron_gx, config.batteries)
-    optimer_service = OptimizerService(
-        database,
-        victron_service=victron_service,
-        price_config=config.prices,
-        battery_configs=config.batteries,
-    )
+    victron_services = []
+    optimizer_services = []
+    for battery_system in config.battery_systems:
+        if battery_system.is_victron:
+            victron_service = VictronService(database, battery_system)
+            victron_services.append(victron_service)
+            optimizer_services.append(
+                OptimizerService(
+                    database,
+                    victron_service=victron_service,
+                    price_config=config.prices,
+                    battery_configs=config.battery_systems,
+                )
+            )
 
-    services = [
-        database_service,
-        entsoe_service,
-        victron_service,
-        optimer_service,
-    ]
+    services = [database_service, entsoe_service] + victron_services + optimizer_services
 
     # Shutdown handler
     def shutdown(signum, frame):
@@ -57,6 +59,9 @@ def main():
     if config.frontend.enable:
         init_dependencies(database, config)
         logger.info(f"Starting web server on http://{config.frontend.host}:{config.frontend.port}")
+
+        logging.getLogger("uvicorn.access").addFilter(EndpointFilter(["/api/power-flow"]))
+
         try:
             app = create_app()
             uvicorn.run(

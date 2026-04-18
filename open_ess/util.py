@@ -5,7 +5,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from open_ess.database import Database
+from open_ess.database import DatabaseConnection
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,16 @@ def setup_logging():
     logging.root.setLevel(logging.INFO)
 
 
+class EndpointFilter(logging.Filter):
+    def __init__(self, excluded_paths: list[str]):
+        super().__init__()
+        self.excluded_paths = excluded_paths
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return not any(path in message for path in self.excluded_paths)
+
+
 def parse_args(description: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
@@ -66,7 +76,7 @@ def parse_args(description: str) -> argparse.Namespace:
     return parser.parse_args()
 
 
-def plot_energy_prices(db: Database, area: str):
+def plot_energy_prices(db: DatabaseConnection, area: str):
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=28)
     end = now + timedelta(days=2)

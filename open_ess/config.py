@@ -4,26 +4,24 @@ import yaml
 from pydantic import BaseModel
 
 from open_ess.database import DatabaseConfig
+from open_ess.frontend import FrontendConfig
 from open_ess.metrics import BatteryConfig
 from open_ess.pricing import PriceConfig
-from open_ess.victron_modbus import VictronConfig
-from open_ess.frontend import FrontendConfig
 
-# TODO: Validate config. If a battery defines victron control, require victron_gx config.
+# TODO: Validate config. If a battery defines mqtt control, require mqtt config.
 
 
 class Config(BaseModel):
     database: DatabaseConfig
     frontend: FrontendConfig
     prices: PriceConfig
-    victron_gx: VictronConfig
-    battery: BatteryConfig | list[BatteryConfig]
+    battery_system: BatteryConfig | list[BatteryConfig]
 
     @property
-    def batteries(self) -> list[BatteryConfig]:
-        if isinstance(self.battery, list):
-            return self.battery
-        return [self.battery]
+    def battery_systems(self) -> list[BatteryConfig]:
+        if isinstance(self.battery_system, list):
+            return self.battery_system
+        return [self.battery_system]
 
     @classmethod
     def from_file(cls, path: Path) -> "Config":

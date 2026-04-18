@@ -25,45 +25,22 @@ prices:
   buy_formula: "0.02 + (price + 0.09161) * 1.21"
   sell_formula: "0.02 + (price + 0.09161) * 1.21"
 
-victron_gx:
-  host: 192.168.0.42
-  system_id: 100
-  grid_id: 1
-  pvinverter_id: 31
-
-battery:
+battery-system:
   name: "MultiPlus-II"
   control:
     type: victron
+    host: 192.168.0.42
     vebus_id: 228
-    bms_id: 225
-    disable_charger_when_idle: yes
-    disable_inverter_when_idle: yes
+    battery_id: 225
   capacity_kwh: 10
   max_charge_power_kw: 3.0
   max_invert_power_kw: 4.5
 
-# Or in case of multiple battery systems;
+# Or in case of multiple battery systems use yaml list format;
 
-battery:
-  - name: "Battery 1"
-    control:
-      type: victron
-      vebus_id: 228
-      bms_id: 225
-      disable_charger_when_idle: yes
-      disable_inverter_when_idle: yes
-    capacity_kwh: 10
-    max_charge_power_kw: 3.0
-    max_invert_power_kw: 4.5
-  - name: "Battery 2"
-    control:
-      type: victron
-      vebus_id: 229
-      bms_id: 226
-      disable_charger_when_idle: yes
-      disable_inverter_when_idle: yes
-    capacity_kwh: 10
-    max_charge_power_kw:  3.0
-    max_invert_power_kw: 4.5
+battery-system:
+  - name: "Battery system 1"
+    ...
+  - name: "Battery system 2"
+    ...
 ```

@@ -12,4 +12,4 @@ class MetricsCoordinator:
 
     @property
     def battery_configs(self) -> list[BatteryConfig]:
-        return self._config.batteries
+        return self._config.battery_systems

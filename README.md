@@ -1,6 +1,6 @@
 # OpenESS - Energy Storage System
 
-An open-source battery charge/discharge scheduler that optimizes based on day-ahead electricity market prices. Maximize savings by charging when prices are low and discharging when high.
+An open-source battery charge/discharge scheduler that optimizes based on day-ahead electricity market prices. Maximize savings by charging when prices are low and discharging when high. Currently only Victron systems are supported but support for other systems will be implemented soon.
 
 > **WARNING: Use at your own risk.** This software controls battery charging and discharging. Incorrect configuration or bugs could damage your equipment, void warranties, or cause safety hazards. The author accept no liability for any damages. Make sure you understand what you're doing before using this software.
 
@@ -21,7 +21,7 @@ Compared to the built-in [Dynamic ESS](https://vrm.victronenergy.com/) from Vict
 - **Victron GX device** - Cerbo GX, Venus GX, or similar
 - **CBC solver** - Install via your package manager (e.g., `apt install coinor-cbc`)
 
-Communication happens via Modbus TCP to the GX device. Direct VE.Bus communication is not supported.
+Communication happens via Modbus TCP to the GX device. Direct VE.Bus communication is not supported (And Victron highly discourages this anyway).
 
 ## Installation
 
@@ -56,8 +56,7 @@ open-ess --config config.yaml
 
 ## Planned Features
 
-- **MQTT integration** - Subscribe to external metrics and publish control commands to non-Victron battery systems
-- **Improved system flexibility** - Multi-battery setups do work but only if each multiplus is connected to exactly one battery. One battery on multiple inverter/chargers or multiple batteries on a single invertere/charger may also be supported in the future.
+- **MQTT integration** - Subscribe to external metrics and publish control commands to non-Victron battery systems.
 
 ## Screenshot
 

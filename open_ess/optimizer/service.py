@@ -45,7 +45,7 @@ class OptimizerService(Service):
 
             if schedule:
                 _, _, power, _ = schedule[0]
-                self._victron_service.client.set_ess_setpoint(batt_cfg.name, power)
+                self._victron_service.client.set_ess_setpoint(power)
                 # TODO: support multiple schedules
                 self._db_conn.set_schedule("victron/vebus/228", schedule)
                 logger.debug(f"Updated schedule with {len(schedule)} entries")

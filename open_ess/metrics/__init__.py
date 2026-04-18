@@ -1,2 +1,2 @@
-from .battery_config import BatteryConfig, VictronControl
+from .battery_config import BatteryConfig
 from .coordinator import MetricsCoordinator

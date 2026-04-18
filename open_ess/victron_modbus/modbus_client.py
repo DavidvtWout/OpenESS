@@ -14,7 +14,20 @@ logger = logging.getLogger(__name__)
 
 class VictronModbusClient:
     def __init__(self, config: VictronConfig):
+        self._config = config
         self._client = ModbusTcpClient(config.host, port=config.port)
+
+    @property
+    def host(self) -> str:
+        return self._config.host
+
+    @property
+    def port(self) -> int:
+        return self._config.port
+
+    @property
+    def address(self) -> str:
+        return f"{self.host}:{self.port}"
 
     def connect(self) -> bool:
         return self._client.connect()

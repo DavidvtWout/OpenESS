@@ -32,7 +32,7 @@ def get_price_config() -> PriceConfig:
 def get_battery_configs() -> dict[str, BatteryConfig]:
     if _config is None:
         raise RuntimeError("Battery configs not initialized. Call init_dependencies() first.")
-    return {battery_config.id: battery_config for battery_config in _config.batteries}
+    return {battery_config.id: battery_config for battery_config in _config.battery_systems}
 
 
 def close_dependencies() -> None:

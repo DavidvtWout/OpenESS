@@ -1,11 +1,13 @@
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from open_ess.database import Database, DatabaseConnection
-from open_ess.metrics import BatteryConfig
 from open_ess.service import Service
 from .client import VictronClient
-from .config import VictronConfig
+
+if TYPE_CHECKING:
+    from open_ess.metrics import BatteryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +15,10 @@ logger = logging.getLogger(__name__)
 class VictronService(Service):
     """Collects measurements from Victron GX every second."""
 
-    def __init__(self, db: Database, config: VictronConfig, battery_configs: list[BatteryConfig]):
+    def __init__(self, db: Database, config: "BatteryConfig"):
         super().__init__("VictronService")
         self._db = db
         self._config = config
-        self._battery_configs = battery_configs
         self._client: VictronClient | None = None
         self._db_conn: DatabaseConnection | None = None
 
@@ -27,7 +28,7 @@ class VictronService(Service):
 
     def on_start(self):
         self._db_conn = self._db.connect()
-        self._client = VictronClient(self._config, self._battery_configs, self._db_conn)
+        self._client = VictronClient(self._db_conn, self._config)
         if not self._client.initialize():
             raise RuntimeError(f"Could not connect to Victron GX at {self._client.address}")
         logger.info(f"Connected to Victron GX at {self._client.address}")

@@ -2,21 +2,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator, computed_field
 
-
-class VictronControl(BaseModel):
-    type: Literal["victron"] = "victron"
-    vebus_id: int
-    bms_id: int | None = None
-    disable_charger_when_idle: bool = False
-    disable_inverter_when_idle: bool = False
-
-    @property
-    def vebus_prefix(self) -> str:
-        return f"victron/vebus/{self.vebus_id}"
-
-    @property
-    def bms_prefix(self) -> str | None:
-        return f"victron/battery/{self.bms_id}" if self.bms_id else None
+from open_ess.victron_modbus import VictronConfig
 
 
 class MqttControl(BaseModel):
@@ -49,20 +35,20 @@ class BatteryConfig(BaseModel):
     min_soc: int = 10
     max_soc: int = 100
 
-    control: Annotated[VictronControl | MqttControl, Field(discriminator="type")]
+    control: Annotated[VictronConfig | MqttControl, Field(discriminator="type")]
     metrics: MetricsConfig = MetricsConfig()
 
     @computed_field
     @property
     def id(self) -> str:
-        if isinstance(self.control, VictronControl):
+        if isinstance(self.control, VictronConfig):
             return f"victron/vebus/{self.control.vebus_id}"
         else:
             return f"mqtt/{self.control.topic}"
 
     @property
     def is_victron(self) -> bool:
-        return isinstance(self.control, VictronControl)
+        return isinstance(self.control, VictronConfig)
 
     @model_validator(mode="after")
     def check_power_limits(self):
@@ -84,7 +70,7 @@ class BatteryConfig(BaseModel):
 
         if self.is_victron:
             vebus_prefix = self.control.vebus_prefix
-            bms_prefix = self.control.bms_prefix
+            bms_prefix = self.control.battery_prefix
 
             if self.metrics.battery_soc is None:
                 if bms_prefix:
