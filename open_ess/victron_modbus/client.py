@@ -8,18 +8,19 @@ from .modbus_client import VictronModbusClient
 from .registers import Register, System, VEBus, GridMeter, Battery, SolarInverter
 
 if TYPE_CHECKING:
-    from open_ess.battery_system import BatteryConfig
+    from open_ess.battery_system import BatterySystemConfig
 
 logger = logging.getLogger(__name__)
 
 
 class VictronClient:
-    def __init__(self, database: Database, config: "BatteryConfig"):
+    def __init__(self, database: Database, config: "BatterySystemConfig"):
         self._db = database
         self._config = config
         self._client = VictronModbusClient(config.control)
 
         self._db_conn: DatabaseConnection | None = None
+        self._serial: str | None = None
 
         self._setpoint: float | None = None  # In Watt
         self._setpoint_expiration: datetime | None = None
@@ -31,6 +32,8 @@ class VictronClient:
         if not self.connect():
             return False
 
+        self._serial = self.read(self.system_id, System.SERIAL).decode("utf-8")
+
         # Enable ESS mode 3 (external control)
         if not self._config.monitor_only:
             self.write(self.system_id, System.ESS_MODE, 3)
@@ -40,6 +43,10 @@ class VictronClient:
     @property
     def address(self) -> str:
         return self._client.address
+
+    @property
+    def serial(self) -> str | None:
+        return self._serial
 
     @property
     def system_id(self) -> int:
@@ -246,7 +253,7 @@ class VictronClient:
     def connect(self) -> bool:
         return self._client.connect()
 
-    def read(self, unit_id: int, register: Register) -> float | None:
+    def read(self, unit_id: int, register: Register) -> float | bytes | None:
         return self._client.read(unit_id, register)
 
     def write(self, unit_id: int, register: Register, value: float) -> bool:

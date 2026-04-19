@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from open_ess.database import DatabaseConfig
 from open_ess.frontend import FrontendConfig
-from open_ess.battery_system import BatteryConfig
+from open_ess.battery_system import BatterySystemConfig
 from open_ess.pricing import PriceConfig
 
 # TODO: Validate config. If a battery defines mqtt control, require mqtt config.
@@ -15,10 +15,10 @@ class Config(BaseModel):
     database: DatabaseConfig
     frontend: FrontendConfig
     prices: PriceConfig
-    battery_system: BatteryConfig | list[BatteryConfig]
+    battery_system: BatterySystemConfig | list[BatterySystemConfig]
 
     @property
-    def battery_systems(self) -> list[BatteryConfig]:
+    def battery_systems(self) -> list[BatterySystemConfig]:
         if isinstance(self.battery_system, list):
             return self.battery_system
         return [self.battery_system]

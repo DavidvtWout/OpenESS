@@ -1,4 +1,4 @@
-from .optimizer import BatteryConfig, Optimizer
+from .optimizer import BatterySystemConfig, Optimizer
 from .service import OptimizerService
 
-__all__ = ["BatteryConfig", "Optimizer", "OptimizerService"]
+__all__ = ["BatterySystemConfig", "Optimizer", "OptimizerService"]

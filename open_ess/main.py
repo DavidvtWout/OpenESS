@@ -3,13 +3,13 @@ import signal
 
 import uvicorn
 
-from open_ess.battery_system import BatterySystem
+from open_ess.battery_system import VictronBatterySystem
 from open_ess.config import Config
 from open_ess.database import Database, DatabaseService
 from open_ess.frontend import init_dependencies, create_app, close_dependencies
 from open_ess.optimizer import OptimizerService
 from open_ess.pricing import EntsoeService
-from open_ess.service import Service
+from open_ess.service import Service, ServiceManager
 from open_ess.util import setup_logging, parse_args, EndpointFilter
 from open_ess.victron_modbus import VictronService
 
@@ -25,35 +25,34 @@ def main():
     database.run_migrations()
 
     # Create services
-    database_service = DatabaseService(database)
-    entsoe_service = EntsoeService(database, config.prices)
-    services: list[Service] = [database_service, entsoe_service]
+    service_manager = ServiceManager()
+    service_manager.register_service(DatabaseService(database))
+    service_manager.register_service(EntsoeService(database, config.prices))
     battery_systems = []
     for battery_config in config.battery_systems:
         if battery_config.is_victron:
             victron_service = VictronService(database, battery_config)
-            battery_system = BatterySystem(battery_config, victron_service.client)
+            service_manager.register_service(victron_service)
+            battery_system = VictronBatterySystem(battery_config, victron_service.client)
             battery_systems.append(battery_system)
-            services.append(victron_service)
-            services.append(
+            service_manager.register_service(
                 OptimizerService(
                     database,
                     battery_system=battery_system,
                     price_config=config.prices,
-                )
+                ),
+                requires=victron_service,
             )
 
     # Shutdown handler
     def shutdown(signum, frame):
         logger.info("Shutting down...")
-        for s in services:
-            s.stop()
+        service_manager.stop()
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    for s in services:
-        s.start()
+    service_manager.start()
 
     # Frontend
     if config.frontend.enable:
@@ -73,9 +72,7 @@ def main():
         finally:
             close_dependencies()
 
-    for s in services:
-        s.join()
-
+    service_manager.wait_for_stop()
     logger.info("Shutdown complete")
 
 

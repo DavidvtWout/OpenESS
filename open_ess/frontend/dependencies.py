@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from open_ess.battery_system import BatteryConfig, BatterySystem
+from open_ess.battery_system import BatterySystemConfig, BatterySystem
 from open_ess.database import Database, DatabaseConnection
 from open_ess.pricing import PriceConfig
 
@@ -31,7 +31,7 @@ def get_price_config() -> PriceConfig:
     return _config.prices
 
 
-def get_battery_configs() -> dict[str, BatteryConfig]:
+def get_battery_configs() -> dict[str, BatterySystemConfig]:
     if _config is None:
         raise RuntimeError("Battery configs not initialized. Call init_dependencies() first.")
     return {battery_config.id: battery_config for battery_config in _config.battery_systems}

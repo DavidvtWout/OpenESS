@@ -2,6 +2,19 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+@dataclass
+class StringType:
+    length: int
+
+    @property
+    def register_count(self) -> int:
+        return self.length
+
+    @property
+    def signed(self) -> bool:
+        return False
+
+
 class DataType(Enum):
     UINT16 = (1, False)
     INT16 = (1, True)
@@ -11,6 +24,9 @@ class DataType(Enum):
     def __init__(self, register_count: int, signed: bool):
         self.register_count = register_count
         self.signed = signed
+
+
+DataType.STRING = StringType
 
 
 @dataclass(frozen=True)
@@ -28,9 +44,13 @@ class Register:
 
     name: str
     address: int
-    dtype: DataType
+    dtype: DataType | StringType
     scale: float = 1
     writable: bool = False
+
+    @property
+    def is_number(self) -> bool:
+        return not isinstance(self.dtype, StringType)
 
     def __str__(self) -> str:
         return f"{self.name} ({self.address})"
@@ -47,6 +67,8 @@ class Register:
 # Aggregated system-level data
 # =============================================================================
 class System:
+    SERIAL = Register("Serial", 800, DataType.STRING(6))
+
     # AC consumption
     AC_CONSUMPTION_L1 = Register("AC Consumption L1", 817, DataType.UINT16)
     AC_CONSUMPTION_L2 = Register("AC Consumption L2", 818, DataType.UINT16)

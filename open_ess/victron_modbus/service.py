@@ -7,7 +7,7 @@ from open_ess.service import Service
 from .client import VictronClient
 
 if TYPE_CHECKING:
-    from open_ess.battery_system import BatteryConfig
+    from open_ess.battery_system import BatterySystemConfig
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class VictronService(Service):
     """Collects measurements from Victron GX every second."""
 
-    def __init__(self, db: Database, config: "BatteryConfig"):
+    def __init__(self, db: Database, config: "BatterySystemConfig"):
         super().__init__("VictronService")
         self._config = config
         self._client = VictronClient(db, config)

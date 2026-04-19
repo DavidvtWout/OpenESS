@@ -35,7 +35,7 @@ class VictronModbusClient:
     def close(self):
         self._client.close()
 
-    def read(self, unit_id: int, register: Register) -> float | None:
+    def read(self, unit_id: int, register: Register) -> float | bytes | None:
         """Read a register and return the scaled value."""
         try:
             result = self._client.read_holding_registers(
@@ -44,6 +44,13 @@ class VictronModbusClient:
             if result.isError():
                 logger.error(f"Modbus error reading register {register.address}: {result}")
                 return None
+
+            if not register.is_number:
+                chars = []
+                for value in result.registers:
+                    chars.append(value // 256)
+                    chars.append(value % 256)
+                return bytes(chars)
 
             # Combine registers based on data type
             if register.dtype.register_count == 1:
@@ -98,7 +105,7 @@ class VictronModbusClient:
             logger.error(f"Modbus exception writing register {register.address}: {e}")
             return False
 
-    def read_many(self, unit_id: int, registers: list[Register]) -> dict[Register, float | None]:
+    def read_many(self, unit_id: int, registers: list[Register]) -> dict[Register, float | bytes | None]:
         """
         Read multiple registers efficiently by batching consecutive addresses.
 

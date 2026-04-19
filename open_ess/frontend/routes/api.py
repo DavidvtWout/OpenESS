@@ -5,7 +5,7 @@ from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from open_ess.battery_system import BatteryConfig, BatterySystem
+from open_ess.battery_system import BatterySystemConfig, BatterySystem
 from open_ess.database import DatabaseConnection
 from open_ess.frontend.dependencies import get_database, get_price_config, get_battery_systems, get_battery_configs
 from open_ess.pricing import PriceConfig
@@ -177,7 +177,7 @@ async def services_status(db: DatabaseConnection = Depends(get_database)):
 
 
 @router.get("/battery-ids", response_model=list[str])
-async def get_battery_ids(battery_configs: dict[str, BatteryConfig] = Depends(get_battery_configs)):
+async def get_battery_ids(battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs)):
     try:
         return list(battery_configs.keys())
     except Exception as e:
@@ -219,7 +219,7 @@ async def get_energy_flow_endpoint(
     end: datetime | None = Query(default=None),
     bucket_minutes: int = Query(default=60),
     db: DatabaseConnection = Depends(get_database),
-    battery_configs: dict[str, BatteryConfig] = Depends(get_battery_configs),
+    battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
 ):
     try:
         if battery_id is None:
@@ -299,7 +299,7 @@ async def get_power_graph(
     end: datetime | None = Query(default=None),
     aggregate_minutes: int = Query(default=1),
     db: DatabaseConnection = Depends(get_database),
-    battery_configs: dict[str, BatteryConfig] = Depends(get_battery_configs),
+    battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
 ):
     try:
         if battery_id is None:
@@ -401,7 +401,7 @@ async def get_battery_graph(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     db: DatabaseConnection = Depends(get_database),
-    battery_configs: dict[str, BatteryConfig] = Depends(get_battery_configs),
+    battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
 ):
     try:
         now = datetime.now(timezone.utc)
@@ -524,7 +524,7 @@ async def get_battery_cycles(
     end: datetime | None = Query(default=None),
     min_soc_swing: int = Query(default=10),
     db: DatabaseConnection = Depends(get_database),
-    battery_configs: dict[str, BatteryConfig] = Depends(get_battery_configs),
+    battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
     price_config: PriceConfig = Depends(get_price_config),
 ):
     try:

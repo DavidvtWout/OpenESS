@@ -7,7 +7,7 @@ import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
 from open_ess.database import DatabaseConnection
-from open_ess.battery_system import BatteryConfig
+from open_ess.battery_system import BatterySystemConfig
 from open_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
@@ -24,14 +24,14 @@ class Optimizer:
     the need for a separate binary variable.
     """
 
-    def __init__(self, db: DatabaseConnection, price_config: PriceConfig, battery_config: BatteryConfig):
+    def __init__(self, db: DatabaseConnection, price_config: PriceConfig, battery_config: BatterySystemConfig):
         self._database = db
         self._price_config = price_config
         self._battery_config = battery_config
         # TODO: check for cbc
 
     @property
-    def battery_config(self) -> BatteryConfig:
+    def battery_config(self) -> BatterySystemConfig:
         return self._battery_config
 
     def _soc_balance_rule(self, model, t):

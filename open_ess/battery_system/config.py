@@ -25,9 +25,10 @@ class MetricsConfig(BaseModel):
     energy_from_battery: str | list[str] | None = None
 
 
-class BatteryConfig(BaseModel):
+class BatterySystemConfig(BaseModel):
     name: str | None = None  # Is set to self.id if not provided.
     monitor_only: bool = False
+    phases: int = 1
     capacity_kwh: float | None = None
     max_charge_power_kw: float | None = None
     max_invert_power_kw: float | None = None

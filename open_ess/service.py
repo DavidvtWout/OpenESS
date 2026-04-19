@@ -1,21 +1,25 @@
 import logging
 import threading
+import time
 from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
 
 class Service(ABC, threading.Thread):
-    """Base class for background services with their own lifecycle."""
-
     def __init__(self, name: str):
         super().__init__(name=name, daemon=True)
         self._running = False
+        self._ready = False
         self._stop_event = threading.Event()
 
     @property
     def running(self) -> bool:
         return self._running
+
+    @property
+    def is_ready(self) -> bool:
+        return self._ready
 
     def run(self):
         """Thread entry point."""
@@ -24,6 +28,7 @@ class Service(ABC, threading.Thread):
 
         try:
             self.on_start()
+            self._ready = True
         except Exception as e:
             logger.exception(f"{self.name} failed during startup: {e}")
             self._running = False
@@ -63,3 +68,40 @@ class Service(ABC, threading.Thread):
     def wait_seconds(self, seconds: float) -> bool:
         """Sleep for seconds, but wake early if stopped. Returns True if stopped."""
         return self._stop_event.wait(timeout=seconds)
+
+
+class ServiceManager:
+    def __init__(self):
+        self._services: list[Service] = []
+        self._dependencies: dict[Service, list[Service]] = {}
+        self._running = False
+
+    def register_service(self, service: Service, requires: Service | list[Service] = None):
+        self._services.append(service)
+        if requires:
+            if not isinstance(requires, list):
+                requires = [requires]
+            self._dependencies[service] = requires
+
+    def start(self):
+        self._running = True
+        services_to_start = self._services
+        services_on_hold = []
+        while self._running and services_to_start:
+            for service in services_to_start:
+                if all(dep.is_ready for dep in self._dependencies.get(service, [])):
+                    service.start()
+                else:
+                    services_on_hold.append(service)
+            services_to_start = services_on_hold
+            services_on_hold = []
+            time.sleep(0.1)
+
+    def stop(self):
+        self._running = False
+        for service in self._services:
+            service.stop()
+
+    def wait_for_stop(self):
+        for service in self._services:
+            service.join()
