@@ -8,8 +8,7 @@ class VictronConfig(BaseModel):
     host: str
     port: int = 502
 
-    # Modbus unit IDs, check Settings → Services → Modbus TCP → Available services
-    # vebus and battery IDs must be configured in the battery config section.
+    # Modbus unit IDs, check Settings → Services → Modbus TCP → Available services.
     system_id: int = 100
     vebus_id: int
     battery_id: int | None = None
