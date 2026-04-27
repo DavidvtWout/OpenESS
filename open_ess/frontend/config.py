@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, model_validator
 
 
@@ -10,7 +12,7 @@ class FrontendConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def set_enable_default(cls, data):
+    def set_enable_default(cls, data: Any) -> Any:
         if isinstance(data, dict) and "enable" not in data:
             data["enable"] = data.get("host") is not None
         return data

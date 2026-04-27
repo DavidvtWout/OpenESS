@@ -21,7 +21,7 @@ class Service(ABC, threading.Thread):
     def is_ready(self) -> bool:
         return self._ready
 
-    def run(self):
+    def run(self) -> None:
         """Thread entry point."""
         self._running = True
         logger.info(f"{self.name} started")
@@ -47,20 +47,20 @@ class Service(ABC, threading.Thread):
 
         logger.info(f"{self.name} stopped")
 
-    def on_start(self):
+    def on_start(self) -> None:
         """Called once when service starts. Override for initialization."""
         pass
 
     @abstractmethod
-    def tick(self):
+    def tick(self) -> None:
         """Called repeatedly. Override with service logic."""
         pass
 
-    def wait_until_next(self):
+    def wait_until_next(self) -> None:
         """Wait until next tick. Override for custom timing."""
         self._stop_event.wait(timeout=1.0)
 
-    def stop(self):
+    def stop(self) -> None:
         """Signal the service to stop."""
         self._running = False
         self._stop_event.set()
@@ -71,19 +71,19 @@ class Service(ABC, threading.Thread):
 
 
 class ServiceManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self._services: list[Service] = []
         self._dependencies: dict[Service, list[Service]] = {}
         self._running = False
 
-    def register_service(self, service: Service, requires: Service | list[Service] = None):
+    def register_service(self, service: Service, requires: Service | list[Service] | None = None) -> None:
         self._services.append(service)
         if requires:
             if not isinstance(requires, list):
                 requires = [requires]
             self._dependencies[service] = requires
 
-    def start(self):
+    def start(self) -> None:
         self._running = True
         services_to_start = self._services
         services_on_hold = []
@@ -97,11 +97,11 @@ class ServiceManager:
             services_on_hold = []
             time.sleep(0.1)
 
-    def stop(self):
+    def stop(self) -> None:
         self._running = False
         for service in self._services:
             service.stop()
 
-    def wait_for_stop(self):
+    def wait_for_stop(self) -> None:
         for service in self._services:
             service.join()

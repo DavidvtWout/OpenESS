@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from open_ess.victron_modbus import VictronConfig
 
@@ -39,8 +39,8 @@ class BatterySystemConfig(BaseModel):
     control: Annotated[VictronConfig | MqttControl, Field(discriminator="type")]
     metrics: MetricsConfig = MetricsConfig()
 
-    @computed_field
     @property
+    @computed_field
     def id(self) -> str:
         if isinstance(self.control, VictronConfig):
             return f"victron/vebus/{self.control.vebus_id}"
@@ -52,7 +52,7 @@ class BatterySystemConfig(BaseModel):
         return isinstance(self.control, VictronConfig)
 
     @model_validator(mode="after")
-    def check_power_limits(self):
+    def check_power_limits(self) -> "BatterySystemConfig":
         if not self.monitor_only:
             if self.max_charge_power_kw is None:
                 raise ValueError(
@@ -65,11 +65,11 @@ class BatterySystemConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def set_defaults(self):
+    def set_defaults(self) -> "BatterySystemConfig":
         if self.name is None:
             self.name = self.id
 
-        if self.is_victron:
+        if isinstance(self.control, VictronConfig):
             vebus_prefix = self.control.vebus_prefix
             bms_prefix = self.control.battery_prefix
 

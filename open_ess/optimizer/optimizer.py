@@ -1,13 +1,15 @@
 import logging
 import os
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
+import pyomo.core
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
-from open_ess.database import DatabaseConnection
 from open_ess.battery_system import BatterySystemConfig
+from open_ess.database import DatabaseConnection
 from open_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
@@ -34,35 +36,6 @@ class Optimizer:
     def battery_config(self) -> BatterySystemConfig:
         return self._battery_config
 
-    def _soc_balance_rule(self, model, t):
-        if t == 0:
-            prev_soc = model.current_soc
-        else:
-            prev_soc = model.soc[t - 1]
-
-        # Energy into battery = charge_power - charger_loss
-        # Energy out of battery = discharge_power + inverter_loss
-        net_energy = (
-            ((model.charge_power[t] - model.charger_loss[t]) - (model.discharge_power[t] + model.inverter_loss[t]))
-            * model.duration[t]
-            / 3600
-        )
-        soc_change = 100 * net_energy / self._battery_config.capacity_kwh
-        return model.soc[t] == prev_soc + soc_change
-
-    def _objective_rule(self, model):
-        total = 0
-        for t in model.T:
-            price = model.market_price[t]
-            # Cost to charge (grid power = charge + charger_loss)
-            grid_charge = model.charge_power[t] + model.charger_loss[t]
-            buy_cost = grid_charge * self._price_config.buy_price(price)
-            # Revenue from discharge (grid power = discharge - inverter_loss...
-            # but inverter_loss is drawn from battery, so grid gets discharge_power)
-            sell_revenue = model.discharge_power[t] * self._price_config.sell_price(price)
-            total += (buy_cost - sell_revenue) * self._price_config.aggregate_minutes / 60
-        return total
-
     def optimize(self) -> list[tuple[datetime, datetime, int, float]]:
         """Generate optimal charge schedule using mixed-integer linear programming.
 
@@ -73,7 +46,7 @@ class Optimizer:
         - T: time variable starting at t=0 and going up to t=len(future_prices)-1.
         """
         # Get hourly prices for the planning horizon
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         start_hour = now.replace(minute=0, second=0, microsecond=0)
         prices = self._database.get_prices(
             self._price_config.area,
@@ -107,6 +80,8 @@ class Optimizer:
             return []
 
         # Build piecewise linear breakpoints for loss functions
+        assert self._battery_config.max_charge_power_kw is not None
+        assert self._battery_config.max_invert_power_kw is not None
         charger_bp, charger_loss_vals = build_piecewise_loss_points(
             self._battery_config.max_charge_power_kw, charger_loss
         )
@@ -155,11 +130,8 @@ class Optimizer:
         )
 
         # SOC dynamics constraint
-        def soc_balance_rule(model, t):
-            if t == 0:
-                prev_soc = current_soc
-            else:
-                prev_soc = model.soc[t - 1]
+        def soc_balance_rule(model: pyomo.core.Model, t: int) -> Any:
+            prev_soc = current_soc if t == 0 else model.soc[t - 1]
 
             # Energy into battery = charge_power - charger_loss
             # Energy out of battery = discharge_power + inverter_loss
@@ -177,7 +149,7 @@ class Optimizer:
         # ^ Final SoC should equal starting SOC (energy neutral over horizon)
 
         # Objective: minimize cost (buy cost - sell revenue)
-        def objective_rule(model):
+        def objective_rule(model: pyomo.core.Model) -> float:
             total = 0
             for t in model.T:
                 price = model.market_price[t]
@@ -257,8 +229,8 @@ def predict_next_week(
     delta = last_time - first_time
     start_of_week = last_time - timedelta(weeks=delta.days // 7)
 
-    weeks = []
-    week = []
+    weeks: list[list[tuple[datetime, float]]] = []
+    week: list[tuple[datetime, float]] = []
     for t, p in prices:
         if t > start_of_week:
             start_of_week += timedelta(weeks=1)
@@ -274,7 +246,7 @@ def predict_next_week(
     for week in weeks:
         week_avg = sum(p for _, p in week) / len(week)
         factor = last_week_avg / week_avg
-        for i, (t, p) in enumerate(week):
+        for i, (_t, p) in enumerate(week):
             next_week[i] = (next_week[i][0], next_week[i][1] + p * factor)
     for i, (t, p) in enumerate(next_week):
         next_week[i] = (t, p / len(weeks))

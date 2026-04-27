@@ -14,10 +14,17 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from types import NoneType, UnionType
-from typing import Any, get_args, get_origin
+from typing import Any, TypedDict, get_args, get_origin
 
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
+
+
+class _ParamInfo(TypedDict):
+    name: str
+    ts_type: str
+    optional: bool
+
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +78,7 @@ def python_type_to_ts(python_type: Any, models: dict[str, type]) -> str:
 
     # Fallback
     if hasattr(python_type, "__name__"):
-        return python_type.__name__
+        return str(python_type.__name__)
 
     return "unknown"
 
@@ -99,12 +106,12 @@ def generate_interface_ts(model: type[BaseModel], models: dict[str, type]) -> st
     return "\n".join(lines)
 
 
-def collect_models(module) -> tuple[list[type[Enum]], list[type[BaseModel]]]:
+def collect_models(module: object) -> tuple[list[type[Enum]], list[type[BaseModel]]]:
     """Collect all Enum and BaseModel classes from a module."""
     enums = []
     models = []
 
-    for name, obj in inspect.getmembers(module):
+    for _name, obj in inspect.getmembers(module):
         if inspect.isclass(obj):
             if issubclass(obj, Enum) and obj is not Enum:
                 enums.append(obj)
@@ -150,7 +157,7 @@ def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str 
         response_type = python_type_to_ts(route.response_model, models_dict)
 
     # Extract query parameters from the endpoint function signature
-    params = []
+    params: list[_ParamInfo] = []
     endpoint = route.endpoint
     sig = inspect.signature(endpoint)
 
@@ -183,9 +190,9 @@ def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str 
         param_strs = []
         # Sort so required params come first
         params.sort(key=lambda x: x["optional"])
-        for param in params:
-            opt = "?" if param["optional"] else ""
-            param_strs.append(f'{param["name"]}{opt}: {param["ts_type"]}')
+        for p in params:
+            opt = "?" if p["optional"] else ""
+            param_strs.append(f"{p['name']}{opt}: {p['ts_type']}")
         params_signature = "params: { " + "; ".join(param_strs) + " }"
     else:
         params_signature = ""
@@ -196,9 +203,9 @@ def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str 
 
     if params:
         lines.append("const searchParams = new URLSearchParams();")
-        for param in params:
+        for p in params:
             lines.append(
-                f"if (params.{param['name']} !== undefined) searchParams.set('{param['name']}', String(params.{param['name']}));"
+                f"if (params.{p['name']} !== undefined) searchParams.set('{p['name']}', String(params.{p['name']}));"
             )
         lines.append("const query = searchParams.toString() ? `?${searchParams.toString()}` : '';")
         lines.append(f"const response = await fetch(`/api{path}${{query}}`);")
@@ -274,7 +281,7 @@ def generate_types_file(output_path: Path) -> None:
     print(f"Generated {output_path}")
 
 
-def main():
+def main() -> None:
     output_path = Path("open_ess/frontend/src/types.ts")
     try:
         generate_types_file(output_path)

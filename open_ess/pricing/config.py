@@ -2,12 +2,12 @@
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from pydantic import BaseModel, model_validator
 
-from .formula import compile_formula, FormulaError
+from .formula import FormulaError, compile_formula
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +69,12 @@ class PriceConfig(BaseModel):
         try:
             self._buy_fn = compile_formula(self.buy_formula)
         except FormulaError as e:
-            raise ValueError(f"Invalid buy_formula: {e}")
+            raise ValueError(f"Invalid buy_formula: {e}") from e
 
         try:
             self._sell_fn = compile_formula(self.sell_formula)
         except FormulaError as e:
-            raise ValueError(f"Invalid sell_formula: {e}")
+            raise ValueError(f"Invalid sell_formula: {e}") from e
 
         return self
 

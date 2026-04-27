@@ -1,8 +1,8 @@
 import logging
+from datetime import UTC, datetime
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING
-from datetime import datetime, timezone
 
 if TYPE_CHECKING:
     from .database import DatabaseConnection
@@ -31,7 +31,7 @@ def get_migrations() -> list[tuple[int, str]]:
     return sorted(migrations)
 
 
-def run_migration(version: int, module_name: str, conn) -> None:
+def run_migration(version: int, module_name: str, conn: "DatabaseConnection") -> None:
     """Run a single migration.
 
     Args:
@@ -43,7 +43,7 @@ def run_migration(version: int, module_name: str, conn) -> None:
     module.upgrade(conn)
 
 
-def run_migrations(conn: "DatabaseConnection"):
+def run_migrations(conn: "DatabaseConnection") -> None:
     conn.execute("""
                 CREATE TABLE IF NOT EXISTS schema_version (
                     version INTEGER PRIMARY KEY,
@@ -62,7 +62,7 @@ def run_migrations(conn: "DatabaseConnection"):
             run_migration(version, module_name, conn)
             conn.execute(
                 "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-                (version, datetime.now(timezone.utc)),
+                (version, datetime.now(UTC)),
             )
             conn.commit()
             logger.info(f"Migration {version} complete")

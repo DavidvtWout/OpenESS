@@ -1,14 +1,15 @@
 import logging
-from datetime import datetime, timedelta, timezone
-from enum import Enum
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from open_ess.battery_system import BatterySystemConfig, BatterySystem
+from open_ess.battery_system import BatterySystem, BatterySystemConfig
 from open_ess.database import DatabaseConnection
-from open_ess.frontend.dependencies import get_database, get_price_config, get_battery_systems, get_battery_configs
+from open_ess.frontend.dependencies import get_battery_configs, get_battery_systems, get_database, get_price_config
 from open_ess.pricing import PriceConfig
+
 from .util import TimeSeries, data_to_timeseries, find_full_battery_cycles
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ class HealthResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(db: DatabaseConnection = Depends(get_database)):
+async def health_check(db: DatabaseConnection = Depends(get_database)) -> HealthResponse:
     try:
         # TODO:
         cursor = db.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -39,7 +40,7 @@ async def health_check(db: DatabaseConnection = Depends(get_database)):
         return HealthResponse(status="ok", database="connected", tables=tables)
     except Exception as e:
         logger.exception("Health check failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ---------------------------- #
@@ -60,7 +61,7 @@ class SystemLayoutData(BaseModel):
 
 
 @router.get("/system-layout", response_model=SystemLayoutData)
-async def get_system_layout(battery_systems: list[BatterySystem] = Depends(get_battery_systems)):
+async def get_system_layout(battery_systems: list[BatterySystem] = Depends(get_battery_systems)) -> SystemLayoutData:
     return SystemLayoutData(
         phases=[1, 2, 3],
         # grid_labels=["L1", "L2", "L3"],
@@ -86,8 +87,8 @@ class PowerFlowData(BaseModel):
 @router.get("/power-flow", response_model=PowerFlowData)
 async def get_power_flow(
     db: DatabaseConnection = Depends(get_database), battery_systems: list[BatterySystem] = Depends(get_battery_systems)
-):
-    start = datetime.now(timezone.utc) - timedelta(seconds=10)
+) -> PowerFlowData:
+    start = datetime.now(UTC) - timedelta(seconds=10)
 
     grid_power = {}
     for i in (1, 2, 3):
@@ -98,7 +99,7 @@ async def get_power_flow(
         grid_power[f"L{i}"] = power
 
     solar_power = None
-    result = db.get_power(f"victron/pvinverter/31/power/l1", start=start, bucket_seconds=None)
+    result = db.get_power("victron/pvinverter/31/power/l1", start=start, bucket_seconds=None)
     if result:
         _, solar_power = result[-1]
 
@@ -142,7 +143,7 @@ async def get_power_flow(
 # ------------------------------- #
 
 
-class Status(str, Enum):
+class Status(StrEnum):
     OK = "ok"
     WARNING = "warning"
     ERROR = "error"
@@ -165,7 +166,7 @@ class ServicesStatusResponse(BaseModel):
 
 
 @router.get("/services-status", response_model=ServicesStatusResponse)
-async def services_status(db: DatabaseConnection = Depends(get_database)):
+async def services_status() -> ServicesStatusResponse:
     try:
         return ServicesStatusResponse(
             database=ServiceStatus(status=Status.OK, messages=[]),
@@ -173,16 +174,16 @@ async def services_status(db: DatabaseConnection = Depends(get_database)):
         )
     except Exception as e:
         logger.exception("Health check failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/battery-ids", response_model=list[str])
-async def get_battery_ids(battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs)):
+async def get_battery_ids(battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs)) -> list[str]:
     try:
         return list(battery_configs.keys())
     except Exception as e:
         logger.exception("Failed to get battery ids")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ------------------------ #
@@ -220,13 +221,10 @@ async def get_energy_flow_endpoint(
     bucket_minutes: int = Query(default=60),
     db: DatabaseConnection = Depends(get_database),
     battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
-):
+) -> EnergyGraphResponse:
     try:
-        if battery_id is None:
-            battery_config = battery_configs["victron/vebus/228"]  # TODO
-        else:
-            battery_config = battery_configs[battery_id]
-        now = datetime.now(timezone.utc)
+        battery_config = battery_configs["victron/vebus/228"] if battery_id is None else battery_configs[battery_id]
+        now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(hours=24)
         if end is None:
@@ -289,7 +287,7 @@ async def get_energy_flow_endpoint(
         )
     except Exception as e:
         logger.exception("Failed to get energy flow")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/power-graph", response_model=PowerResponse)
@@ -300,13 +298,10 @@ async def get_power_graph(
     aggregate_minutes: int = Query(default=1),
     db: DatabaseConnection = Depends(get_database),
     battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
-):
+) -> PowerResponse:
     try:
-        if battery_id is None:
-            battery_config = battery_configs["victron/vebus/228"]  # TODO
-        else:
-            battery_config = battery_configs[battery_id]
-        now = datetime.now(timezone.utc)
+        battery_config = battery_configs["victron/vebus/228"] if battery_id is None else battery_configs[battery_id]
+        now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(hours=24)
         if end is None:
@@ -331,7 +326,7 @@ async def get_power_graph(
         return PowerResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:
         logger.exception("Failed to get power data")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class PricePoint(BaseModel):
@@ -356,11 +351,11 @@ async def get_price_data(
     aggregate_minutes: int | None = Query(default=None),
     db: DatabaseConnection = Depends(get_database),
     price_config: PriceConfig = Depends(get_price_config),
-):
+) -> PricesResponse:
     try:
         if area is None:
             area = price_config.area
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(days=7)
         if end is None:
@@ -386,7 +381,7 @@ async def get_price_data(
         )
     except Exception as e:
         logger.exception("Failed to get prices")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class BatteryGraphResponse(BaseModel):
@@ -402,9 +397,9 @@ async def get_battery_graph(
     end: datetime | None = Query(default=None),
     db: DatabaseConnection = Depends(get_database),
     battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
-):
+) -> dict[str, BatteryGraphResponse]:
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(hours=48)
         if end is None:
@@ -427,7 +422,7 @@ async def get_battery_graph(
         return result
     except Exception as e:
         logger.exception("Failed to get battery SOC")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ---------------#
@@ -450,16 +445,15 @@ async def get_efficiency_scatter(
     limit: int = Query(default=2000),
     aggregate_minutes: int = Query(default=10),
     idle_threshold: int = Query(default=5),
-    balancing_threshold: int = Query(default=100),
     db: DatabaseConnection = Depends(get_database),
-):
+) -> list[EfficiencyScatterPoint]:
     try:
         ac_in = db.get_power("victron/vebus/228/power/ac_in/l1", bucket_seconds=aggregate_minutes * 60, limit=limit)
         ac_out = db.get_power("victron/vebus/228/power/ac_out/l1", bucket_seconds=aggregate_minutes * 60, limit=limit)
         dc = db.get_power("victron/vebus/228/power/battery", bucket_seconds=aggregate_minutes * 60, limit=limit)
         # dc = db.get_power("victron/battery/225/power/battery", bucket_seconds=aggregate_minutes * 60, limit=limit)
 
-        data = {ts: [v_in - v_out, None] for (ts, v_in), (_, v_out) in zip(ac_in, ac_out)}
+        data = {ts: [v_in - v_out, None] for (ts, v_in), (_, v_out) in zip(ac_in, ac_out, strict=False)}
         for ts, v in dc:
             if ts in data:
                 data[ts][1] = v
@@ -497,14 +491,14 @@ async def get_efficiency_scatter(
         return points
     except Exception as e:
         logger.exception("Failed to get efficiency scatter data")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class BatteryCycle(BaseModel):
     start_time: datetime
     end_time: datetime
     duration_hours: float
-    min_soc: int
+    min_soc: float
     ac_energy_in: float | None
     ac_energy_out: float | None
     dc_energy_in: float
@@ -526,13 +520,10 @@ async def get_battery_cycles(
     db: DatabaseConnection = Depends(get_database),
     battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
     price_config: PriceConfig = Depends(get_price_config),
-):
+) -> list[BatteryCycle]:
     try:
-        if battery_id is None:
-            battery_config = battery_configs["victron/vebus/228"]  # TODO
-        else:
-            battery_config = battery_configs[battery_id]
-        now = datetime.now(timezone.utc)
+        battery_config = battery_configs["victron/vebus/228"] if battery_id is None else battery_configs[battery_id]
+        now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(days=30)
         if end is None:
@@ -623,7 +614,7 @@ async def get_battery_cycles(
         return cycles
     except Exception as e:
         logger.exception("Failed to get battery cycles")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # -------------------------#
@@ -638,9 +629,9 @@ async def get_power(
     end: datetime | None = Query(default=None),
     aggregate_minutes: int = Query(default=1),
     db: DatabaseConnection = Depends(get_database),
-):
+) -> PowerResponse:
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(hours=24)
         if end is None:
@@ -649,7 +640,7 @@ async def get_power(
         return PowerResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:
         logger.exception("Failed to get debug power flows")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # TODO: add parameter to select subset of series
@@ -659,9 +650,9 @@ async def get_energy(
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     db: DatabaseConnection = Depends(get_database),
-):
+) -> EnergyResponse:
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(hours=24)
         if end is None:
@@ -677,4 +668,4 @@ async def get_energy(
         return EnergyResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:
         logger.exception("Failed to get debug energy flows")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

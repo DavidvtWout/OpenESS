@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .config import DatabaseConfig
 from .migration_runner import run_migrations
-from .util import dt_to_ms, ms_to_dt, base_conditions
+from .util import base_conditions, dt_to_ms, ms_to_dt
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class Database:
     def connect(self) -> "DatabaseConnection":
         return DatabaseConnection(self._config.path)
 
-    def run_migrations(self):
+    def run_migrations(self) -> None:
         with self.connect() as conn:
             run_migrations(conn)
 
@@ -38,24 +38,24 @@ class DatabaseConnection:
         self._conn.row_factory = sqlite3.Row
         # ^ Makes column access by name possible
 
-    def close(self):
+    def close(self) -> None:
         self._conn.close()
 
-    def __enter__(self):
+    def __enter__(self) -> "DatabaseConnection":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         self.close()
 
-    def execute(self, sql: str, parameters=None) -> sqlite3.Cursor:
+    def execute(self, sql: str, parameters: list | tuple | None = None) -> sqlite3.Cursor:
         if parameters is None:
             parameters = []
         return self._conn.execute(sql, parameters)
 
-    def commit(self):
-        return self._conn.commit()
+    def commit(self) -> None:
+        self._conn.commit()
 
-    def vacuum(self):
+    def vacuum(self) -> None:
         self._conn.execute("PRAGMA incremental_vacuum")
 
     def _get_labels(
@@ -70,10 +70,7 @@ class DatabaseConnection:
             conditions.append(f"{timestamp_name} < ?")
             params.append(dt_to_ms(end))
 
-        if conditions:
-            where_clause = "WHERE " + " AND ".join(conditions)
-        else:
-            where_clause = ""
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
         query = f"""
             SELECT DISTINCT label
             FROM {table_name}
@@ -86,7 +83,7 @@ class DatabaseConnection:
     # Power
     # -------------------------------------------------------------------------
 
-    def insert_power(self, label: str, timestamp: datetime, power: float):
+    def insert_power(self, label: str, timestamp: datetime, power: float | None) -> None:
         if power is None:
             return
         self._conn.execute(
@@ -111,7 +108,7 @@ class DatabaseConnection:
         if bucket_seconds is not None:
             bucket_ms = round(bucket_seconds * 1000)
             select_clause = "(start_time / ?) * ? as bucket, AVG(value) as avg_value"
-            params = [bucket_ms, bucket_ms] + params
+            params = [bucket_ms, bucket_ms, *params]
             group_by = "GROUP BY bucket"
             order_by = "bucket"
         else:
@@ -141,7 +138,7 @@ class DatabaseConnection:
 
     def get_all_power(
         self, start: datetime, end: datetime | None = None, bucket_seconds: float | None = None
-    ) -> dict[str, list[tuple[datetime, int]]]:
+    ) -> dict[str, list[tuple[datetime, float]]]:
         power_series = {}
         for label in self.get_power_labels(start, end):
             power_series[label] = self.get_power(label, start, end, bucket_seconds)
@@ -223,8 +220,10 @@ class DatabaseConnection:
         self,
         label: str,
         timestamp: datetime,
-        energy: float,
-    ):
+        energy: float | None,
+    ) -> None:
+        if energy is None:
+            return
         self._conn.execute(
             """
             INSERT INTO energy (label, timestamp, value)
@@ -264,7 +263,12 @@ class DatabaseConnection:
         return result
 
     def get_energy_aggregated(
-        self, label, aggregation_seconds: float, start: datetime | None, end: datetime | None, center_buckets=False
+        self,
+        label: str,
+        aggregation_seconds: float,
+        start: datetime | None,
+        end: datetime | None,
+        center_buckets: bool = False,
     ) -> list[tuple[datetime, float]]:
         if start:
             start -= timedelta(seconds=aggregation_seconds)
@@ -298,7 +302,7 @@ class DatabaseConnection:
             GROUP BY bucket
             ORDER BY bucket
         """
-        cursor = self._conn.execute(query, [agg_ms, agg_ms] + params)
+        cursor = self._conn.execute(query, [agg_ms, agg_ms, *params])
 
         center_offset = agg_ms // 2 if center_buckets else 0
         return [(ms_to_dt(r[0] + center_offset), round(r[1], 3)) for r in cursor.fetchall()]
@@ -339,7 +343,7 @@ class DatabaseConnection:
     # Day-ahead prices
     # -------------------------------------------------------------------------
 
-    def insert_price(self, area: str, start_time: datetime, end_time: datetime, price: float):
+    def insert_price(self, area: str, start_time: datetime, end_time: datetime, price: float) -> None:
         self._conn.execute(
             """
             INSERT INTO day_ahead_prices (area, start_time, end_time, price)
@@ -351,7 +355,7 @@ class DatabaseConnection:
         )
         self._conn.commit()
 
-    def insert_prices(self, area: str, prices: list[tuple[datetime, datetime, float]]):
+    def insert_prices(self, area: str, prices: list[tuple[datetime, datetime, float]]) -> None:
         self._conn.executemany(
             """
             INSERT INTO day_ahead_prices (area, start_time, end_time, price)
@@ -365,7 +369,7 @@ class DatabaseConnection:
         logger.debug(f"Inserted {len(prices)} price records")
 
     def get_prices(
-        self, area: str, start: datetime, end: datetime = None, aggregate_minutes: float = None
+        self, area: str, start: datetime, end: datetime | None = None, aggregate_minutes: float | None = None
     ) -> list[tuple[datetime, float]]:
         conditions, params = base_conditions(area, start, end, label_name="area", timestamp_name="start_time")
 
@@ -375,7 +379,7 @@ class DatabaseConnection:
             select_clause = f"(start_time / ?) * ? as {timestamp_column}, AVG(price) as {value_column}"
             group_by = f"GROUP BY {timestamp_column}"
             agg_ms = round(aggregate_minutes * 60000)
-            params = [agg_ms, agg_ms] + params
+            params = [agg_ms, agg_ms, *params]
         else:
             timestamp_column = "start_time"
             group_by = ""
@@ -428,7 +432,7 @@ class DatabaseConnection:
     # Battery SOC
     # -------------------------------------------------------------------------
 
-    def insert_soc(self, label: str, timestamp: datetime, soc: int):
+    def insert_soc(self, label: str, timestamp: datetime, soc: int) -> None:
         # TODO: also insert if last update was more than 5 minutes ago
         self._conn.execute(
             """
@@ -443,7 +447,7 @@ class DatabaseConnection:
         )
         self._conn.commit()
 
-    def get_battery_soc(self, label: str, start: datetime, end: datetime) -> list[tuple[datetime, int]]:
+    def get_battery_soc(self, label: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
         if isinstance(label, list):
             label = label[0]
         cursor = self._conn.execute(

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
@@ -9,6 +9,7 @@ from entsoe.utils import add_timestamps, extract_records
 from pandas import DataFrame
 
 from open_ess.database import DatabaseConnection
+
 from .areas import AREAS
 from .config import PriceConfig
 
@@ -78,8 +79,8 @@ class EntsoeClient:
             prices.append((row_start, row_end, price))
         return prices
 
-    def fetch_missing_prices(self):
-        now = datetime.now(timezone.utc)
+    def fetch_missing_prices(self) -> None:
+        now = datetime.now(UTC)
         end_of_tomorrow = (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
 
         latest = self._db.get_latest_price_time(self._config.area)

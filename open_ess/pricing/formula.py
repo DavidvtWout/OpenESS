@@ -6,7 +6,8 @@ No function calls, attribute access, or other potentially unsafe operations.
 
 import ast
 import operator
-from typing import Callable
+from collections.abc import Callable
+from typing import cast
 
 # Allowed binary operators
 BINARY_OPS = {
@@ -53,14 +54,14 @@ def _eval_node(node: ast.AST, price: float) -> float:
             raise FormulaError(f"Operator {op_type.__name__} not allowed")
         left = _eval_node(node.left, price)
         right = _eval_node(node.right, price)
-        return BINARY_OPS[op_type](left, right)
+        return cast(float, BINARY_OPS[op_type](left, right))
 
     elif isinstance(node, ast.UnaryOp):
-        op_type = type(node.op)
-        if op_type not in UNARY_OPS:
-            raise FormulaError(f"Unary operator {op_type.__name__} not allowed")
+        unary_op_type = type(node.op)
+        if unary_op_type not in UNARY_OPS:
+            raise FormulaError(f"Unary operator {unary_op_type.__name__} not allowed")
         operand = _eval_node(node.operand, price)
-        return UNARY_OPS[op_type](operand)
+        return cast(float, UNARY_OPS[unary_op_type](operand))  # type: ignore[operator]
 
     else:
         raise FormulaError(f"Expression type {type(node).__name__} not allowed")
@@ -89,7 +90,7 @@ def compile_formula(formula: str) -> Callable[[float], float]:
     try:
         tree = ast.parse(formula, mode="eval")
     except SyntaxError as e:
-        raise FormulaError(f"Invalid formula syntax: {e}")
+        raise FormulaError(f"Invalid formula syntax: {e}") from e
 
     # Validate the tree before returning the evaluator
     def validate(node: ast.AST) -> None:
@@ -97,18 +98,18 @@ def compile_formula(formula: str) -> Callable[[float], float]:
             validate(node.body)
         elif isinstance(node, ast.Constant):
             if not isinstance(node.value, (int, float)):
-                raise FormulaError(f"Only numeric constants allowed")
+                raise FormulaError("Only numeric constants allowed")
         elif isinstance(node, ast.Name):
             if node.id not in ("price", "p"):
                 raise FormulaError(f"Unknown variable '{node.id}'")
         elif isinstance(node, ast.BinOp):
             if type(node.op) not in BINARY_OPS:
-                raise FormulaError(f"Operator not allowed")
+                raise FormulaError("Operator not allowed")
             validate(node.left)
             validate(node.right)
         elif isinstance(node, ast.UnaryOp):
             if type(node.op) not in UNARY_OPS:
-                raise FormulaError(f"Unary operator not allowed")
+                raise FormulaError("Unary operator not allowed")
             validate(node.operand)
         else:
             raise FormulaError(f"Expression type {type(node).__name__} not allowed")

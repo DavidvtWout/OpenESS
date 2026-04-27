@@ -1,8 +1,9 @@
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from open_ess.victron_modbus import VictronClient
+
 from .config import BatterySystemConfig
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ class BatterySystem(ABC):
         return self._config
 
     @property
-    def name(self) -> str:
+    def name(self) -> str | None:
         return self._config.name
 
     @property
@@ -25,7 +26,7 @@ class BatterySystem(ABC):
     def id(self) -> str | None: ...
 
     @abstractmethod
-    def set_ess_setpoint(self, power: float, until: datetime | None = None): ...
+    def set_ess_setpoint(self, power: float, until: datetime | None = None) -> None: ...
 
 
 class VictronBatterySystem(BatterySystem):
@@ -40,8 +41,8 @@ class VictronBatterySystem(BatterySystem):
             return None
         return f"victron/{self._victron_client.serial}"
 
-    def set_ess_setpoint(self, power: float, until: datetime | None = None):
+    def set_ess_setpoint(self, power: float, until: datetime | None = None) -> None:
         if until is None:
-            until = datetime.now(tz=timezone.utc) + timedelta(hours=1)
+            until = datetime.now(tz=UTC) + timedelta(hours=1)
         logger.info(f"{self.name}: Set setpoint to {power} W")
         self._victron_client.set_ess_setpoint(power, until)

@@ -3,21 +3,21 @@ import signal
 
 import uvicorn
 
-from open_ess.battery_system import VictronBatterySystem
+from open_ess.battery_system import BatterySystem, VictronBatterySystem
 from open_ess.config import Config
 from open_ess.database import Database, DatabaseService
-from open_ess.frontend import init_dependencies, create_app, close_dependencies
+from open_ess.frontend import close_dependencies, create_app, init_dependencies
 from open_ess.optimizer import OptimizerService
 from open_ess.pricing import EntsoeService
-from open_ess.service import Service, ServiceManager
-from open_ess.util import setup_logging, parse_args, EndpointFilter
+from open_ess.service import ServiceManager
+from open_ess.util import EndpointFilter, parse_args, setup_logging
 from open_ess.victron_modbus import VictronService
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main() -> None:
     args = parse_args("Open Energy Storage System - optimize charging based on day-ahead prices")
     config = Config.from_file(args.config)
 
@@ -28,7 +28,7 @@ def main():
     service_manager = ServiceManager()
     service_manager.register_service(DatabaseService(database))
     service_manager.register_service(EntsoeService(database, config.prices))
-    battery_systems = []
+    battery_systems: list[BatterySystem] = []
     for battery_config in config.battery_systems:
         if battery_config.is_victron:
             victron_service = VictronService(database, battery_config)
@@ -45,7 +45,7 @@ def main():
             )
 
     # Shutdown handler
-    def shutdown(signum, frame):
+    def shutdown(signum: int, frame: object) -> None:
         logger.info("Shutting down...")
         service_manager.stop()
 
@@ -65,7 +65,7 @@ def main():
             app = create_app()
             uvicorn.run(
                 app,
-                host=config.frontend.host,
+                host=config.frontend.host,  # type: ignore[arg-type]
                 port=config.frontend.port,
                 log_level="info",
             )
