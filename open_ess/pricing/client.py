@@ -9,6 +9,7 @@ from entsoe.utils import add_timestamps, extract_records
 from pandas import DataFrame
 
 from open_ess.database import DatabaseConnection
+
 from .areas import AREAS
 from .config import PriceConfig
 

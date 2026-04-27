@@ -5,6 +5,7 @@ from open_ess.battery_system import BatterySystem
 from open_ess.database import Database, DatabaseConnection
 from open_ess.pricing import PriceConfig
 from open_ess.service import Service
+
 from .optimizer import Optimizer
 
 logger = logging.getLogger(__name__)

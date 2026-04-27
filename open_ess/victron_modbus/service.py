@@ -2,8 +2,9 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from open_ess.database import Database, DatabaseConnection
+from open_ess.database import Database
 from open_ess.service import Service
+
 from .client import VictronClient
 
 if TYPE_CHECKING:

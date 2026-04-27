@@ -1,5 +1,5 @@
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Iterable
 
 from pydantic import BaseModel
 
@@ -9,7 +9,7 @@ class TimeSeries(BaseModel):
     values: list[float]
 
 
-def data_to_timeseries(data: Iterable[tuple[datetime, float]], rounding: int = None) -> TimeSeries:
+def data_to_timeseries(data: Iterable[tuple[datetime, float]], rounding: int | None = None) -> TimeSeries:
     timestamps = []
     values = []
     for t, v in data:
@@ -95,11 +95,11 @@ def find_battery_cycles(
             "min_soc": min_soc,
         }
 
-        return (
-            find_battery_cycles(rows, start, left_peak_idx, min_soc_swing)
-            + [cycle]
-            + find_battery_cycles(rows, right_peak_idx + 1, end, min_soc_swing)
-        )
+        return [
+            *find_battery_cycles(rows, start, left_peak_idx, min_soc_swing),
+            cycle,
+            *find_battery_cycles(rows, right_peak_idx + 1, end, min_soc_swing),
+        ]
     else:
         return find_battery_cycles(rows, start, left_peak_idx, min_soc_swing) + find_battery_cycles(
             rows, right_peak_idx + 1, end, min_soc_swing

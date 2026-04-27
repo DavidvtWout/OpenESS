@@ -4,8 +4,9 @@ from threading import Lock
 from typing import TYPE_CHECKING
 
 from open_ess.database import Database, DatabaseConnection
+
 from .modbus_client import VictronModbusClient
-from .registers import Register, System, VEBus, GridMeter, Battery, SolarInverter
+from .registers import Battery, GridMeter, Register, SolarInverter, System, VEBus
 
 if TYPE_CHECKING:
     from open_ess.battery_system import BatterySystemConfig

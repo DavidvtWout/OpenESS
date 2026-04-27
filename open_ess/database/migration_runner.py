@@ -1,8 +1,8 @@
 import logging
+from datetime import datetime, timezone
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING
-from datetime import datetime, timezone
 
 if TYPE_CHECKING:
     from .database import DatabaseConnection

@@ -4,8 +4,8 @@ import uvicorn
 
 from open_ess.config import Config
 from open_ess.frontend.app import create_app
-from open_ess.frontend.dependencies import init_dependencies, close_dependencies
-from open_ess.util import setup_logging, parse_args
+from open_ess.frontend.dependencies import close_dependencies, init_dependencies
+from open_ess.util import parse_args, setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)

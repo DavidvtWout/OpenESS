@@ -5,10 +5,11 @@ from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from open_ess.battery_system import BatterySystemConfig, BatterySystem
+from open_ess.battery_system import BatterySystem, BatterySystemConfig
 from open_ess.database import DatabaseConnection
-from open_ess.frontend.dependencies import get_database, get_price_config, get_battery_systems, get_battery_configs
+from open_ess.frontend.dependencies import get_battery_configs, get_battery_systems, get_database, get_price_config
 from open_ess.pricing import PriceConfig
+
 from .util import TimeSeries, data_to_timeseries, find_full_battery_cycles
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ async def get_power_flow(
         grid_power[f"L{i}"] = power
 
     solar_power = None
-    result = db.get_power(f"victron/pvinverter/31/power/l1", start=start, bucket_seconds=None)
+    result = db.get_power("victron/pvinverter/31/power/l1", start=start, bucket_seconds=None)
     if result:
         _, solar_power = result[-1]
 
@@ -459,7 +460,7 @@ async def get_efficiency_scatter(
         dc = db.get_power("victron/vebus/228/power/battery", bucket_seconds=aggregate_minutes * 60, limit=limit)
         # dc = db.get_power("victron/battery/225/power/battery", bucket_seconds=aggregate_minutes * 60, limit=limit)
 
-        data = {ts: [v_in - v_out, None] for (ts, v_in), (_, v_out) in zip(ac_in, ac_out)}
+        data = {ts: [v_in - v_out, None] for (ts, v_in), (_, v_out) in zip(ac_in, ac_out, strict=False)}
         for ts, v in dc:
             if ts in data:
                 data[ts][1] = v

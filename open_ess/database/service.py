@@ -1,7 +1,8 @@
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from open_ess.service import Service
+
 from .database import Database, DatabaseConnection
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class DatabaseService(Service):
 
     def _run_compression(self):
         if self._config.compression.enable:
-            n_samples, n_buckets = self._db_conn.compress_power(
+            n_samples, _n_buckets = self._db_conn.compress_power(
                 datetime.now(timezone.utc), self._config.compression.bucket_seconds
             )
             if n_samples > 0:

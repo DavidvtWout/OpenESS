@@ -104,7 +104,7 @@ def collect_models(module) -> tuple[list[type[Enum]], list[type[BaseModel]]]:
     enums = []
     models = []
 
-    for name, obj in inspect.getmembers(module):
+    for _name, obj in inspect.getmembers(module):
         if inspect.isclass(obj):
             if issubclass(obj, Enum) and obj is not Enum:
                 enums.append(obj)
@@ -185,7 +185,7 @@ def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str 
         params.sort(key=lambda x: x["optional"])
         for param in params:
             opt = "?" if param["optional"] else ""
-            param_strs.append(f'{param["name"]}{opt}: {param["ts_type"]}')
+            param_strs.append(f"{param['name']}{opt}: {param['ts_type']}")
         params_signature = "params: { " + "; ".join(param_strs) + " }"
     else:
         params_signature = ""

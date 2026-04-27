@@ -6,11 +6,11 @@ import uvicorn
 from open_ess.battery_system import VictronBatterySystem
 from open_ess.config import Config
 from open_ess.database import Database, DatabaseService
-from open_ess.frontend import init_dependencies, create_app, close_dependencies
+from open_ess.frontend import close_dependencies, create_app, init_dependencies
 from open_ess.optimizer import OptimizerService
 from open_ess.pricing import EntsoeService
-from open_ess.service import Service, ServiceManager
-from open_ess.util import setup_logging, parse_args, EndpointFilter
+from open_ess.service import ServiceManager
+from open_ess.util import EndpointFilter, parse_args, setup_logging
 from open_ess.victron_modbus import VictronService
 
 setup_logging()

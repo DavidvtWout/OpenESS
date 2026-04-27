@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
-from open_ess.database import DatabaseConnection
 from open_ess.battery_system import BatterySystemConfig
+from open_ess.database import DatabaseConnection
 from open_ess.pricing import PriceConfig
 
 logger = logging.getLogger(__name__)
@@ -35,10 +35,7 @@ class Optimizer:
         return self._battery_config
 
     def _soc_balance_rule(self, model, t):
-        if t == 0:
-            prev_soc = model.current_soc
-        else:
-            prev_soc = model.soc[t - 1]
+        prev_soc = model.current_soc if t == 0 else model.soc[t - 1]
 
         # Energy into battery = charge_power - charger_loss
         # Energy out of battery = discharge_power + inverter_loss
@@ -156,10 +153,7 @@ class Optimizer:
 
         # SOC dynamics constraint
         def soc_balance_rule(model, t):
-            if t == 0:
-                prev_soc = current_soc
-            else:
-                prev_soc = model.soc[t - 1]
+            prev_soc = current_soc if t == 0 else model.soc[t - 1]
 
             # Energy into battery = charge_power - charger_loss
             # Energy out of battery = discharge_power + inverter_loss

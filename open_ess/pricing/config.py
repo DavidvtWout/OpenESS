@@ -2,12 +2,12 @@
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from pydantic import BaseModel, model_validator
 
-from .formula import compile_formula, FormulaError
+from .formula import FormulaError, compile_formula
 
 logger = logging.getLogger(__name__)
 

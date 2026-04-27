@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .config import DatabaseConfig
 from .migration_runner import run_migrations
-from .util import dt_to_ms, ms_to_dt, base_conditions
+from .util import base_conditions, dt_to_ms, ms_to_dt
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +70,7 @@ class DatabaseConnection:
             conditions.append(f"{timestamp_name} < ?")
             params.append(dt_to_ms(end))
 
-        if conditions:
-            where_clause = "WHERE " + " AND ".join(conditions)
-        else:
-            where_clause = ""
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
         query = f"""
             SELECT DISTINCT label
             FROM {table_name}
@@ -111,7 +108,7 @@ class DatabaseConnection:
         if bucket_seconds is not None:
             bucket_ms = round(bucket_seconds * 1000)
             select_clause = "(start_time / ?) * ? as bucket, AVG(value) as avg_value"
-            params = [bucket_ms, bucket_ms] + params
+            params = [bucket_ms, bucket_ms, *params]
             group_by = "GROUP BY bucket"
             order_by = "bucket"
         else:
@@ -298,7 +295,7 @@ class DatabaseConnection:
             GROUP BY bucket
             ORDER BY bucket
         """
-        cursor = self._conn.execute(query, [agg_ms, agg_ms] + params)
+        cursor = self._conn.execute(query, [agg_ms, agg_ms, *params])
 
         center_offset = agg_ms // 2 if center_buckets else 0
         return [(ms_to_dt(r[0] + center_offset), round(r[1], 3)) for r in cursor.fetchall()]
@@ -365,7 +362,7 @@ class DatabaseConnection:
         logger.debug(f"Inserted {len(prices)} price records")
 
     def get_prices(
-        self, area: str, start: datetime, end: datetime = None, aggregate_minutes: float = None
+        self, area: str, start: datetime, end: datetime | None = None, aggregate_minutes: float | None = None
     ) -> list[tuple[datetime, float]]:
         conditions, params = base_conditions(area, start, end, label_name="area", timestamp_name="start_time")
 
@@ -375,7 +372,7 @@ class DatabaseConnection:
             select_clause = f"(start_time / ?) * ? as {timestamp_column}, AVG(price) as {value_column}"
             group_by = f"GROUP BY {timestamp_column}"
             agg_ms = round(aggregate_minutes * 60000)
-            params = [agg_ms, agg_ms] + params
+            params = [agg_ms, agg_ms, *params]
         else:
             timestamp_column = "start_time"
             group_by = ""

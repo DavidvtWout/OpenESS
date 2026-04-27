@@ -1,6 +1,6 @@
 from .client import VictronClient
 from .config import VictronConfig
-from .registers import Register, Battery, DataType, GridMeter, SolarInverter, System, VEBus
+from .registers import Battery, DataType, GridMeter, Register, SolarInverter, System, VEBus
 from .service import VictronService
 
 __all__ = [

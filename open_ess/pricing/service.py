@@ -2,6 +2,7 @@ import logging
 
 from open_ess.database import Database, DatabaseConnection
 from open_ess.service import Service
+
 from .client import EntsoeClient
 from .config import PriceConfig
 

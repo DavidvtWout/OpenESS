@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 
 from open_ess.victron_modbus import VictronClient
+
 from .config import BatterySystemConfig
 
 logger = logging.getLogger(__name__)
