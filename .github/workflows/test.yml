@@ -87,7 +87,7 @@ jobs:
       - name: Check api.js is up to date
         run: |
           python -m open_ess.scripts.generate_types
-          if ! git diff --exit-code open_ess/frontend/src/api.js; then
+          if ! git diff --exit-code open_ess/frontend/static/api.js; then
             echo "## Generated Types Check Failed" >> $GITHUB_STEP_SUMMARY
             echo "api.js is out of date. Run \`generate-types\` and commit." >> $GITHUB_STEP_SUMMARY
             exit 1
