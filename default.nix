@@ -1,6 +1,6 @@
 { lib, buildPythonPackage, fetchPypi, setuptools, setuptools-scm, entsoe-apy
-, fastapi, jinja2, numpy, pandas, pydantic, pymodbus, pyomo, pyyaml, matplotlib
-, uvicorn, xsdata, httpx }:
+, fastapi, jinja2, numpy, pandas, pydantic, pymodbus, pyomo, pyyaml, uvicorn
+, xsdata, httpx }:
 
 buildPythonPackage {
   pname = "open-ess";
@@ -20,7 +20,6 @@ buildPythonPackage {
     pymodbus
     pyomo
     pyyaml
-    matplotlib
     uvicorn
   ];
 
