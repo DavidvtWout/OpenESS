@@ -2,15 +2,12 @@
   "name": "open-ess-frontend",
   "private": true,
   "scripts": {
-    "build": "esbuild open_ess/frontend/src/*.ts --outdir=open_ess/frontend/static --bundle --minify",
-    "watch": "esbuild open_ess/frontend/src/*.ts --outdir=open_ess/frontend/static --bundle --sourcemap --watch",
+    "build": "esbuild open_ess/frontend/src/*.js --outdir=open_ess/frontend/static --bundle --minify",
+    "watch": "esbuild open_ess/frontend/src/*.js --outdir=open_ess/frontend/static --bundle --sourcemap --watch",
     "generate-types": "generate-types"
   },
   "devDependencies": {
-    "@types/datatables.net": "^1.10.28",
-    "@types/jquery": "^4.0.0",
-    "esbuild": "^0.20.0",
-    "typescript": "^5.4.0"
+    "esbuild": "^0.20.0"
   },
   "dependencies": {
     "datatables.net-buttons-dt": "^3.2.6",

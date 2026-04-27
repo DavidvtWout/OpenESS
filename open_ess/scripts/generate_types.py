@@ -1,4 +1,4 @@
-"""Generate TypeScript types and API client from Pydantic models and FastAPI routes.
+"""Generate JavaScript API client with JSDoc types from Pydantic models and FastAPI routes.
 
 Usage:
     python -m open_ess.scripts.generate_types
@@ -22,15 +22,15 @@ from pydantic import BaseModel
 
 class _ParamInfo(TypedDict):
     name: str
-    ts_type: str
+    js_type: str
     optional: bool
 
 
 logger = logging.getLogger(__name__)
 
 
-def python_type_to_ts(python_type: Any, models: dict[str, type]) -> str:
-    """Convert a Python type annotation to TypeScript type."""
+def python_type_to_jsdoc(python_type: Any, models: dict[str, type]) -> str:
+    """Convert a Python type annotation to JSDoc type."""
     origin = get_origin(python_type)
     args = get_args(python_type)
 
@@ -50,23 +50,23 @@ def python_type_to_ts(python_type: Any, models: dict[str, type]) -> str:
 
     # Handle Union types (X | Y or Optional[X])
     if origin is UnionType:
-        ts_types = [python_type_to_ts(arg, models) for arg in args]
-        return " | ".join(ts_types)
+        js_types = [python_type_to_jsdoc(arg, models) for arg in args]
+        return "(" + " | ".join(js_types) + ")"
 
     # Handle list
     if origin is list:
         if args:
-            inner = python_type_to_ts(args[0], models)
-            return f"Array<{inner}>"
-        return "Array<unknown>"
+            inner = python_type_to_jsdoc(args[0], models)
+            return f"{inner}[]"
+        return "unknown[]"
 
     # Handle dict
     if origin is dict:
         if len(args) >= 2:
-            key_type = python_type_to_ts(args[0], models)
-            value_type = python_type_to_ts(args[1], models)
-            return f"Record<{key_type}, {value_type}>"
-        return "Record<string, unknown>"
+            key_type = python_type_to_jsdoc(args[0], models)
+            value_type = python_type_to_jsdoc(args[1], models)
+            return f"Object.<{key_type}, {value_type}>"
+        return "Object.<string, unknown>"
 
     # Handle Pydantic models (reference by name)
     if isinstance(python_type, type) and issubclass(python_type, BaseModel):
@@ -83,26 +83,27 @@ def python_type_to_ts(python_type: Any, models: dict[str, type]) -> str:
     return "unknown"
 
 
-def generate_enum_ts(enum_class: type[Enum]) -> str:
-    """Generate TypeScript type for an Enum."""
+def generate_enum_jsdoc(enum_class: type[Enum]) -> str:
+    """Generate JSDoc typedef for an Enum."""
     values = [f'"{member.value}"' for member in enum_class]
-    return f"export type {enum_class.__name__} = {' | '.join(values)};"
+    return f"/** @typedef {{{' | '.join(values)}}} {enum_class.__name__} */"
 
 
-def generate_interface_ts(model: type[BaseModel], models: dict[str, type]) -> str:
-    """Generate TypeScript interface for a Pydantic model."""
-    lines = [f"export interface {model.__name__} {{"]
+def generate_typedef_jsdoc(model: type[BaseModel], models: dict[str, type]) -> str:
+    """Generate JSDoc typedef for a Pydantic model."""
+    lines = ["/**", f" * @typedef {{Object}} {model.__name__}"]
 
     for field_name, field_info in model.model_fields.items():
-        ts_type = python_type_to_ts(field_info.annotation, models)
+        js_type = python_type_to_jsdoc(field_info.annotation, models)
 
         # Check if field is optional (has default or is Optional)
         is_optional = field_info.default is not None or field_info.default_factory is not None
-        optional_marker = "?" if is_optional else ""
+        if is_optional:
+            lines.append(f" * @property {{{js_type}}} [{field_name}]")
+        else:
+            lines.append(f" * @property {{{js_type}}} {field_name}")
 
-        lines.append(f"    {field_name}{optional_marker}: {ts_type};")
-
-    lines.append("}")
+    lines.append(" */")
     return "\n".join(lines)
 
 
@@ -141,7 +142,7 @@ def path_to_function_name(path: str, method: str) -> str:
 
 
 def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str | None:
-    """Generate TypeScript function for an API route."""
+    """Generate JavaScript function with JSDoc for an API route."""
     # Get the HTTP method
     methods = list(route.methods - {"HEAD", "OPTIONS"})
     if not methods:
@@ -154,7 +155,7 @@ def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str 
     # Get response type from response_model
     response_type = "unknown"
     if route.response_model is not None:
-        response_type = python_type_to_ts(route.response_model, models_dict)
+        response_type = python_type_to_jsdoc(route.response_model, models_dict)
 
     # Extract query parameters from the endpoint function signature
     params: list[_ParamInfo] = []
@@ -175,57 +176,68 @@ def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str 
         is_optional = default is not inspect.Parameter.empty
 
         # Get the actual type (unwrap Query if needed)
-        ts_type = python_type_to_ts(annotation, models_dict)
+        js_type = python_type_to_jsdoc(annotation, models_dict)
 
         params.append(
             {
                 "name": param_name,
-                "ts_type": ts_type,
+                "js_type": js_type,
                 "optional": is_optional,
             }
         )
 
-    # Build function signature
+    # Build JSDoc comment
+    jsdoc_lines = ["/**"]
     if params:
-        param_strs = []
         # Sort so required params come first
         params.sort(key=lambda x: x["optional"])
         for p in params:
-            opt = "?" if p["optional"] else ""
-            param_strs.append(f"{p['name']}{opt}: {p['ts_type']}")
-        params_signature = "params: { " + "; ".join(param_strs) + " }"
-    else:
-        params_signature = ""
+            if p["optional"]:
+                jsdoc_lines.append(f" * @param {{{p['js_type']}}} [params.{p['name']}]")
+            else:
+                jsdoc_lines.append(f" * @param {{{p['js_type']}}} params.{p['name']}")
+    jsdoc_lines.append(f" * @returns {{Promise<{response_type}>}}")
+    jsdoc_lines.append(" */")
 
-    lines = [
-        f"export async function {func_name}({params_signature}): Promise<{response_type}> {{",
-    ]
-
+    # Build function
     if params:
-        lines.append("const searchParams = new URLSearchParams();")
+        func_lines = [
+            "\n".join(jsdoc_lines),
+            f"export async function {func_name}(params) {{",
+            "    const searchParams = new URLSearchParams();",
+        ]
         for p in params:
-            lines.append(
-                f"if (params.{p['name']} !== undefined) searchParams.set('{p['name']}', String(params.{p['name']}));"
+            func_lines.append(
+                f"    if (params.{p['name']} !== undefined) searchParams.set('{p['name']}', String(params.{p['name']}));"
             )
-        lines.append("const query = searchParams.toString() ? `?${searchParams.toString()}` : '';")
-        lines.append(f"const response = await fetch(`/api{path}${{query}}`);")
+        func_lines.extend(
+            [
+                "    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';",
+                f"    const response = await fetch(`/api{path}${{query}}`);",
+            ]
+        )
     else:
-        lines.append(f"const response = await fetch(`/api{path}`);")
+        func_lines = [
+            "\n".join(jsdoc_lines),
+            f"export async function {func_name}() {{",
+            f"    const response = await fetch(`/api{path}`);",
+        ]
 
-    lines.extend(
+    func_lines.extend(
         [
-            "if (!response.ok) {",
-            "    throw new Error(`HTTP ${response.status}`);",
+            "    if (!response.ok) {",
+            "        throw new Error(`HTTP ${response.status}`);",
+            "    }",
+            "    return response.json();",
             "}",
-            "return response.json();",
         ]
     )
 
-    return "\n    ".join(lines) + "}"
+    return "\n".join(func_lines)
 
 
 def generate_types_file(output_path: Path) -> None:
-    """Generate TypeScript types file from API models."""
+    """Generate JavaScript types file from API models."""
     # Import the modules containing models
     from open_ess.frontend.routes import api, util
 
@@ -241,7 +253,7 @@ def generate_types_file(output_path: Path) -> None:
     # Build a lookup dict for model references
     models_dict = {m.__name__: m for m in models}
 
-    # Generate TypeScript
+    # Generate JavaScript with JSDoc
     lines = [
         "// Auto-generated from Pydantic models - do not edit manually",
         "// Run `generate-types` to regenerate",
@@ -252,14 +264,14 @@ def generate_types_file(output_path: Path) -> None:
         "",
     ]
 
-    # Generate enums first (they may be referenced by interfaces)
+    # Generate enums first (they may be referenced by typedefs)
     for enum_class in enums:
-        lines.append(generate_enum_ts(enum_class))
+        lines.append(generate_enum_jsdoc(enum_class))
         lines.append("")
 
-    # Generate interfaces
+    # Generate typedefs
     for model in models:
-        lines.append(generate_interface_ts(model, models_dict))
+        lines.append(generate_typedef_jsdoc(model, models_dict))
         lines.append("")
 
     # Generate API client functions
@@ -282,7 +294,7 @@ def generate_types_file(output_path: Path) -> None:
 
 
 def main() -> None:
-    output_path = Path("open_ess/frontend/src/types.ts")
+    output_path = Path("open_ess/frontend/static/api.js")
     try:
         generate_types_file(output_path)
     except Exception as e:

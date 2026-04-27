@@ -1,107 +1,37 @@
-"use strict";
-(() => {
-  // open_ess/frontend/src/types.ts
-  async function systemLayout() {
-    const response = await fetch(`/api/system-layout`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-  }
-  async function powerFlow() {
-    const response = await fetch(`/api/power-flow`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-  }
-  async function servicesStatus() {
-    const response = await fetch(`/api/services-status`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-  }
+import { servicesStatus, systemLayout, powerFlow } from './api.js';
+import { loadSettings, applyTheme } from './settings.js';
 
-  // open_ess/frontend/src/settings.ts
-  var defaultSettings = {
-    theme: "dark",
-    priceUnit: "eur",
-    powerUnit: "w",
-    weekStartDay: 1
-  };
-  function getCookie(name) {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) {
-      const val = parts.pop()?.split(";").shift();
-      return val ?? null;
-    }
-    return null;
-  }
-  function setCookie(name, value) {
-    const expires = /* @__PURE__ */ new Date();
-    expires.setFullYear(expires.getFullYear() + 10);
-    document.cookie = `${name}=${value}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
-  }
-  function loadSettings() {
-    const settings = { ...defaultSettings };
-    const theme = getCookie("theme");
-    if (theme) settings.theme = theme;
-    const priceUnit = getCookie("priceUnit");
-    if (priceUnit) settings.priceUnit = priceUnit;
-    const powerUnit = getCookie("powerUnit");
-    if (powerUnit) settings.powerUnit = powerUnit;
-    const weekStartDay = getCookie("weekStartDay");
-    if (weekStartDay !== null) settings.weekStartDay = parseInt(weekStartDay, 10);
-    return settings;
-  }
-  function saveSetting(name, value) {
-    setCookie(name, value);
-  }
-  function applyTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-  }
-  function initSettings() {
-    const settings = loadSettings();
-    const themeSelect = document.getElementById("theme-select");
-    themeSelect.value = settings.theme;
-    themeSelect.addEventListener("change", function() {
-      saveSetting("theme", this.value);
-      applyTheme(this.value);
-    });
-    const priceUnitSelect = document.getElementById("price-unit-select");
-    priceUnitSelect.value = settings.priceUnit;
-    priceUnitSelect.addEventListener("change", function() {
-      saveSetting("priceUnit", this.value);
-    });
-    const powerUnitSelect = document.getElementById("power-unit-select");
-    powerUnitSelect.value = settings.powerUnit;
-    powerUnitSelect.addEventListener("change", function() {
-      saveSetting("powerUnit", this.value);
-    });
-    const weekStartSelect = document.getElementById("week-start-select");
-    weekStartSelect.value = settings.weekStartDay;
-    weekStartSelect.addEventListener("change", function() {
-      saveSetting("weekStartDay", this.value);
-    });
-    applyTheme(settings.theme);
-  }
-  document.addEventListener("DOMContentLoaded", initSettings);
-  if (document.readyState !== "loading") {
-    initSettings();
-  }
+/**
+ * @typedef {import('./api.js').ServicesStatusResponse} ServicesStatusResponse
+ * @typedef {import('./api.js').ServiceStatus} ServiceStatus
+ * @typedef {import('./api.js').Status} Status
+ * @typedef {import('./api.js').SystemLayoutData} SystemLayoutData
+ * @typedef {import('./api.js').PowerFlowData} PowerFlowData
+ * @typedef {import('./api.js').BatterySystemInfo} BatterySystemInfo
+ */
 
-  // open_ess/frontend/src/dashboard.ts
-  function formatPower(watts) {
+// Power Flow Rendering
+
+/**
+ * @param {number} watts
+ * @returns {string}
+ */
+function formatPower(watts) {
     const absWatts = Math.abs(watts);
-    if (absWatts >= 1e3) {
-      return `${(watts / 1e3).toFixed(2)} kW`;
+    if (absWatts >= 1000) {
+        return `${(watts / 1000).toFixed(2)} kW`;
     }
     return `${Math.round(watts)} W`;
-  }
-  function renderPowerFlowDiagram(container, layout) {
+}
+
+/**
+ * @param {HTMLElement} container
+ * @param {SystemLayoutData} layout
+ */
+function renderPowerFlowDiagram(container, layout) {
     const batteryCount = layout.battery_systems.length;
+
+    // Build the HTML structure
     let html = `
         <div class="power-flow-grid">
             <svg class="power-flow-lines" id="power-flow-svg"></svg>
@@ -116,13 +46,15 @@
                 </div>
                 <div class="block-label">Grid</div>
                 <div class="block-values" id="grid-values">
-                    ${layout.phases.map((p) => `<div class="phase-value" id="grid-L${p}">L${p}: -- W</div>`).join("")}
+                    ${layout.phases.map(p => `<div class="phase-value" id="grid-L${p}">L${p}: -- W</div>`).join('')}
                 </div>
                 <div class="block-total" id="grid-total">-- W</div>
             </div>
     `;
+
+    // Solar Block
     if (layout.has_solar) {
-      html += `
+        html += `
             <div class="power-block solar-block" id="block-solar">
                 <div class="block-icon">
                     <svg viewBox="0 0 24 24" fill="currentColor">
@@ -134,6 +66,8 @@
             </div>
         `;
     }
+
+    // Consumption Block
     html += `
         <div class="power-block consumption-block" id="block-consumption">
             <div class="block-arrows">
@@ -143,16 +77,19 @@
             </div>
             <div class="block-label">Consumption</div>
             <div class="block-values" id="consumption-values">
-                ${layout.phases.map((p) => `<div class="phase-value" id="consumption-L${p}">L${p}: -- W</div>`).join("")}
+                ${layout.phases.map(p => `<div class="phase-value" id="consumption-L${p}">L${p}: -- W</div>`).join('')}
             </div>
             <div class="block-total" id="consumption-total">-- W</div>
         </div>
     `;
+
+    // Battery Systems
     html += `
             <div class="battery-row" id="battery-row" style="--battery-count: ${batteryCount}">
     `;
+
     for (const battery of layout.battery_systems) {
-      html += `
+        html += `
             <div class="power-block battery-block" id="block-${battery.id}">
                 <div class="block-icon">
                     <svg viewBox="0 0 24 24" fill="currentColor">
@@ -170,6 +107,7 @@
             </div>
         `;
     }
+
     html += `
             </div>
 
@@ -177,155 +115,230 @@
             <div class="power-hub" id="power-hub"></div>
         </div>
     `;
+
     container.innerHTML = html;
+
     requestAnimationFrame(() => drawConnectingLines(layout));
-  }
-  function drawConnectingLines(layout) {
-    const svg = document.getElementById("power-flow-svg");
+}
+
+/**
+ * @param {SystemLayoutData} layout
+ */
+function drawConnectingLines(layout) {
+    const svg = document.getElementById('power-flow-svg');
     if (!svg) return;
+
     const container = svg.parentElement;
     if (!container) return;
+
     const rect = container.getBoundingClientRect();
-    svg.setAttribute("width", String(rect.width));
-    svg.setAttribute("height", String(rect.height));
-    svg.setAttribute("viewBox", `0 0 ${rect.width} ${rect.height}`);
-    let paths = "";
-    const hub = document.getElementById("power-hub");
+    svg.setAttribute('width', String(rect.width));
+    svg.setAttribute('height', String(rect.height));
+    svg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
+
+    let paths = '';
+
+    const hub = document.getElementById('power-hub');
     if (!hub) return;
+
     const hubRect = hub.getBoundingClientRect();
     const hubCenterX = hubRect.left - rect.left + hubRect.width / 2;
     const hubCenterY = hubRect.top - rect.top + hubRect.height / 2;
-    const gridBlock = document.getElementById("block-grid");
+
+    // Grid to hub
+    const gridBlock = document.getElementById('block-grid');
     if (gridBlock) {
-      const blockRect = gridBlock.getBoundingClientRect();
-      const startX = blockRect.right - rect.left;
-      const startY = blockRect.top - rect.top + blockRect.height / 2;
-      paths += `<path class="flow-line" id="line-grid" d="M ${startX} ${startY} L ${hubCenterX} ${hubCenterY}" />`;
+        const blockRect = gridBlock.getBoundingClientRect();
+        const startX = blockRect.right - rect.left;
+        const startY = blockRect.top - rect.top + blockRect.height / 2;
+        paths += `<path class="flow-line" id="line-grid" d="M ${startX} ${startY} L ${hubCenterX} ${hubCenterY}" />`;
     }
-    const consBlock = document.getElementById("block-consumption");
+
+    // Hub to consumption
+    const consBlock = document.getElementById('block-consumption');
     if (consBlock) {
-      const blockRect = consBlock.getBoundingClientRect();
-      const endX = blockRect.left - rect.left;
-      const endY = blockRect.top - rect.top + blockRect.height / 2;
-      paths += `<path class="flow-line" id="line-consumption" d="M ${hubCenterX} ${hubCenterY} L ${endX} ${endY}" />`;
+        const blockRect = consBlock.getBoundingClientRect();
+        const endX = blockRect.left - rect.left;
+        const endY = blockRect.top - rect.top + blockRect.height / 2;
+        paths += `<path class="flow-line" id="line-consumption" d="M ${hubCenterX} ${hubCenterY} L ${endX} ${endY}" />`;
     }
+
+    // Solar to hub (if present)
     if (layout.has_solar) {
-      const solarBlock = document.getElementById("block-solar");
-      if (solarBlock) {
-        const blockRect = solarBlock.getBoundingClientRect();
-        const startX = blockRect.left - rect.left + blockRect.width / 2;
-        const startY = blockRect.bottom - rect.top;
-        paths += `<path class="flow-line" id="line-solar" d="M ${startX} ${startY} L ${hubCenterX} ${hubCenterY}" />`;
-      }
+        const solarBlock = document.getElementById('block-solar');
+        if (solarBlock) {
+            const blockRect = solarBlock.getBoundingClientRect();
+            const startX = blockRect.left - rect.left + blockRect.width / 2;
+            const startY = blockRect.bottom - rect.top;
+            paths += `<path class="flow-line" id="line-solar" d="M ${startX} ${startY} L ${hubCenterX} ${hubCenterY}" />`;
+        }
     }
+
+    // Hub to each battery
     for (const battery of layout.battery_systems) {
-      const batteryBlock = document.getElementById(`block-${battery.id}`);
-      if (batteryBlock) {
-        const blockRect = batteryBlock.getBoundingClientRect();
-        const endX = blockRect.left - rect.left + blockRect.width / 2;
-        const endY = blockRect.top - rect.top;
-        paths += `<path class="flow-line" id="line-${battery.id}" d="M ${hubCenterX} ${hubCenterY} L ${endX} ${endY}" />`;
-      }
+        const batteryBlock = document.getElementById(`block-${battery.id}`);
+        if (batteryBlock) {
+            const blockRect = batteryBlock.getBoundingClientRect();
+            const endX = blockRect.left - rect.left + blockRect.width / 2;
+            const endY = blockRect.top - rect.top;
+            paths += `<path class="flow-line" id="line-${battery.id}" d="M ${hubCenterX} ${hubCenterY} L ${endX} ${endY}" />`;
+        }
     }
+
     svg.innerHTML = paths;
-  }
-  function updatePowerFlowData(layout, data) {
+}
+
+/**
+ * @param {SystemLayoutData} layout
+ * @param {PowerFlowData} data
+ */
+function updatePowerFlowData(layout, data) {
+    // Update grid values
     let gridTotal = 0;
     for (const phase of layout.phases) {
-      const value = data.grid[`L${phase}`] ?? 0;
-      gridTotal += value;
-      const el = document.getElementById(`grid-L${phase}`);
-      if (el) el.textContent = `L${phase}: ${formatPower(value)}`;
+        const value = data.grid[`L${phase}`] ?? 0;
+        gridTotal += value;
+        const el = document.getElementById(`grid-L${phase}`);
+        if (el) el.textContent = `L${phase}: ${formatPower(value)}`;
     }
-    const gridTotalEl = document.getElementById("grid-total");
+    const gridTotalEl = document.getElementById('grid-total');
     if (gridTotalEl) {
-      gridTotalEl.textContent = formatPower(gridTotal);
-      gridTotalEl.className = `block-total ${gridTotal > 0 ? "importing" : gridTotal < 0 ? "exporting" : ""}`;
+        gridTotalEl.textContent = formatPower(gridTotal);
+        gridTotalEl.className = `block-total ${gridTotal > 0 ? 'importing' : gridTotal < 0 ? 'exporting' : ''}`;
     }
+
+    // Update consumption values
     let consTotal = 0;
     for (const phase of layout.phases) {
-      const value = data.consumption[`L${phase}`] ?? 0;
-      consTotal += value;
-      const el = document.getElementById(`consumption-L${phase}`);
-      if (el) el.textContent = `L${phase}: ${formatPower(value)}`;
+        const value = data.consumption[`L${phase}`] ?? 0;
+        consTotal += value;
+        const el = document.getElementById(`consumption-L${phase}`);
+        if (el) el.textContent = `L${phase}: ${formatPower(value)}`;
     }
-    const consTotalEl = document.getElementById("consumption-total");
+    const consTotalEl = document.getElementById('consumption-total');
     if (consTotalEl) consTotalEl.textContent = formatPower(consTotal);
+
+    // Update solar
     if (layout.has_solar && data.solar !== null) {
-      const solarEl = document.getElementById("solar-total");
-      if (solarEl) solarEl.textContent = formatPower(data.solar);
+        const solarEl = document.getElementById('solar-total');
+        if (solarEl) solarEl.textContent = formatPower(data.solar);
     }
+
+    // Update batteries
     for (const battery of layout.battery_systems) {
-      const chargerPwr = data.batteries[battery.id].charger ?? 0;
-      const chargerEl = document.getElementById(`${battery.id}-charger-power`);
-      if (chargerEl) chargerEl.textContent = `Charger: ${formatPower(chargerPwr)}`;
-      const inverterPwr = data.batteries[battery.id].inverter ?? 0;
-      const inverterEl = document.getElementById(`${battery.id}-inverter-power`);
-      if (inverterEl) inverterEl.textContent = `Inverter: ${formatPower(inverterPwr)}`;
-      const batteryPwr = data.batteries[battery.id].battery ?? 0;
-      const batteryEl = document.getElementById(`${battery.id}-battery-power`);
-      if (batteryEl) batteryEl.textContent = `Battery: ${formatPower(batteryPwr)}`;
-      const lossesPwr = data.batteries[battery.id].losses ?? 0;
-      const lossesEl = document.getElementById(`${battery.id}-power-losses`);
-      if (lossesEl) lossesEl.textContent = `Losses: ${formatPower(lossesPwr)}`;
-      const statusEl = document.getElementById(`${battery.id}-status`);
-      if (statusEl) {
-        statusEl.textContent = chargerPwr > 0 ? "Charging" : inverterPwr > 100 ? "Discharging" : "Idle";
-        statusEl.className = `battery-status ${chargerPwr > 0 ? "charging" : inverterPwr > 100 ? "discharging" : "idle"}`;
-      }
+        const chargerPwr = data.batteries[battery.id].charger ?? 0;
+        const chargerEl = document.getElementById(`${battery.id}-charger-power`);
+        if (chargerEl) chargerEl.textContent = `Charger: ${formatPower(chargerPwr)}`;
+
+        const inverterPwr = data.batteries[battery.id].inverter ?? 0;
+        const inverterEl = document.getElementById(`${battery.id}-inverter-power`);
+        if (inverterEl) inverterEl.textContent = `Inverter: ${formatPower(inverterPwr)}`;
+
+        const batteryPwr = data.batteries[battery.id].battery ?? 0;
+        const batteryEl = document.getElementById(`${battery.id}-battery-power`);
+        if (batteryEl) batteryEl.textContent = `Battery: ${formatPower(batteryPwr)}`;
+
+        const lossesPwr = data.batteries[battery.id].losses ?? 0;
+        const lossesEl = document.getElementById(`${battery.id}-power-losses`);
+        if (lossesEl) lossesEl.textContent = `Losses: ${formatPower(lossesPwr)}`;
+
+        const statusEl = document.getElementById(`${battery.id}-status`);
+
+        if (statusEl) {
+            statusEl.textContent = chargerPwr > 0 ? 'Charging' : inverterPwr > 100 ? 'Discharging' : 'Idle';
+            statusEl.className = `battery-status ${chargerPwr > 0 ? 'charging' : inverterPwr > 100 ? 'discharging' : 'idle'}`;
+        }
     }
+
+    // Update line animations based on power flow direction
     updateFlowLines(layout, data);
-  }
-  function updateFlowLines(layout, data) {
+}
+
+/**
+ * @param {SystemLayoutData} layout
+ * @param {PowerFlowData} data
+ */
+function updateFlowLines(layout, data) {
+    // Grid line
     const gridTotal = Object.values(data.grid).reduce((a, b) => a + b, 0);
-    const gridLine = document.getElementById("line-grid");
+    const gridLine = document.getElementById('line-grid');
     if (gridLine) {
-      gridLine.classList.toggle("flow-importing", gridTotal > 50);
-      gridLine.classList.toggle("flow-exporting", gridTotal < -50);
+        gridLine.classList.toggle('flow-importing', gridTotal > 50);
+        gridLine.classList.toggle('flow-exporting', gridTotal < -50);
     }
+
+    // Consumption line
     const consTotal = Object.values(data.consumption).reduce((a, b) => a + b, 0);
-    const consLine = document.getElementById("line-consumption");
+    const consLine = document.getElementById('line-consumption');
     if (consLine) {
-      consLine.classList.toggle("flow-active", Math.abs(consTotal) > 50);
+        consLine.classList.toggle('flow-active', Math.abs(consTotal) > 50);
     }
+
+    // Solar line
     if (layout.has_solar && data.solar !== null) {
-      const solarLine = document.getElementById("line-solar");
-      if (solarLine) {
-        solarLine.classList.toggle("flow-generating", data.solar > 50);
-      }
+        const solarLine = document.getElementById('line-solar');
+        if (solarLine) {
+            solarLine.classList.toggle('flow-generating', data.solar > 50);
+        }
     }
+
+    // Battery lines
     for (const battery of layout.battery_systems) {
-      const power = data.batteries[battery.id] ?? 0;
-      const line = document.getElementById(`line-${battery.id}`);
-      if (line) {
-        line.classList.toggle("flow-charging", power > 50);
-        line.classList.toggle("flow-discharging", power < -50);
-      }
+        const power = data.batteries[battery.id] ?? 0;
+        const line = document.getElementById(`line-${battery.id}`);
+        if (line) {
+            line.classList.toggle('flow-charging', power > 50);
+            line.classList.toggle('flow-discharging', power < -50);
+        }
     }
-  }
-  function renderServicesStatus(container, data) {
+}
+
+// Services Status (existing code)
+
+/**
+ * @typedef {Object} ServiceDefinition
+ * @property {keyof ServicesStatusResponse} key
+ * @property {string} label
+ */
+
+/**
+ * @param {HTMLElement} container
+ * @param {ServicesStatusResponse} data
+ */
+function renderServicesStatus(container, data) {
+    /** @type {ServiceDefinition[]} */
     const services = [
-      { key: "database", label: "Database" },
-      { key: "optimizer", label: "Optimizer" }
+        { key: 'database', label: 'Database' },
+        { key: 'optimizer', label: 'Optimizer' },
     ];
-    container.innerHTML = services.map((service) => {
-      const status = data[service.key];
-      if (!status) {
-        return createServiceCard(service.label, "unknown", []);
-      }
-      return createServiceCard(service.label, status.status ?? "unknown", status.messages ?? []);
-    }).join("");
-  }
-  function createServiceCard(label, status, messages) {
+
+    container.innerHTML = services.map(service => {
+        const status = data[service.key];
+        if (!status) {
+            return createServiceCard(service.label, 'unknown', []);
+        }
+        return createServiceCard(service.label, status.status ?? 'unknown', status.messages ?? []);
+    }).join('');
+}
+
+/**
+ * @param {string} label
+ * @param {Status | 'unknown'} status
+ * @param {NonNullable<ServiceStatus['messages']>} messages
+ * @returns {string}
+ */
+function createServiceCard(label, status, messages) {
     const statusClass = getStatusClass(status);
     const statusIcon = getStatusIcon(status);
     const statusText = status.charAt(0).toUpperCase() + status.slice(1);
-    let messagesHtml = "";
+
+    let messagesHtml = '';
     if (messages.length > 0) {
-      messagesHtml = `<div class="service-messages">
-            ${messages.map((m) => `<div class="service-message">${m.message}</div>`).join("")}
+        messagesHtml = `<div class="service-messages">
+            ${messages.map(m => `<div class="service-message">${m.message}</div>`).join('')}
         </div>`;
     }
+
     return `
         <div class="stat-card service-card">
             <div class="service-status ${statusClass}">
@@ -336,74 +349,93 @@
             ${messagesHtml}
         </div>
     `;
-  }
-  function getStatusClass(status) {
+}
+
+/**
+ * @param {Status | 'unknown'} status
+ * @returns {string}
+ */
+function getStatusClass(status) {
     switch (status) {
-      case "ok":
-        return "status-ok";
-      case "warning":
-        return "status-warning";
-      case "error":
-        return "status-error";
-      default:
-        return "status-unknown";
+        case 'ok': return 'status-ok';
+        case 'warning': return 'status-warning';
+        case 'error': return 'status-error';
+        default: return 'status-unknown';
     }
-  }
-  function getStatusIcon(status) {
+}
+
+/**
+ * @param {Status | 'unknown'} status
+ * @returns {string}
+ */
+function getStatusIcon(status) {
     switch (status) {
-      case "ok":
-        return "&#10003;";
-      case "warning":
-        return "&#9888;";
-      case "error":
-        return "&#10007;";
-      default:
-        return "?";
+        case 'ok': return '&#10003;';
+        case 'warning': return '&#9888;';
+        case 'error': return '&#10007;';
+        default: return '?';
     }
-  }
-  var currentLayout = null;
-  var pollInterval = null;
-  async function loadPowerFlow() {
-    const container = document.getElementById("power-flow-container");
+}
+
+// Main initialization
+
+/** @type {SystemLayoutData | null} */
+let currentLayout = null;
+/** @type {number | null} */
+let pollInterval = null;
+
+async function loadPowerFlow() {
+    const container = document.getElementById('power-flow-container');
     if (!container) return;
+
     try {
-      currentLayout = await systemLayout();
-      renderPowerFlowDiagram(container, currentLayout);
-      const data = await powerFlow();
-      updatePowerFlowData(currentLayout, data);
-      if (pollInterval) clearInterval(pollInterval);
-      pollInterval = window.setInterval(async () => {
-        if (!currentLayout) return;
-        try {
-          const newData = await powerFlow();
-          updatePowerFlowData(currentLayout, newData);
-        } catch (e) {
-          console.error("Failed to update power flow:", e);
-        }
-      }, 1e3);
-      window.addEventListener("resize", () => {
-        if (currentLayout) drawConnectingLines(currentLayout);
-      });
+        currentLayout = await systemLayout();
+        renderPowerFlowDiagram(container, currentLayout);
+
+        // Initial data load
+        const data = await powerFlow();
+        updatePowerFlowData(currentLayout, data);
+
+        // Start polling for updates
+        if (pollInterval) clearInterval(pollInterval);
+        pollInterval = window.setInterval(async () => {
+            if (!currentLayout) return;
+            try {
+                const newData = await powerFlow();
+                updatePowerFlowData(currentLayout, newData);
+            } catch (e) {
+                console.error('Failed to update power flow:', e);
+            }
+        }, 1000);
+
+        // Redraw lines on resize
+        window.addEventListener('resize', () => {
+            if (currentLayout) drawConnectingLines(currentLayout);
+        });
+
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      container.innerHTML = `<div class="error">Failed to load power flow: ${message}</div>`;
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        container.innerHTML = `<div class="error">Failed to load power flow: ${message}</div>`;
     }
-  }
-  async function loadServicesStatus() {
-    const container = document.getElementById("service-stats");
+}
+
+async function loadServicesStatus() {
+    const container = document.getElementById('service-stats');
     if (!container) return;
+
     try {
-      const data = await servicesStatus();
-      renderServicesStatus(container, data);
+        const data = await servicesStatus();
+        renderServicesStatus(container, data);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      container.innerHTML = `<div class="error">Failed to load services status: ${message}</div>`;
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        container.innerHTML = `<div class="error">Failed to load services status: ${message}</div>`;
     }
-  }
-  document.addEventListener("DOMContentLoaded", () => {
+}
+
+document.addEventListener('DOMContentLoaded', () => {
     const settings = loadSettings();
     applyTheme(settings.theme);
+
     loadPowerFlow();
     loadServicesStatus();
-  });
-})();
+});
