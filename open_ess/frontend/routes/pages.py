@@ -17,7 +17,7 @@ async def favicon():
 
 
 @router.get("/logo-32x32.png", include_in_schema=False)
-async def favicon():
+async def logo_32x32():
     return FileResponse(STATIC_DIR / "images/openess-32x32.png")
 
 

@@ -2,6 +2,7 @@ import argparse
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import ClassVar
 
 import matplotlib.pyplot as plt
 
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 class ColoredFormatter(logging.Formatter):
     RESET = "\033[0m"
 
-    LEVEL_COLORS = {
+    LEVEL_COLORS: ClassVar[dict] = {
         logging.DEBUG: "\033[36m",  # cyan
         logging.INFO: "\033[32m",  # green
         logging.WARNING: "\033[33m",  # yellow

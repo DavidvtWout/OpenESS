@@ -89,7 +89,7 @@ def compile_formula(formula: str) -> Callable[[float], float]:
     try:
         tree = ast.parse(formula, mode="eval")
     except SyntaxError as e:
-        raise FormulaError(f"Invalid formula syntax: {e}")
+        raise FormulaError(f"Invalid formula syntax: {e}") from e
 
     # Validate the tree before returning the evaluator
     def validate(node: ast.AST) -> None:

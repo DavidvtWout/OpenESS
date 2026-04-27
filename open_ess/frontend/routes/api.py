@@ -40,7 +40,7 @@ async def health_check(db: DatabaseConnection = Depends(get_database)):
         return HealthResponse(status="ok", database="connected", tables=tables)
     except Exception as e:
         logger.exception("Health check failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ---------------------------- #
@@ -174,7 +174,7 @@ async def services_status(db: DatabaseConnection = Depends(get_database)):
         )
     except Exception as e:
         logger.exception("Health check failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/battery-ids", response_model=list[str])
@@ -183,7 +183,7 @@ async def get_battery_ids(battery_configs: dict[str, BatterySystemConfig] = Depe
         return list(battery_configs.keys())
     except Exception as e:
         logger.exception("Failed to get battery ids")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ------------------------ #
@@ -223,10 +223,7 @@ async def get_energy_flow_endpoint(
     battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
 ):
     try:
-        if battery_id is None:
-            battery_config = battery_configs["victron/vebus/228"]  # TODO
-        else:
-            battery_config = battery_configs[battery_id]
+        battery_config = battery_configs["victron/vebus/228"] if battery_id is None else battery_configs[battery_id]
         now = datetime.now(timezone.utc)
         if start is None:
             start = now - timedelta(hours=24)
@@ -290,7 +287,7 @@ async def get_energy_flow_endpoint(
         )
     except Exception as e:
         logger.exception("Failed to get energy flow")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/power-graph", response_model=PowerResponse)
@@ -303,10 +300,7 @@ async def get_power_graph(
     battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
 ):
     try:
-        if battery_id is None:
-            battery_config = battery_configs["victron/vebus/228"]  # TODO
-        else:
-            battery_config = battery_configs[battery_id]
+        battery_config = battery_configs["victron/vebus/228"] if battery_id is None else battery_configs[battery_id]
         now = datetime.now(timezone.utc)
         if start is None:
             start = now - timedelta(hours=24)
@@ -332,7 +326,7 @@ async def get_power_graph(
         return PowerResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:
         logger.exception("Failed to get power data")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class PricePoint(BaseModel):
@@ -387,7 +381,7 @@ async def get_price_data(
         )
     except Exception as e:
         logger.exception("Failed to get prices")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class BatteryGraphResponse(BaseModel):
@@ -428,7 +422,7 @@ async def get_battery_graph(
         return result
     except Exception as e:
         logger.exception("Failed to get battery SOC")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ---------------#
@@ -498,7 +492,7 @@ async def get_efficiency_scatter(
         return points
     except Exception as e:
         logger.exception("Failed to get efficiency scatter data")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class BatteryCycle(BaseModel):
@@ -529,10 +523,7 @@ async def get_battery_cycles(
     price_config: PriceConfig = Depends(get_price_config),
 ):
     try:
-        if battery_id is None:
-            battery_config = battery_configs["victron/vebus/228"]  # TODO
-        else:
-            battery_config = battery_configs[battery_id]
+        battery_config = battery_configs["victron/vebus/228"] if battery_id is None else battery_configs[battery_id]
         now = datetime.now(timezone.utc)
         if start is None:
             start = now - timedelta(days=30)
@@ -624,7 +615,7 @@ async def get_battery_cycles(
         return cycles
     except Exception as e:
         logger.exception("Failed to get battery cycles")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # -------------------------#
@@ -650,7 +641,7 @@ async def get_power(
         return PowerResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:
         logger.exception("Failed to get debug power flows")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # TODO: add parameter to select subset of series
@@ -678,4 +669,4 @@ async def get_energy(
         return EnergyResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
     except Exception as e:
         logger.exception("Failed to get debug energy flows")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

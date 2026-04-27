@@ -35,6 +35,9 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["open_ess"]
 
+[tool.ruff.lint.per-file-ignores]
+"open_ess/frontend/routes/api.py" = ["B008"]  # Query() in defaults is standard FastAPI pattern
+
 [tool.ruff.format]
 quote-style = "double"
 

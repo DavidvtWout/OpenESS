@@ -268,7 +268,7 @@ def predict_next_week(
     for week in weeks:
         week_avg = sum(p for _, p in week) / len(week)
         factor = last_week_avg / week_avg
-        for i, (t, p) in enumerate(week):
+        for i, (_t, p) in enumerate(week):
             next_week[i] = (next_week[i][0], next_week[i][1] + p * factor)
     for i, (t, p) in enumerate(next_week):
         next_week[i] = (t, p / len(weeks))
