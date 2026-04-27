@@ -25,22 +25,22 @@ class VictronService(Service):
     def client(self) -> VictronClient:
         return self._client
 
-    def on_start(self):
+    def on_start(self) -> None:
         if not self._client.initialize():
             raise RuntimeError(f"Could not connect to Victron GX at {self._client.address}")
         logger.info(f"Connected to Victron GX at {self._client.address}")
 
-    def tick(self):
+    def tick(self) -> None:
         self._client.write_setpoints()
         self._client.collect_and_store_measurements()
 
-    def wait_until_next(self):
+    def wait_until_next(self) -> None:
         # Sleep until the start of the next second
         now = time.time()
         sleep_duration = 1.0 - (now % 1.0)
         self._stop_event.wait(timeout=sleep_duration)
 
-    def stop(self):
+    def stop(self) -> None:
         super().stop()
         if self._client:
             self._client.close()

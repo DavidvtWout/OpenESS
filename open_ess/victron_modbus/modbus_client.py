@@ -30,9 +30,9 @@ class VictronModbusClient:
         return f"{self.host}:{self.port}"
 
     def connect(self) -> bool:
-        return self._client.connect()
+        return bool(self._client.connect())
 
-    def close(self):
+    def close(self) -> None:
         self._client.close()
 
     def read(self, unit_id: int, register: Register) -> float | bytes | None:
@@ -138,7 +138,7 @@ class VictronModbusClient:
         batches.append(current_batch)
 
         # Read each batch
-        results: dict[Register, float | None] = {}
+        results: dict[Register, float | bytes | None] = {}
 
         for batch in batches:
             start_addr = batch[0].address

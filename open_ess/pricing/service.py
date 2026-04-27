@@ -20,20 +20,22 @@ class EntsoeService(Service):
         self._client: EntsoeClient | None = None
         self._db_conn: DatabaseConnection | None = None
 
-    def on_start(self):
+    def on_start(self) -> None:
         self._db_conn = self._db.connect()
         self._client = EntsoeClient(self._config, self._db_conn)
         self._fetch_prices()
 
-    def tick(self):
+    def tick(self) -> None:
         self._fetch_prices()
 
-    def _fetch_prices(self):
+    def _fetch_prices(self) -> None:
+        if self._client is None:
+            return None
         try:
             self._client.fetch_missing_prices()
         except Exception as e:
             logger.error(f"Failed to fetch ENTSO-E prices: {e}")
 
-    def wait_until_next(self):
+    def wait_until_next(self) -> None:
         # TODO: run from 14:00
         self.wait_seconds(self._check_interval)

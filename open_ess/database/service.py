@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from open_ess.service import Service
 
@@ -15,23 +15,25 @@ class DatabaseService(Service):
         self._config = database.config
         self._db_conn: DatabaseConnection | None = None
 
-    def on_start(self):
+    def on_start(self) -> None:
         self._db_conn = self._database.connect()
         logger.info("DatabaseService started")
 
-    def tick(self):
+    def tick(self) -> None:
         self._run_compression()
 
-    def _run_compression(self):
+    def _run_compression(self) -> None:
+        if self._db_conn is None:
+            return None
         if self._config.compression.enable:
             n_samples, _n_buckets = self._db_conn.compress_power(
-                datetime.now(timezone.utc), self._config.compression.bucket_seconds
+                datetime.now(UTC), self._config.compression.bucket_seconds
             )
             if n_samples > 0:
                 self._db_conn.vacuum()
 
-    def wait_until_next(self):
-        now = datetime.now(timezone.utc)
+    def wait_until_next(self) -> None:
+        now = datetime.now(UTC)
         next_run = now.replace(second=0, microsecond=0) + timedelta(minutes=1, seconds=10)
         # ^ Run next compression 10 seconds after a new minute starts. This ensures that all new metrics
         #   have been written to the database.

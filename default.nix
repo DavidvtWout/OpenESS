@@ -25,7 +25,8 @@ buildPythonPackage {
   ];
 
   meta = with lib; {
-    description = "Open Energy Storage System - Charge/discharge schedule optimizer for day-ahead energy prices.";
+    description =
+      "Open Energy Storage System - Charge/discharge schedule optimizer for day-ahead energy prices.";
     license = licenses.mit;
   };
 }

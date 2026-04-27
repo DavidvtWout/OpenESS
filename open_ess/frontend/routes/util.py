@@ -22,15 +22,15 @@ def data_to_timeseries(data: Iterable[tuple[datetime, float]], rounding: int | N
 
 
 def find_full_battery_cycles(
-    battery_soc: list[tuple[datetime, float]], full_threshold=99, min_soc_swing=10
-) -> list[tuple[datetime, datetime, int]]:
+    battery_soc: list[tuple[datetime, float]], full_threshold: int = 99, min_soc_swing: int = 10
+) -> list[tuple[datetime, datetime, float]]:
     """Very simple algorithm to find battery cycles from full -> lower -> full.
     Only the start and end timestamps and min SoC for the cycles are returned.
     """
     cycles = []
     soc_start_ts = None
     soc_swing_reached = False
-    min_soc = 100
+    min_soc: float = 100
     for timestamp, soc in battery_soc:
         min_soc = min(soc, min_soc)
         if soc >= full_threshold:

@@ -7,6 +7,7 @@ No function calls, attribute access, or other potentially unsafe operations.
 import ast
 import operator
 from collections.abc import Callable
+from typing import cast
 
 # Allowed binary operators
 BINARY_OPS = {
@@ -53,14 +54,14 @@ def _eval_node(node: ast.AST, price: float) -> float:
             raise FormulaError(f"Operator {op_type.__name__} not allowed")
         left = _eval_node(node.left, price)
         right = _eval_node(node.right, price)
-        return BINARY_OPS[op_type](left, right)
+        return cast(float, BINARY_OPS[op_type](left, right))
 
     elif isinstance(node, ast.UnaryOp):
-        op_type = type(node.op)
-        if op_type not in UNARY_OPS:
-            raise FormulaError(f"Unary operator {op_type.__name__} not allowed")
+        unary_op_type = type(node.op)
+        if unary_op_type not in UNARY_OPS:
+            raise FormulaError(f"Unary operator {unary_op_type.__name__} not allowed")
         operand = _eval_node(node.operand, price)
-        return UNARY_OPS[op_type](operand)
+        return cast(float, UNARY_OPS[unary_op_type](operand))
 
     else:
         raise FormulaError(f"Expression type {type(node).__name__} not allowed")

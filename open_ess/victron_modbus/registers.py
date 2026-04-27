@@ -26,7 +26,7 @@ class DataType(Enum):
         self.signed = signed
 
 
-DataType.STRING = StringType
+DataType.STRING = StringType  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,7 @@ class Register:
 # Aggregated system-level data
 # =============================================================================
 class System:
-    SERIAL = Register("Serial", 800, DataType.STRING(6))
+    SERIAL = Register("Serial", 800, DataType.STRING(6))  # type: ignore[attr-defined]
 
     # AC consumption
     AC_CONSUMPTION_L1 = Register("AC Consumption L1", 817, DataType.UINT16)

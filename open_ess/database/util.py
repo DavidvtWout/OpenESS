@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def dt_to_ms(dt: datetime) -> int:
@@ -8,7 +8,7 @@ def dt_to_ms(dt: datetime) -> int:
 
 def ms_to_dt(ms: int) -> datetime:
     """Unix milliseconds to UTC datetime."""
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    return datetime.fromtimestamp(ms / 1000, tz=UTC)
 
 
 def base_conditions(

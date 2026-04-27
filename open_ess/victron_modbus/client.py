@@ -1,10 +1,11 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from threading import Lock
 from typing import TYPE_CHECKING
 
 from open_ess.database import Database, DatabaseConnection
 
+from .config import VictronConfig
 from .modbus_client import VictronModbusClient
 from .registers import Battery, GridMeter, Register, SolarInverter, System, VEBus
 
@@ -16,14 +17,17 @@ logger = logging.getLogger(__name__)
 
 class VictronClient:
     def __init__(self, database: Database, config: "BatterySystemConfig"):
+        if not isinstance(config.control, VictronConfig):
+            raise TypeError(f"VictronClient requires VictronConfig, got {type(config.control).__name__}")
         self._db = database
         self._config = config
-        self._client = VictronModbusClient(config.control)
+        self._control: VictronConfig = config.control
+        self._client = VictronModbusClient(self._control)
 
         self._db_conn: DatabaseConnection | None = None
         self._serial: str | None = None
 
-        self._setpoint: float | None = None  # In Watt
+        self._setpoint: float = 0.0  # In Watt
         self._setpoint_expiration: datetime | None = None
 
         self._lock = Lock()
@@ -33,7 +37,9 @@ class VictronClient:
         if not self.connect():
             return False
 
-        self._serial = self.read(self.system_id, System.SERIAL).decode("utf-8")
+        serial_bytes = self.read(self.system_id, System.SERIAL)
+        if isinstance(serial_bytes, bytes):
+            self._serial = serial_bytes.decode("utf-8")
 
         # Enable ESS mode 3 (external control)
         if not self._config.monitor_only:
@@ -51,34 +57,37 @@ class VictronClient:
 
     @property
     def system_id(self) -> int:
-        return self._config.control.system_id
+        return self._control.system_id
 
     @property
     def vebus_id(self) -> int:
-        return self._config.control.vebus_id
+        return self._control.vebus_id
 
     @property
     def battery_id(self) -> int | None:
-        return self._config.control.battery_id
+        return self._control.battery_id
 
     @property
     def grid_id(self) -> int | None:
-        return self._config.control.grid_id
+        return self._control.grid_id
 
     @property
     def pvinverter_id(self) -> int | None:
-        return self._config.control.pvinverter_id
+        return self._control.pvinverter_id
 
     @property
     def need_mode_3(self) -> bool:
         return not self._config.monitor_only
 
-    def set_ess_setpoint(self, power: float, until: datetime):
+    def set_ess_setpoint(self, power: float, until: datetime) -> None:
         with self._lock:
             self._setpoint = power
             self._setpoint_expiration = until
 
-    def write_setpoints(self):
+    def write_setpoints(self) -> None:
+        if self._db_conn is None:
+            return
+
         if self._config.monitor_only:
             return
 
@@ -86,20 +95,20 @@ class VictronClient:
         if ess_mode != 3:
             raise ValueError("Someone disabled ESS mode 3! Is VRM still managing the system?")
 
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
 
         with self._lock:
             if self._setpoint_expiration is None or now >= self._setpoint_expiration:
-                self._setpoint = None
+                self._setpoint = 0.0
                 self._setpoint_expiration = None
             if self._setpoint is None:
                 return
 
         idle_threshold = self._config.idle_threshold_w / 1000
-        if self._db_conn.get_current_soc() >= 99 and self._setpoint >= -idle_threshold:
+        if (self._db_conn.get_current_soc() or 0) >= 99 and self._setpoint >= -idle_threshold:
             # Keep putting power into the battery to allow balancing of the cells by the BMS.
             # TODO: implement balancing limits?
-            self.write(self.vebus_id, VEBus.ESS_SETPOINT_L1, int(self._config.max_charge_power_kw * 1000))
+            self.write(self.vebus_id, VEBus.ESS_SETPOINT_L1, int((self._config.max_charge_power_kw or 0) * 1000))
             self.write(self.vebus_id, VEBus.ESS_DISABLE_CHARGE, 0)
         else:
             if abs(self._setpoint) >= idle_threshold:
@@ -108,13 +117,15 @@ class VictronClient:
                 self.write(self.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 0)
             else:
                 self.write(self.vebus_id, VEBus.ESS_SETPOINT_L1, 0)
-                if self._config.control.disable_charger_when_idle:
+                if self._control.disable_charger_when_idle:
                     self.write(self.vebus_id, VEBus.ESS_DISABLE_CHARGE, 1)
-                if self._config.control.disable_inverter_when_idle:
+                if self._control.disable_inverter_when_idle:
                     self.write(self.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 1)
 
     def collect_and_store_measurements(self) -> None:
-        timestamp = datetime.now(timezone.utc)
+        if self._db_conn is None:
+            return
+        timestamp = datetime.now(UTC)
 
         # Read System registers
         system_regs = [System.GRID_L1, System.GRID_L2, System.GRID_L3]
@@ -179,7 +190,7 @@ class VictronClient:
             VEBus.ENERGY_AC_OUT_TO_BATTERY,
         ]
 
-        vebus_prefix = self._config.control.vebus_prefix
+        vebus_prefix = self._control.vebus_prefix
 
         vebus_values = self.read_many(self.vebus_id, vebus_regs)
 
@@ -191,15 +202,16 @@ class VictronClient:
         )
 
         soc = vebus_values.get(VEBus.SOC)
-        if soc is not None:
+        if isinstance(soc, (int, float)):
             self._db_conn.insert_soc(f"{vebus_prefix}/soc", timestamp, int(soc))
 
         dc_current = vebus_values.get(VEBus.DC_CURRENT)
         dc_voltage = vebus_values.get(VEBus.DC_VOLTAGE)
-        self._db_conn.insert_voltage(f"{vebus_prefix}/voltage/battery", timestamp, dc_voltage)
-        if dc_current is not None and dc_voltage is not None:
-            dc_power = dc_current * dc_voltage
-            self._db_conn.insert_power(f"{vebus_prefix}/power/battery", timestamp, dc_power)
+        if isinstance(dc_voltage, (int, float)):
+            self._db_conn.insert_voltage(f"{vebus_prefix}/voltage/battery", timestamp, dc_voltage)
+            if isinstance(dc_current, (int, float)):
+                dc_power = dc_current * dc_voltage
+                self._db_conn.insert_power(f"{vebus_prefix}/power/battery", timestamp, dc_power)
 
         # Energy flows
         self._db_conn.insert_energy(
@@ -230,7 +242,7 @@ class VictronClient:
         )
 
         if self.battery_id is not None:
-            bms_prefix = self._config.control.battery_prefix
+            bms_prefix = self._control.battery_prefix
 
             bms_values = self.read_many(
                 self.battery_id,
@@ -245,7 +257,9 @@ class VictronClient:
 
             self._db_conn.insert_power(f"{bms_prefix}/power/battery", timestamp, bms_values.get(Battery.DC_POWER))
             self._db_conn.insert_voltage(f"{bms_prefix}/voltage/battery", timestamp, bms_values.get(Battery.DC_VOLTAGE))
-            self._db_conn.insert_soc(f"{bms_prefix}/soc", timestamp, round(bms_values.get(Battery.SOC)))
+            bms_soc = bms_values.get(Battery.SOC)
+            if isinstance(bms_soc, (int, float)):
+                self._db_conn.insert_soc(f"{bms_prefix}/soc", timestamp, round(bms_soc))
 
     # --------------------------------#
     #  VictronModbusClient bindings  #
@@ -260,8 +274,8 @@ class VictronClient:
     def write(self, unit_id: int, register: Register, value: float) -> bool:
         return self._client.write(unit_id, register, value)
 
-    def read_many(self, unit_id: int, registers: list[Register]) -> dict[Register, float | None]:
+    def read_many(self, unit_id: int, registers: list[Register]) -> dict[Register, float | bytes | None]:
         return self._client.read_many(unit_id, registers)
 
-    def close(self):
+    def close(self) -> None:
         self._client.close()

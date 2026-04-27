@@ -36,4 +36,6 @@ ruff check --output-format=full .
 
 ```bash
 mypy open_ess
+
+mypy --install-types
 ```

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from open_ess.battery_system import BatterySystem
 from open_ess.database import Database, DatabaseConnection
@@ -26,26 +26,29 @@ class OptimizerService(Service):
         self._db_conn: DatabaseConnection | None = None
         self._optimizer: Optimizer | None = None
 
-    def on_start(self):
+    def on_start(self) -> None:
         self._db_conn = self._db.connect()
         self._optimizer = Optimizer(
             self._db_conn, price_config=self._price_config, battery_config=self._battery_system.config
         )
 
-    def tick(self):
+    def tick(self) -> None:
+        if self._optimizer is None or self._db_conn is None:
+            return
+
         logger.debug("Running charge optimizer(s)")
         schedule = self._optimizer.optimize()
         if schedule:
             _, _, power, _ = schedule[0]
             self._battery_system.set_ess_setpoint(power)
-            self._db_conn.set_schedule(self._battery_system.id, schedule)
+            self._db_conn.set_schedule(self._battery_system.id, schedule)  # type: ignore[arg-type]
             logger.debug(f"Updated schedule with {len(schedule)} entries")
         else:
             logger.warning("Optimizer returned empty schedule")
 
-    def wait_until_next(self):
+    def wait_until_next(self) -> None:
         """Wait until the start of the next price bracket."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         next_run = now.replace(
             minute=(now.minute // self._price_config.aggregate_minutes) * self._price_config.aggregate_minutes,
             second=0,

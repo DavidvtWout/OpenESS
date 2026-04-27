@@ -13,7 +13,7 @@ open_ess = ["*.js", "*.html", "*.css"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 output-format = "concise"
 
 [tool.ruff.lint]
@@ -41,12 +41,23 @@ known-first-party = ["open_ess"]
 [tool.ruff.format]
 quote-style = "double"
 
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "open_ess/frontend/routes/api.py"
+disallow_untyped_defs = false
+
 
 [project]
 name = "open-ess"
 description = "Open Energy Storage System - Charge/discharge schedule optimizer for day-ahead energy prices."
 version = "0.0.0"
 authors = [{ name = "David van 't Wout", email = "david@vtwout.com" }]
+requires-python = ">=3.11"  # Because of entsoe-apy
 dependencies = [
     "entsoe-apy",
     "fastapi",
@@ -61,7 +72,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pre-commit", "pytest>=8.0", "pytest-cov", "mypy>=1.10", "ruff>=0.4"]
+dev = ["pre-commit", "pytest>=8.0", "pytest-cov", "mypy>=1.10", "ruff>=0.4", "types-PyYAML", "pandas-stubs"]
 
 [project.scripts]
 open-ess = "open_ess.main:main"

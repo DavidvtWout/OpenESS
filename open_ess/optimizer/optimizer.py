@@ -1,7 +1,7 @@
 import logging
 import os
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
@@ -70,7 +70,7 @@ class Optimizer:
         - T: time variable starting at t=0 and going up to t=len(future_prices)-1.
         """
         # Get hourly prices for the planning horizon
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         start_hour = now.replace(minute=0, second=0, microsecond=0)
         prices = self._database.get_prices(
             self._price_config.area,
