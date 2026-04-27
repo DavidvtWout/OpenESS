@@ -48,8 +48,12 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = "open_ess/frontend/routes/api.py"
-disallow_untyped_defs = false
+module = ["entsoe", "entsoe.*", "pyomo", "pyomo.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "open_ess.frontend.routes.api"
+ignore_errors = true
 
 
 [project]

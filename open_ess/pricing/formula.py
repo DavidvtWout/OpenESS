@@ -61,7 +61,7 @@ def _eval_node(node: ast.AST, price: float) -> float:
         if unary_op_type not in UNARY_OPS:
             raise FormulaError(f"Unary operator {unary_op_type.__name__} not allowed")
         operand = _eval_node(node.operand, price)
-        return cast(float, UNARY_OPS[unary_op_type](operand))
+        return cast(float, UNARY_OPS[unary_op_type](operand))  # type: ignore[operator]
 
     else:
         raise FormulaError(f"Expression type {type(node).__name__} not allowed")

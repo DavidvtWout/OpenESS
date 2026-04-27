@@ -18,7 +18,7 @@ class BatterySystem(ABC):
         return self._config
 
     @property
-    def name(self) -> str:
+    def name(self) -> str | None:
         return self._config.name
 
     @property
@@ -26,7 +26,7 @@ class BatterySystem(ABC):
     def id(self) -> str | None: ...
 
     @abstractmethod
-    def set_ess_setpoint(self, power: float, until: datetime | None = None): ...
+    def set_ess_setpoint(self, power: float, until: datetime | None = None) -> None: ...
 
 
 class VictronBatterySystem(BatterySystem):
@@ -41,7 +41,7 @@ class VictronBatterySystem(BatterySystem):
             return None
         return f"victron/{self._victron_client.serial}"
 
-    def set_ess_setpoint(self, power: float, until: datetime | None = None):
+    def set_ess_setpoint(self, power: float, until: datetime | None = None) -> None:
         if until is None:
             until = datetime.now(tz=UTC) + timedelta(hours=1)
         logger.info(f"{self.name}: Set setpoint to {power} W")
