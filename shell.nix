@@ -17,7 +17,6 @@ in pkgs.mkShell {
         pytest-cov
       ])))
     cbc # MILP solver for the optimizer
-    esbuild
     pre-commit
   ];
 
