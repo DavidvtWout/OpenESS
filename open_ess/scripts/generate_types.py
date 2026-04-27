@@ -141,8 +141,11 @@ def path_to_function_name(path: str, method: str) -> str:
     return name
 
 
-def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str | None:
-    """Generate JavaScript function with JSDoc for an API route."""
+def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> tuple[str, str] | None:
+    """Generate JavaScript function with JSDoc for an API route.
+
+    Returns (func_name, func_code) tuple or None.
+    """
     # Get the HTTP method
     methods = list(route.methods - {"HEAD", "OPTIONS"})
     if not methods:
@@ -187,53 +190,53 @@ def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> str 
         )
 
     # Build JSDoc comment
-    jsdoc_lines = ["/**"]
+    jsdoc_lines = ["    /**"]
     if params:
         # Sort so required params come first
         params.sort(key=lambda x: x["optional"])
         for p in params:
             if p["optional"]:
-                jsdoc_lines.append(f" * @param {{{p['js_type']}}} [params.{p['name']}]")
+                jsdoc_lines.append(f"     * @param {{{p['js_type']}}} [params.{p['name']}]")
             else:
-                jsdoc_lines.append(f" * @param {{{p['js_type']}}} params.{p['name']}")
-    jsdoc_lines.append(f" * @returns {{Promise<{response_type}>}}")
-    jsdoc_lines.append(" */")
+                jsdoc_lines.append(f"     * @param {{{p['js_type']}}} params.{p['name']}")
+    jsdoc_lines.append(f"     * @returns {{Promise<{response_type}>}}")
+    jsdoc_lines.append("     */")
 
-    # Build function
+    # Build function (as method in object)
     if params:
         func_lines = [
             "\n".join(jsdoc_lines),
-            f"export async function {func_name}(params) {{",
-            "    const searchParams = new URLSearchParams();",
+            f"    {func_name}: async function(params) {{",
+            "        var searchParams = new URLSearchParams();",
         ]
         for p in params:
             func_lines.append(
-                f"    if (params.{p['name']} !== undefined) searchParams.set('{p['name']}', String(params.{p['name']}));"
+                f"        if (params.{p['name']} !== undefined) searchParams.set('{p['name']}', String(params.{p['name']}));"
             )
         func_lines.extend(
             [
-                "    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';",
-                f"    const response = await fetch(`/api{path}${{query}}`);",
+                "        var query = searchParams.toString() ? '?' + searchParams.toString() : '';",
+                f"        var response = await fetch('/api{path}' + query);",
             ]
         )
     else:
         func_lines = [
             "\n".join(jsdoc_lines),
-            f"export async function {func_name}() {{",
-            f"    const response = await fetch(`/api{path}`);",
+            f"    {func_name}: async function() {{",
+            f"        var response = await fetch('/api{path}');",
         ]
 
     func_lines.extend(
         [
-            "    if (!response.ok) {",
-            "        throw new Error(`HTTP ${response.status}`);",
+            "        if (!response.ok) {",
+            "            throw new Error('HTTP ' + response.status);",
+            "        }",
+            "        return response.json();",
             "    }",
-            "    return response.json();",
-            "}",
         ]
     )
 
-    return "\n".join(func_lines)
+    return (func_name, "\n".join(func_lines))
 
 
 def generate_types_file(output_path: Path) -> None:
@@ -274,18 +277,37 @@ def generate_types_file(output_path: Path) -> None:
         lines.append(generate_typedef_jsdoc(model, models_dict))
         lines.append("")
 
-    # Generate API client functions
+    # Generate API client as IIFE with global export
     lines.append("// ===================")
     lines.append("// === API Client ===")
     lines.append("// ===================")
     lines.append("")
+    lines.append("(function() {")
+    lines.append("    'use strict';")
+    lines.append("")
+    lines.append("    window.Api = {")
 
+    # Collect all API functions
+    api_functions = []
     for route in api.router.routes:
         if isinstance(route, APIRoute):
-            func_code = generate_api_function(route, models_dict)
-            if func_code:
-                lines.append(func_code)
-                lines.append("")
+            result = generate_api_function(route, models_dict)
+            if result:
+                api_functions.append(result)
+
+    # Add functions to object with commas between them
+    for i, (_func_name, func_code) in enumerate(api_functions):
+        lines.append(func_code)
+        if i < len(api_functions) - 1:
+            # Replace closing brace with comma
+            lines[-1] = lines[-1].rstrip()
+            if lines[-1].endswith("}"):
+                lines[-1] = lines[-1][:-1] + "},"
+        lines.append("")
+
+    lines.append("    };")
+    lines.append("})();")
+    lines.append("")
 
     # Write output
     output_path.parent.mkdir(parents=True, exist_ok=True)

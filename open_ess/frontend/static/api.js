@@ -188,215 +188,222 @@
 // === API Client ===
 // ===================
 
-/**
- * @returns {Promise<HealthResponse>}
- */
-export async function health() {
-    const response = await fetch(`/api/health`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+(function() {
+    'use strict';
 
-/**
- * @returns {Promise<SystemLayoutData>}
- */
-export async function systemLayout() {
-    const response = await fetch(`/api/system-layout`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    window.Api = {
+    /**
+     * @returns {Promise<HealthResponse>}
+     */
+    health: async function() {
+        var response = await fetch('/api/health');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @returns {Promise<PowerFlowData>}
- */
-export async function powerFlow() {
-    const response = await fetch(`/api/power-flow`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @returns {Promise<SystemLayoutData>}
+     */
+    systemLayout: async function() {
+        var response = await fetch('/api/system-layout');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @returns {Promise<ServicesStatusResponse>}
- */
-export async function servicesStatus() {
-    const response = await fetch(`/api/services-status`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @returns {Promise<PowerFlowData>}
+     */
+    powerFlow: async function() {
+        var response = await fetch('/api/power-flow');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @returns {Promise<string[]>}
- */
-export async function batteryIds() {
-    const response = await fetch(`/api/battery-ids`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @returns {Promise<ServicesStatusResponse>}
+     */
+    servicesStatus: async function() {
+        var response = await fetch('/api/services-status');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @param {(string | null)} [params.battery_id]
- * @param {(string | null)} [params.start]
- * @param {(string | null)} [params.end]
- * @param {number} [params.bucket_minutes]
- * @returns {Promise<EnergyGraphResponse>}
- */
-export async function energyGraph(params) {
-    const searchParams = new URLSearchParams();
-    if (params.battery_id !== undefined) searchParams.set('battery_id', String(params.battery_id));
-    if (params.start !== undefined) searchParams.set('start', String(params.start));
-    if (params.end !== undefined) searchParams.set('end', String(params.end));
-    if (params.bucket_minutes !== undefined) searchParams.set('bucket_minutes', String(params.bucket_minutes));
-    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const response = await fetch(`/api/energy-graph${query}`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @returns {Promise<string[]>}
+     */
+    batteryIds: async function() {
+        var response = await fetch('/api/battery-ids');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @param {(string | null)} [params.battery_id]
- * @param {(string | null)} [params.start]
- * @param {(string | null)} [params.end]
- * @param {number} [params.aggregate_minutes]
- * @returns {Promise<PowerResponse>}
- */
-export async function powerGraph(params) {
-    const searchParams = new URLSearchParams();
-    if (params.battery_id !== undefined) searchParams.set('battery_id', String(params.battery_id));
-    if (params.start !== undefined) searchParams.set('start', String(params.start));
-    if (params.end !== undefined) searchParams.set('end', String(params.end));
-    if (params.aggregate_minutes !== undefined) searchParams.set('aggregate_minutes', String(params.aggregate_minutes));
-    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const response = await fetch(`/api/power-graph${query}`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @param {(string | null)} [params.battery_id]
+     * @param {(string | null)} [params.start]
+     * @param {(string | null)} [params.end]
+     * @param {number} [params.bucket_minutes]
+     * @returns {Promise<EnergyGraphResponse>}
+     */
+    energyGraph: async function(params) {
+        var searchParams = new URLSearchParams();
+        if (params.battery_id !== undefined) searchParams.set('battery_id', String(params.battery_id));
+        if (params.start !== undefined) searchParams.set('start', String(params.start));
+        if (params.end !== undefined) searchParams.set('end', String(params.end));
+        if (params.bucket_minutes !== undefined) searchParams.set('bucket_minutes', String(params.bucket_minutes));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/energy-graph' + query);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @param {(string | null)} [params.area]
- * @param {(string | null)} [params.start]
- * @param {(string | null)} [params.end]
- * @param {(number | null)} [params.aggregate_minutes]
- * @returns {Promise<PricesResponse>}
- */
-export async function prices(params) {
-    const searchParams = new URLSearchParams();
-    if (params.area !== undefined) searchParams.set('area', String(params.area));
-    if (params.start !== undefined) searchParams.set('start', String(params.start));
-    if (params.end !== undefined) searchParams.set('end', String(params.end));
-    if (params.aggregate_minutes !== undefined) searchParams.set('aggregate_minutes', String(params.aggregate_minutes));
-    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const response = await fetch(`/api/prices${query}`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @param {(string | null)} [params.battery_id]
+     * @param {(string | null)} [params.start]
+     * @param {(string | null)} [params.end]
+     * @param {number} [params.aggregate_minutes]
+     * @returns {Promise<PowerResponse>}
+     */
+    powerGraph: async function(params) {
+        var searchParams = new URLSearchParams();
+        if (params.battery_id !== undefined) searchParams.set('battery_id', String(params.battery_id));
+        if (params.start !== undefined) searchParams.set('start', String(params.start));
+        if (params.end !== undefined) searchParams.set('end', String(params.end));
+        if (params.aggregate_minutes !== undefined) searchParams.set('aggregate_minutes', String(params.aggregate_minutes));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/power-graph' + query);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @param {(string | null)} [params.battery_id]
- * @param {(string | null)} [params.start]
- * @param {(string | null)} [params.end]
- * @returns {Promise<Object.<string, BatteryGraphResponse>>}
- */
-export async function batteryGraph(params) {
-    const searchParams = new URLSearchParams();
-    if (params.battery_id !== undefined) searchParams.set('battery_id', String(params.battery_id));
-    if (params.start !== undefined) searchParams.set('start', String(params.start));
-    if (params.end !== undefined) searchParams.set('end', String(params.end));
-    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const response = await fetch(`/api/battery-graph${query}`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @param {(string | null)} [params.area]
+     * @param {(string | null)} [params.start]
+     * @param {(string | null)} [params.end]
+     * @param {(number | null)} [params.aggregate_minutes]
+     * @returns {Promise<PricesResponse>}
+     */
+    prices: async function(params) {
+        var searchParams = new URLSearchParams();
+        if (params.area !== undefined) searchParams.set('area', String(params.area));
+        if (params.start !== undefined) searchParams.set('start', String(params.start));
+        if (params.end !== undefined) searchParams.set('end', String(params.end));
+        if (params.aggregate_minutes !== undefined) searchParams.set('aggregate_minutes', String(params.aggregate_minutes));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/prices' + query);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @param {number} [params.limit]
- * @param {number} [params.aggregate_minutes]
- * @param {number} [params.idle_threshold]
- * @returns {Promise<EfficiencyScatterPoint[]>}
- */
-export async function efficiencyScatter(params) {
-    const searchParams = new URLSearchParams();
-    if (params.limit !== undefined) searchParams.set('limit', String(params.limit));
-    if (params.aggregate_minutes !== undefined) searchParams.set('aggregate_minutes', String(params.aggregate_minutes));
-    if (params.idle_threshold !== undefined) searchParams.set('idle_threshold', String(params.idle_threshold));
-    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const response = await fetch(`/api/efficiency-scatter${query}`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @param {(string | null)} [params.battery_id]
+     * @param {(string | null)} [params.start]
+     * @param {(string | null)} [params.end]
+     * @returns {Promise<Object.<string, BatteryGraphResponse>>}
+     */
+    batteryGraph: async function(params) {
+        var searchParams = new URLSearchParams();
+        if (params.battery_id !== undefined) searchParams.set('battery_id', String(params.battery_id));
+        if (params.start !== undefined) searchParams.set('start', String(params.start));
+        if (params.end !== undefined) searchParams.set('end', String(params.end));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/battery-graph' + query);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @param {(string | null)} [params.battery_id]
- * @param {(string | null)} [params.start]
- * @param {(string | null)} [params.end]
- * @param {number} [params.min_soc_swing]
- * @returns {Promise<BatteryCycle[]>}
- */
-export async function cycles(params) {
-    const searchParams = new URLSearchParams();
-    if (params.battery_id !== undefined) searchParams.set('battery_id', String(params.battery_id));
-    if (params.start !== undefined) searchParams.set('start', String(params.start));
-    if (params.end !== undefined) searchParams.set('end', String(params.end));
-    if (params.min_soc_swing !== undefined) searchParams.set('min_soc_swing', String(params.min_soc_swing));
-    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const response = await fetch(`/api/cycles${query}`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @param {number} [params.limit]
+     * @param {number} [params.aggregate_minutes]
+     * @param {number} [params.idle_threshold]
+     * @returns {Promise<EfficiencyScatterPoint[]>}
+     */
+    efficiencyScatter: async function(params) {
+        var searchParams = new URLSearchParams();
+        if (params.limit !== undefined) searchParams.set('limit', String(params.limit));
+        if (params.aggregate_minutes !== undefined) searchParams.set('aggregate_minutes', String(params.aggregate_minutes));
+        if (params.idle_threshold !== undefined) searchParams.set('idle_threshold', String(params.idle_threshold));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/efficiency-scatter' + query);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @param {(string | null)} [params.start]
- * @param {(string | null)} [params.end]
- * @param {number} [params.aggregate_minutes]
- * @returns {Promise<PowerResponse>}
- */
-export async function power(params) {
-    const searchParams = new URLSearchParams();
-    if (params.start !== undefined) searchParams.set('start', String(params.start));
-    if (params.end !== undefined) searchParams.set('end', String(params.end));
-    if (params.aggregate_minutes !== undefined) searchParams.set('aggregate_minutes', String(params.aggregate_minutes));
-    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const response = await fetch(`/api/power${query}`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-    }
-    return response.json();
-}
+    /**
+     * @param {(string | null)} [params.battery_id]
+     * @param {(string | null)} [params.start]
+     * @param {(string | null)} [params.end]
+     * @param {number} [params.min_soc_swing]
+     * @returns {Promise<BatteryCycle[]>}
+     */
+    cycles: async function(params) {
+        var searchParams = new URLSearchParams();
+        if (params.battery_id !== undefined) searchParams.set('battery_id', String(params.battery_id));
+        if (params.start !== undefined) searchParams.set('start', String(params.start));
+        if (params.end !== undefined) searchParams.set('end', String(params.end));
+        if (params.min_soc_swing !== undefined) searchParams.set('min_soc_swing', String(params.min_soc_swing));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/cycles' + query);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
 
-/**
- * @param {(string | null)} [params.start]
- * @param {(string | null)} [params.end]
- * @returns {Promise<EnergyResponse>}
- */
-export async function energy(params) {
-    const searchParams = new URLSearchParams();
-    if (params.start !== undefined) searchParams.set('start', String(params.start));
-    if (params.end !== undefined) searchParams.set('end', String(params.end));
-    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    const response = await fetch(`/api/energy${query}`);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+    /**
+     * @param {(string | null)} [params.start]
+     * @param {(string | null)} [params.end]
+     * @param {number} [params.aggregate_minutes]
+     * @returns {Promise<PowerResponse>}
+     */
+    power: async function(params) {
+        var searchParams = new URLSearchParams();
+        if (params.start !== undefined) searchParams.set('start', String(params.start));
+        if (params.end !== undefined) searchParams.set('end', String(params.end));
+        if (params.aggregate_minutes !== undefined) searchParams.set('aggregate_minutes', String(params.aggregate_minutes));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/power' + query);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
+
+    /**
+     * @param {(string | null)} [params.start]
+     * @param {(string | null)} [params.end]
+     * @returns {Promise<EnergyResponse>}
+     */
+    energy: async function(params) {
+        var searchParams = new URLSearchParams();
+        if (params.start !== undefined) searchParams.set('start', String(params.start));
+        if (params.end !== undefined) searchParams.set('end', String(params.end));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/energy' + query);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
     }
-    return response.json();
-}
+
+    };
+})();
