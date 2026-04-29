@@ -63,6 +63,7 @@ version = "0.0.0"
 authors = [{ name = "David van 't Wout", email = "david@vtwout.com" }]
 requires-python = ">=3.11"  # Because of entsoe-apy
 dependencies = [
+    "metricsqlite",
     "entsoe-apy",
     "fastapi",
     "jinja2",
