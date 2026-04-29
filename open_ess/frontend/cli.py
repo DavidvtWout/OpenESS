@@ -3,8 +3,8 @@ import logging
 import uvicorn
 
 from open_ess.config import Config
+from open_ess.database import Database
 from open_ess.frontend.app import create_app
-from open_ess.frontend.dependencies import close_dependencies
 from open_ess.util import parse_args, setup_logging
 
 setup_logging()
@@ -17,21 +17,19 @@ def main() -> None:
     config = Config.from_file(args.config)
     if not config.frontend.enable:
         logger.info("Frontend is not enabled. Exiting...")
+        return
 
-    # TODO: init_dependencies(config.database, config.prices, [])
+    database = Database(config.database)
 
     logger.info(f"Starting web server on http://{config.frontend.host}:{config.frontend.port}")
 
-    try:
-        app = create_app()
-        uvicorn.run(
-            app,
-            host=config.frontend.host,  # type: ignore[arg-type]
-            port=config.frontend.port,
-            log_level="info",
-        )
-    finally:
-        close_dependencies()
+    app = create_app(database, config, battery_systems=[])
+    uvicorn.run(
+        app,
+        host=config.frontend.host,
+        port=config.frontend.port,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":

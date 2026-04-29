@@ -32,6 +32,10 @@
         {% block content %}{% endblock %}
     </main>
 
+    <!-- Common scripts loaded in order -->
+    <script src="/static/settings.js"></script>
+    <script src="/static/api.js"></script>
+    <script src="/static/utils.js"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

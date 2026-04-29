@@ -1,52 +1,25 @@
-from typing import TYPE_CHECKING
+from typing import Annotated
 
-from open_ess.battery_system import BatterySystem, BatterySystemConfig
-from open_ess.database import Database, DatabaseConnection
+from fastapi import Depends, Request
+
+from open_ess.battery_system import BatterySystem
+from open_ess.database import DatabaseConnection
 from open_ess.pricing import PriceConfig
 
-if TYPE_CHECKING:
-    from open_ess.config import Config
 
-_config: "Config | None" = None
-_database: DatabaseConnection | None = None
-_battery_systems: list[BatterySystem] | None = None
+def get_database(request: Request) -> DatabaseConnection:
+    return request.app.state.database  # type: ignore[no-any-return]
 
 
-def init_dependencies(db: Database, config: "Config", battery_systems: list[BatterySystem]) -> None:
-    global _config, _database, _battery_systems
-    _config = config
-    _database = db.connect()
-    _battery_systems = battery_systems
+def get_price_config(request: Request) -> PriceConfig:
+    return request.app.state.price_config  # type: ignore[no-any-return]
 
 
-def get_database() -> DatabaseConnection:
-    if _database is None:
-        raise RuntimeError("Database not initialized. Call init_dependencies() first.")
-    return _database
+def get_battery_systems(request: Request) -> list[BatterySystem]:
+    return request.app.state.battery_systems  # type: ignore[no-any-return]
 
 
-def get_price_config() -> PriceConfig:
-    if _config is None:
-        raise RuntimeError("Price config not initialized. Call init_dependencies() first.")
-    return _config.prices
-
-
-def get_battery_configs() -> dict[str, BatterySystemConfig]:
-    if _config is None:
-        raise RuntimeError("Battery configs not initialized. Call init_dependencies() first.")
-    return {battery_config.id: battery_config for battery_config in _config.battery_systems}
-
-
-def get_battery_systems() -> list[BatterySystem]:
-    if _battery_systems is None:
-        raise RuntimeError("Battery_systems not initialized. Call init_dependencies() first.")
-    return _battery_systems
-
-
-def close_dependencies() -> None:
-    global _config, _database, _battery_systems
-    _config = None
-    _battery_systems = None
-    if _database is not None:
-        _database.close()
-        _database = None
+# Type aliases for cleaner route signatures
+Database = Annotated[DatabaseConnection, Depends(get_database)]
+PriceConfigDep = Annotated[PriceConfig, Depends(get_price_config)]
+BatterySystemsDep = Annotated[list[BatterySystem], Depends(get_battery_systems)]

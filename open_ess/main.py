@@ -6,7 +6,7 @@ import uvicorn
 from open_ess.battery_system import BatterySystem, VictronBatterySystem
 from open_ess.config import Config
 from open_ess.database import Database, DatabaseService
-from open_ess.frontend import close_dependencies, create_app, init_dependencies
+from open_ess.frontend import create_app
 from open_ess.optimizer import OptimizerService
 from open_ess.pricing import EntsoeService
 from open_ess.service import ServiceManager
@@ -56,21 +56,17 @@ def main() -> None:
 
     # Frontend
     if config.frontend.enable:
-        init_dependencies(database, config, battery_systems)
         logger.info(f"Starting web server on http://{config.frontend.host}:{config.frontend.port}")
 
         logging.getLogger("uvicorn.access").addFilter(EndpointFilter(["/api/power-flow"]))
 
-        try:
-            app = create_app()
-            uvicorn.run(
-                app,
-                host=config.frontend.host,  # type: ignore[arg-type]
-                port=config.frontend.port,
-                log_level="info",
-            )
-        finally:
-            close_dependencies()
+        app = create_app(database, config, battery_systems)
+        uvicorn.run(
+            app,
+            host=config.frontend.host,
+            port=config.frontend.port,
+            log_level="info",
+        )
 
     service_manager.wait_for_stop()
     logger.info("Shutdown complete")
