@@ -39,8 +39,8 @@ class BatterySystemConfig(BaseModel):
     control: Annotated[VictronConfig | MqttControl, Field(discriminator="type")]
     metrics: MetricsConfig = MetricsConfig()
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    @computed_field
     def id(self) -> str:
         if isinstance(self.control, VictronConfig):
             return f"victron/vebus/{self.control.vebus_id}"

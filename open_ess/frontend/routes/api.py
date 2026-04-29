@@ -2,13 +2,10 @@ import logging
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from open_ess.battery_system import BatterySystem, BatterySystemConfig
-from open_ess.database import DatabaseConnection
-from open_ess.frontend.dependencies import get_battery_configs, get_battery_systems, get_database, get_price_config
-from open_ess.pricing import PriceConfig
+from open_ess.frontend.dependencies import BatterySystemsDep, Database, PriceConfigDep
 
 from .util import TimeSeries, data_to_timeseries, find_full_battery_cycles
 
@@ -32,7 +29,7 @@ class HealthResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(db: DatabaseConnection = Depends(get_database)) -> HealthResponse:
+async def health_check(db: Database) -> HealthResponse:
     try:
         # TODO:
         cursor = db.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -61,7 +58,7 @@ class SystemLayoutData(BaseModel):
 
 
 @router.get("/system-layout", response_model=SystemLayoutData)
-async def get_system_layout(battery_systems: list[BatterySystem] = Depends(get_battery_systems)) -> SystemLayoutData:
+async def get_system_layout(battery_systems: BatterySystemsDep) -> SystemLayoutData:
     return SystemLayoutData(
         phases=[1, 2, 3],
         # grid_labels=["L1", "L2", "L3"],
@@ -85,9 +82,7 @@ class PowerFlowData(BaseModel):
 
 
 @router.get("/power-flow", response_model=PowerFlowData)
-async def get_power_flow(
-    db: DatabaseConnection = Depends(get_database), battery_systems: list[BatterySystem] = Depends(get_battery_systems)
-) -> PowerFlowData:
+async def get_power_flow(db: Database, battery_systems: BatterySystemsDep) -> PowerFlowData:
     start = datetime.now(UTC) - timedelta(seconds=10)
 
     grid_power = {}
@@ -178,9 +173,9 @@ async def services_status() -> ServicesStatusResponse:
 
 
 @router.get("/battery-ids", response_model=list[str])
-async def get_battery_ids(battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs)) -> list[str]:
+async def get_battery_ids(battery_systems: BatterySystemsDep) -> list[str]:
     try:
-        return list(battery_configs.keys())
+        return [s.id for s in battery_systems]
     except Exception as e:
         logger.exception("Failed to get battery ids")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -215,15 +210,29 @@ class EnergyGraphResponse(BaseModel):
 
 @router.get("/energy-graph", response_model=EnergyGraphResponse)
 async def get_energy_flow_endpoint(
+    db: Database,
+    battery_systems: BatterySystemsDep,
     battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     bucket_minutes: int = Query(default=60),
-    db: DatabaseConnection = Depends(get_database),
-    battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
 ) -> EnergyGraphResponse:
     try:
-        battery_config = battery_configs["victron/vebus/228"] if battery_id is None else battery_configs[battery_id]
+        battery_system = None
+        if battery_id:
+            for bs in battery_systems:
+                if bs.id == battery_id:
+                    battery_system = bs
+                    break
+        elif len(battery_systems) == 1:
+            battery_system = battery_systems[0]
+
+        if battery_system is None:
+            if battery_id:
+                raise HTTPException(status_code=400, detail=f"No battery system with id '{battery_id}'")
+            else:
+                raise HTTPException(status_code=400, detail="Please provide a battery_id")
+
         now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(hours=24)
@@ -238,10 +247,10 @@ async def get_energy_flow_endpoint(
                 "grid/energy/export/total", bucket_minutes * 60, start, end, center_buckets=True
             ),
             "vebus_228_import": db.get_energy_aggregated(
-                battery_config.metrics.energy_to_system, bucket_minutes * 60, start, end, center_buckets=True
+                battery_system.config.metrics.energy_to_system, bucket_minutes * 60, start, end, center_buckets=True
             ),
             "vebus_228_export": db.get_energy_aggregated(
-                battery_config.metrics.energy_from_system, bucket_minutes * 60, start, end, center_buckets=True
+                battery_system.config.metrics.energy_from_system, bucket_minutes * 60, start, end, center_buckets=True
             ),
         }
 
@@ -292,15 +301,29 @@ async def get_energy_flow_endpoint(
 
 @router.get("/power-graph", response_model=PowerResponse)
 async def get_power_graph(
+    db: Database,
+    battery_systems: BatterySystemsDep,
     battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     aggregate_minutes: int = Query(default=1),
-    db: DatabaseConnection = Depends(get_database),
-    battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
 ) -> PowerResponse:
     try:
-        battery_config = battery_configs["victron/vebus/228"] if battery_id is None else battery_configs[battery_id]
+        battery_system = None
+        if battery_id:
+            for bs in battery_systems:
+                if bs.id == battery_id:
+                    battery_system = bs
+                    break
+        elif len(battery_systems) == 1:
+            battery_system = battery_systems[0]
+
+        if battery_system is None:
+            if battery_id:
+                raise HTTPException(status_code=400, detail=f"No battery system with id '{battery_id}'")
+            else:
+                raise HTTPException(status_code=400, detail="Please provide a battery_id")
+
         now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(hours=24)
@@ -311,16 +334,20 @@ async def get_power_graph(
 
         series = {f"Grid L{i}": db.get_power(f"grid/power/l{i}", start, end, bucket_seconds) for i in (1, 2, 3)}
 
-        series["To MP"] = db.get_power(battery_config.metrics.power_to_system, start, end, bucket_seconds)
+        series["To MP"] = db.get_power(battery_system.config.metrics.power_to_system, start, end, bucket_seconds)
 
-        series["Battery"] = db.get_power(battery_config.metrics.power_to_battery, start, end, bucket_seconds)
+        series["Battery"] = db.get_power(battery_system.config.metrics.power_to_battery, start, end, bucket_seconds)
 
         series["Solar"] = [
             (t, -p) for t, p in db.get_power("victron/pvinverter/31/power/l1", start, end, bucket_seconds)
         ]
 
         series["Schedule"] = []
-        for ts_start, ts_end, v, _ in db.get_schedule(battery_config.id, start):
+
+        print(type(battery_system))
+        print(type(battery_system.config))
+
+        for ts_start, ts_end, v, _ in db.get_schedule(battery_system.config.id, start):
             series["Schedule"].extend([(ts_start, v), (ts_end, v)])
 
         return PowerResponse(series={k: data_to_timeseries(v) for k, v in series.items()})
@@ -345,12 +372,12 @@ class PricesResponse(BaseModel):
 
 @router.get("/prices", response_model=PricesResponse)
 async def get_price_data(
+    db: Database,
+    price_config: PriceConfigDep,
     area: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     aggregate_minutes: int | None = Query(default=None),
-    db: DatabaseConnection = Depends(get_database),
-    price_config: PriceConfig = Depends(get_price_config),
 ) -> PricesResponse:
     try:
         if area is None:
@@ -392,11 +419,11 @@ class BatteryGraphResponse(BaseModel):
 
 @router.get("/battery-graph", response_model=dict[str, BatteryGraphResponse])
 async def get_battery_graph(
+    db: Database,
+    battery_systems: BatterySystemsDep,
     battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
-    db: DatabaseConnection = Depends(get_database),
-    battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
 ) -> dict[str, BatteryGraphResponse]:
     try:
         now = datetime.now(UTC)
@@ -406,15 +433,15 @@ async def get_battery_graph(
             end = now + timedelta(hours=24)
 
         result = {}
-        for battery_config in battery_configs.values():
-            if battery_id is not None and battery_config.id != battery_id:
+        for battery_system in battery_systems:
+            if battery_id is not None and battery_system.config.id != battery_id:
                 continue
 
-            soc = db.get_battery_soc(battery_config.metrics.battery_soc, start, end)
-            scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(battery_config.id, start)]
-            voltage = db.get_voltage(battery_config.metrics.battery_voltage, start, end, bucket_seconds=60)
+            soc = db.get_battery_soc(battery_system.config.metrics.battery_soc, start, end)
+            scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(battery_system.config.id, start)]
+            voltage = db.get_voltage(battery_system.config.metrics.battery_voltage, start, end, bucket_seconds=60)
 
-            result[battery_config.name] = BatteryGraphResponse(
+            result[battery_system.config.name] = BatteryGraphResponse(
                 soc=data_to_timeseries(soc, rounding=1),
                 schedule=data_to_timeseries(scheduled, rounding=1),
                 voltage=data_to_timeseries(voltage, rounding=2),
@@ -442,10 +469,10 @@ class EfficiencyScatterPoint(BaseModel):
 
 @router.get("/efficiency-scatter", response_model=list[EfficiencyScatterPoint])
 async def get_efficiency_scatter(
+    db: Database,
     limit: int = Query(default=2000),
     aggregate_minutes: int = Query(default=10),
     idle_threshold: int = Query(default=5),
-    db: DatabaseConnection = Depends(get_database),
 ) -> list[EfficiencyScatterPoint]:
     try:
         ac_in = db.get_power("victron/vebus/228/power/ac_in/l1", bucket_seconds=aggregate_minutes * 60, limit=limit)
@@ -513,23 +540,37 @@ class BatteryCycle(BaseModel):
 
 @router.get("/cycles", response_model=list[BatteryCycle])
 async def get_battery_cycles(
+    db: Database,
+    battery_systems: BatterySystemsDep,
+    price_config: PriceConfigDep,
     battery_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     min_soc_swing: int = Query(default=10),
-    db: DatabaseConnection = Depends(get_database),
-    battery_configs: dict[str, BatterySystemConfig] = Depends(get_battery_configs),
-    price_config: PriceConfig = Depends(get_price_config),
 ) -> list[BatteryCycle]:
     try:
-        battery_config = battery_configs["victron/vebus/228"] if battery_id is None else battery_configs[battery_id]
+        battery_system = None
+        if battery_id:
+            for bs in battery_systems:
+                if bs.id == battery_id:
+                    battery_system = bs
+                    break
+        elif len(battery_systems) == 1:
+            battery_system = battery_systems[0]
+
+        if battery_system is None:
+            if battery_id:
+                raise HTTPException(status_code=400, detail=f"No battery system with id '{battery_id}'")
+            else:
+                raise HTTPException(status_code=400, detail="Please provide a battery_id")
+
         now = datetime.now(UTC)
         if start is None:
             start = now - timedelta(days=30)
         if end is None:
             end = now
 
-        battery_soc = db.get_battery_soc(battery_config.metrics.battery_soc, start, end)
+        battery_soc = db.get_battery_soc(battery_system.config.metrics.battery_soc, start, end)
         raw_cycles = find_full_battery_cycles(battery_soc, full_threshold=90, min_soc_swing=min_soc_swing)
 
         cycles = []
@@ -539,7 +580,7 @@ async def get_battery_cycles(
             # TODO: this is cursed AF and should be fixed
             dc_energy_in = 0.0
             dc_energy_out = 0.0
-            for _, p in db.get_power(battery_config.metrics.power_to_battery[0], cycle_start, cycle_end):
+            for _, p in db.get_power(battery_system.config.metrics.power_to_battery[0], cycle_start, cycle_end):
                 # for _, p in db.get_power("vebus_228_battery", cycle_start, cycle_end):
                 if p > 0:
                     dc_energy_in += p
@@ -549,11 +590,11 @@ async def get_battery_cycles(
             dc_energy_out /= 60000
 
             ac_in_import = db.get_energy(
-                battery_config.metrics.energy_to_system, cycle_start, cycle_end, normalize=True
+                battery_system.config.metrics.energy_to_system, cycle_start, cycle_end, normalize=True
             )
             # ac_out_import = db.get_energy("vebus_228_ac_out_import", cycle_start, cycle_end, normalize=True)
             ac_in_export = db.get_energy(
-                battery_config.metrics.energy_from_system, cycle_start, cycle_end, normalize=True
+                battery_system.config.metrics.energy_from_system, cycle_start, cycle_end, normalize=True
             )
             # ac_out_export = db.get_energy("vebus_228_ac_out_export", cycle_start, cycle_end, normalize=True)
 
@@ -573,16 +614,16 @@ async def get_battery_cycles(
             e_in = {
                 ts: v
                 for ts, v in db.get_energy_aggregated(
-                    battery_config.metrics.energy_to_system, 3600, cycle_start, cycle_end
+                    battery_system.config.metrics.energy_to_system, 3600, cycle_start, cycle_end
                 )
             }
             e_out = {
                 ts: v
                 for ts, v in db.get_energy_aggregated(
-                    battery_config.metrics.energy_from_system, 3600, cycle_start, cycle_end
+                    battery_system.config.metrics.energy_from_system, 3600, cycle_start, cycle_end
                 )
             }
-            scheduled = {ts: v for ts, _, v, _ in db.get_schedule(battery_config.id, cycle_start)}
+            scheduled = {ts: v for ts, _, v, _ in db.get_schedule(battery_system.config.id, cycle_start)}
             for ts, v in db.get_prices(price_config.area, cycle_start, cycle_end, aggregate_minutes=60):
                 profit -= price_config.buy_price(v) * e_in.get(ts, 0)
                 profit += price_config.sell_price(v) * e_out.get(ts, 0)
@@ -625,10 +666,10 @@ async def get_battery_cycles(
 # TODO: add parameter to select subset of series
 @router.get("/power", response_model=PowerResponse)
 async def get_power(
+    db: Database,
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
     aggregate_minutes: int = Query(default=1),
-    db: DatabaseConnection = Depends(get_database),
 ) -> PowerResponse:
     try:
         now = datetime.now(UTC)
@@ -647,9 +688,9 @@ async def get_power(
 # TODO: add normalize parameter
 @router.get("/energy", response_model=EnergyResponse)
 async def get_energy(
+    db: Database,
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
-    db: DatabaseConnection = Depends(get_database),
 ) -> EnergyResponse:
     try:
         now = datetime.now(UTC)

@@ -59,21 +59,6 @@
  */
 
 /**
- * @typedef {Object} BatterySystemConfig
- * @property {(string | null)} name
- * @property {boolean} [monitor_only]
- * @property {number} [phases]
- * @property {(number | null)} capacity_kwh
- * @property {(number | null)} max_charge_power_kw
- * @property {(number | null)} max_invert_power_kw
- * @property {number} [idle_threshold_w]
- * @property {number} [min_soc]
- * @property {number} [max_soc]
- * @property {(VictronConfig | MqttControl)} [control]
- * @property {MetricsConfig} [metrics]
- */
-
-/**
  * @typedef {Object} BatterySystemInfo
  * @property {string} [id]
  * @property {string} [name]
@@ -124,16 +109,6 @@
 /**
  * @typedef {Object} PowerResponse
  * @property {Object.<string, TimeSeries>} [series]
- */
-
-/**
- * @typedef {Object} PriceConfig
- * @property {string} [area]
- * @property {boolean} [hourly_average]
- * @property {(string | null)} entsoe_api_key
- * @property {(Path | null)} entsoe_api_key_file
- * @property {string} [buy_formula]
- * @property {string} [sell_formula]
  */
 
 /**
