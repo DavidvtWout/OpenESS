@@ -48,7 +48,15 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = ["entsoe", "entsoe.*", "pyomo", "pyomo.*"]
+module = [
+    "entsoe", "entsoe.*",
+    "metricsqlite", "metricsqlite.*",
+    "pandas", "pandas.*",
+    "pyomo", "pyomo.*",
+    "snappy",
+    "urllib3", "urllib3.*",
+    "yaml",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -72,8 +80,11 @@ dependencies = [
     "pydantic",
     "pymodbus",
     "pyomo",
+    "python-snappy",
     "pyyaml",
     "uvicorn",
+    "urllib3",  # victoriametrics client
+    "python-snappy",   # victoriametrics client
 ]
 
 [project.optional-dependencies]

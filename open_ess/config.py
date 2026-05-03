@@ -7,14 +7,17 @@ from open_ess.battery_system import BatterySystemConfig
 from open_ess.database import DatabaseConfig
 from open_ess.frontend import FrontendConfig
 from open_ess.pricing import PriceConfig
+from open_ess.timeseries import TimeseriesConfig
+from open_ess.timeseries.metricsqlite.config import MetricSQLiteConfig
 
 # TODO: Validate config. If a battery defines mqtt control, require mqtt config.
 
 
 class Config(BaseModel):
-    database: DatabaseConfig
+    database: DatabaseConfig = DatabaseConfig()
     frontend: FrontendConfig
     prices: PriceConfig
+    timeseries: TimeseriesConfig = MetricSQLiteConfig()
     battery_system: BatterySystemConfig | list[BatterySystemConfig]
 
     @property

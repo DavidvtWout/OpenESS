@@ -10,6 +10,7 @@ from open_ess.frontend import create_app
 from open_ess.optimizer import OptimizerService
 from open_ess.pricing import EntsoeService
 from open_ess.service import ServiceManager
+from open_ess.timeseries import TimeseriesBackend, create_backend
 from open_ess.util import EndpointFilter, parse_args, setup_logging
 from open_ess.victron_modbus import VictronService
 
@@ -24,6 +25,10 @@ def main() -> None:
     database = Database(config.database)
     database.run_migrations()
 
+    # Create timeseries backend
+    timeseries: TimeseriesBackend = create_backend(config.timeseries, db_path=config.database.path)
+    logger.info(f"Using timeseries backend: {config.timeseries.backend}")
+
     # Create services
     service_manager = ServiceManager()
     service_manager.register_service(DatabaseService(database))
@@ -31,7 +36,7 @@ def main() -> None:
     battery_systems: list[BatterySystem] = []
     for battery_config in config.battery_systems:
         if battery_config.is_victron:
-            victron_service = VictronService(database, battery_config)
+            victron_service = VictronService(database, battery_config, timeseries)
             service_manager.register_service(victron_service)
             battery_system = VictronBatterySystem(battery_config, victron_service.client)
             battery_systems.append(battery_system)
@@ -48,6 +53,7 @@ def main() -> None:
     def shutdown(signum: int, frame: object) -> None:
         logger.info("Shutting down...")
         service_manager.stop()
+        timeseries.close()
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)

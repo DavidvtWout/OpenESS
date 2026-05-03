@@ -9,5 +9,5 @@ class DatabaseCompressionConfig(BaseModel):
 
 
 class DatabaseConfig(BaseModel):
-    path: Path
+    path: Path = Path("./data.db")
     compression: DatabaseCompressionConfig = DatabaseCompressionConfig()

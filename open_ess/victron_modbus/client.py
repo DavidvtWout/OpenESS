@@ -4,6 +4,7 @@ from threading import Lock
 from typing import TYPE_CHECKING
 
 from open_ess.database import Database, DatabaseConnection
+from open_ess.timeseries import Sample, TimeseriesBackend
 
 from .config import VictronConfig
 from .modbus_client import VictronModbusClient
@@ -22,13 +23,19 @@ def _get_float(values: dict[Register, float | bytes | None], key: Register) -> f
 
 
 class VictronClient:
-    def __init__(self, database: Database, config: "BatterySystemConfig"):
+    def __init__(
+        self,
+        database: Database,
+        config: "BatterySystemConfig",
+        timeseries: TimeseriesBackend | None = None,
+    ):
         if not isinstance(config.control, VictronConfig):
             raise TypeError(f"VictronClient requires VictronConfig, got {type(config.control).__name__}")
         self._db = database
         self._config = config
         self._control: VictronConfig = config.control
         self._client = VictronModbusClient(self._control)
+        self._timeseries = timeseries
 
         self._db_conn: DatabaseConnection | None = None
         self._serial: str | None = None
@@ -129,147 +136,106 @@ class VictronClient:
                     self.write(self.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 1)
 
     def collect_and_store_measurements(self) -> None:
-        if self._db_conn is None:
+        if self._db_conn is None and self._timeseries is None:
             return
         timestamp = datetime.now(UTC)
+        samples: list[Sample] = []
+
+        def add_sample(metric: str, value: float | None) -> None:
+            if value is not None:
+                samples.append(Sample(metric, value, timestamp))
 
         # Read System registers
         system_regs = [System.GRID_L1, System.GRID_L2, System.GRID_L3]
         system_values = self.read_many(self.system_id, system_regs)
-        self._db_conn.insert_power("grid/power/l1", timestamp, _get_float(system_values, System.GRID_L1))
-        self._db_conn.insert_power("grid/power/l2", timestamp, _get_float(system_values, System.GRID_L2))
-        self._db_conn.insert_power("grid/power/l3", timestamp, _get_float(system_values, System.GRID_L3))
+        add_sample("grid/power/l1", _get_float(system_values, System.GRID_L1))
+        add_sample("grid/power/l2", _get_float(system_values, System.GRID_L2))
+        add_sample("grid/power/l3", _get_float(system_values, System.GRID_L3))
 
         if self.grid_id:
-            # TODO: check if grid meter delivers data per phase or not
             grid_values = self.read_many(
                 self.grid_id,
                 [GridMeter.ENERGY_TO_NET_TOTAL, GridMeter.ENERGY_FROM_NET_TOTAL],
             )
-            self._db_conn.insert_energy(
-                "grid/energy/import/total", timestamp, _get_float(grid_values, GridMeter.ENERGY_FROM_NET_TOTAL)
-            )
-            self._db_conn.insert_energy(
-                "grid/energy/export/total", timestamp, _get_float(grid_values, GridMeter.ENERGY_TO_NET_TOTAL)
-            )
+            add_sample("grid/energy/import/total", _get_float(grid_values, GridMeter.ENERGY_FROM_NET_TOTAL))
+            add_sample("grid/energy/export/total", _get_float(grid_values, GridMeter.ENERGY_TO_NET_TOTAL))
 
         if self.pvinverter_id:
             pvinverter_values = self.read_many(
                 self.pvinverter_id,
-                [
-                    SolarInverter.ENERGY_L1,
-                    SolarInverter.POWER_L1,
-                ],
+                [SolarInverter.ENERGY_L1, SolarInverter.POWER_L1],
             )
-            self._db_conn.insert_energy(
+            add_sample(
                 f"victron/pvinverter/{self.pvinverter_id}/energy/l1",
-                timestamp,
                 _get_float(pvinverter_values, SolarInverter.ENERGY_L1),
             )
-            self._db_conn.insert_power(
+            add_sample(
                 f"victron/pvinverter/{self.pvinverter_id}/power/l1",
-                timestamp,
                 _get_float(pvinverter_values, SolarInverter.POWER_L1),
             )
 
-        # VEBus registers for each device
+        # VEBus registers
         vebus_regs = [
             VEBus.AC_INPUT_POWER_L1,
-            # VEBus.AC_INPUT_POWER_L2,
-            # VEBus.AC_INPUT_POWER_L3,
             VEBus.AC_OUTPUT_POWER_L1,
-            # VEBus.AC_OUTPUT_POWER_L2,
-            # VEBus.AC_OUTPUT_POWER_L3,
             VEBus.DC_CURRENT,
             VEBus.DC_VOLTAGE,
             VEBus.SOC,
-            # Energy counters
             VEBus.ENERGY_AC_IN1_TO_AC_OUT,
             VEBus.ENERGY_AC_IN1_TO_BATTERY,
-            # VEBus.ENERGY_AC_IN2_TO_AC_OUT,
-            # VEBus.ENERGY_AC_IN2_TO_BATTERY,
             VEBus.ENERGY_AC_OUT_TO_AC_IN1,
-            # VEBus.ENERGY_AC_OUT_TO_AC_IN2,
             VEBus.ENERGY_BATTERY_TO_AC_IN1,
-            # VEBus.ENERGY_BATTERY_TO_AC_IN2,
             VEBus.ENERGY_BATTERY_TO_AC_OUT,
             VEBus.ENERGY_AC_OUT_TO_BATTERY,
         ]
 
         vebus_prefix = self._control.vebus_prefix
-
         vebus_values = self.read_many(self.vebus_id, vebus_regs)
 
-        self._db_conn.insert_power(
-            f"{vebus_prefix}/power/ac_in/l1", timestamp, _get_float(vebus_values, VEBus.AC_INPUT_POWER_L1)
-        )
-        self._db_conn.insert_power(
-            f"{vebus_prefix}/power/ac_out/l1", timestamp, _get_float(vebus_values, VEBus.AC_OUTPUT_POWER_L1)
-        )
-
-        soc = _get_float(vebus_values, VEBus.SOC)
-        if soc is not None:
-            self._db_conn.insert_soc(f"{vebus_prefix}/soc", timestamp, int(soc))
+        add_sample(f"{vebus_prefix}/power/ac_in/l1", _get_float(vebus_values, VEBus.AC_INPUT_POWER_L1))
+        add_sample(f"{vebus_prefix}/power/ac_out/l1", _get_float(vebus_values, VEBus.AC_OUTPUT_POWER_L1))
+        add_sample(f"{vebus_prefix}/soc", _get_float(vebus_values, VEBus.SOC))
 
         dc_current = _get_float(vebus_values, VEBus.DC_CURRENT)
         dc_voltage = _get_float(vebus_values, VEBus.DC_VOLTAGE)
-        if dc_voltage is not None:
-            self._db_conn.insert_voltage(f"{vebus_prefix}/voltage/battery", timestamp, dc_voltage)
-            if dc_current is not None:
-                dc_power = dc_current * dc_voltage
-                self._db_conn.insert_power(f"{vebus_prefix}/power/battery", timestamp, dc_power)
+        add_sample(f"{vebus_prefix}/voltage/battery", dc_voltage)
+        if dc_voltage is not None and dc_current is not None:
+            add_sample(f"{vebus_prefix}/power/battery", dc_current * dc_voltage)
 
         # Energy flows
-        self._db_conn.insert_energy(
-            f"{vebus_prefix}/energy/ac_in_to_ac_out",
-            timestamp,
-            _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_AC_OUT),
-        )
-        self._db_conn.insert_energy(
-            f"{vebus_prefix}/energy/ac_in_import", timestamp, _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_BATTERY)
-        )
-        # self._database.insert_energy("", timestamp, _get_float(vebus_values,VEBus.ENERGY_AC_IN2_TO_AC_OUT))
-        # self._database.insert_energy("", timestamp, _get_float(vebus_values,VEBus.ENERGY_AC_IN2_TO_BATTERY))
-        self._db_conn.insert_energy(
-            f"{vebus_prefix}/energy/ac_out_to_ac_in",
-            timestamp,
-            _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_AC_IN1),
-        )
-        # self._database.insert_energy("", timestamp, _get_float(vebus_values,VEBus.ENERGY_AC_OUT_TO_AC_IN2))
-        self._db_conn.insert_energy(
-            f"{vebus_prefix}/energy/ac_in_export", timestamp, _get_float(vebus_values, VEBus.ENERGY_BATTERY_TO_AC_IN1)
-        )
-        # self._database.insert_energy("", timestamp, _get_float(vebus_values,VEBus.ENERGY_BATTERY_TO_AC_IN2))
-        self._db_conn.insert_energy(
-            f"{vebus_prefix}/energy/ac_out_export", timestamp, _get_float(vebus_values, VEBus.ENERGY_BATTERY_TO_AC_OUT)
-        )
-        self._db_conn.insert_energy(
-            f"{vebus_prefix}/energy/ac_out_import", timestamp, _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_BATTERY)
-        )
+        add_sample(f"{vebus_prefix}/energy/ac_in_to_ac_out", _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_AC_OUT))
+        add_sample(f"{vebus_prefix}/energy/ac_in_import", _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_BATTERY))
+        add_sample(f"{vebus_prefix}/energy/ac_out_to_ac_in", _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_AC_IN1))
+        add_sample(f"{vebus_prefix}/energy/ac_in_export", _get_float(vebus_values, VEBus.ENERGY_BATTERY_TO_AC_IN1))
+        add_sample(f"{vebus_prefix}/energy/ac_out_export", _get_float(vebus_values, VEBus.ENERGY_BATTERY_TO_AC_OUT))
+        add_sample(f"{vebus_prefix}/energy/ac_out_import", _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_BATTERY))
 
         if self.battery_id is not None:
             bms_prefix = self._control.battery_prefix
-
             bms_values = self.read_many(
                 self.battery_id,
-                [
-                    Battery.DC_VOLTAGE,
-                    Battery.DC_POWER,
-                    Battery.SOC,
-                    # Battery.CHARGED_ENERGY,
-                    # Battery.DISCHARGED_ENERGY,
-                ],
+                [Battery.DC_VOLTAGE, Battery.DC_POWER, Battery.SOC],
             )
+            add_sample(f"{bms_prefix}/power/battery", _get_float(bms_values, Battery.DC_POWER))
+            add_sample(f"{bms_prefix}/voltage/battery", _get_float(bms_values, Battery.DC_VOLTAGE))
+            add_sample(f"{bms_prefix}/soc", _get_float(bms_values, Battery.SOC))
 
-            self._db_conn.insert_power(
-                f"{bms_prefix}/power/battery", timestamp, _get_float(bms_values, Battery.DC_POWER)
-            )
-            self._db_conn.insert_voltage(
-                f"{bms_prefix}/voltage/battery", timestamp, _get_float(bms_values, Battery.DC_VOLTAGE)
-            )
-            bms_soc = _get_float(bms_values, Battery.SOC)
-            if bms_soc is not None:
-                self._db_conn.insert_soc(f"{bms_prefix}/soc", timestamp, round(bms_soc))
+        # Write to timeseries backend
+        if self._timeseries is not None and samples:
+            try:
+                self._timeseries.write(samples)
+            except Exception:
+                logger.exception("Failed to write samples to timeseries backend")
+
+        # Legacy: also write to database
+        if self._db_conn is not None:
+            for sample in samples:
+                if "power" in sample.metric or "voltage" in sample.metric:
+                    self._db_conn.insert_power(sample.metric, sample.timestamp, sample.value)
+                elif "energy" in sample.metric:
+                    self._db_conn.insert_energy(sample.metric, sample.timestamp, sample.value)
+                elif "soc" in sample.metric:
+                    self._db_conn.insert_soc(sample.metric, sample.timestamp, round(sample.value))
 
     # --------------------------------#
     #  VictronModbusClient bindings  #

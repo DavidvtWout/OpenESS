@@ -1,0 +1,16 @@
+"""VictoriaMetrics timeseries backend configuration."""
+
+from typing import Literal
+
+from pydantic import BaseModel
+
+
+class VictoriaMetricsConfig(BaseModel):
+    """Configuration for VictoriaMetrics backend."""
+
+    backend: Literal["victoriametrics"]
+    url: str
+    job: str = "open_ess"
+    username: str | None = None
+    password: str | None = None
+    timeout: float = 30.0
