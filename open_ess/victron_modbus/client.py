@@ -15,6 +15,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+POWER_METRIC = "openess_power_watts"
+ENERGY_METRIC = "openess_energy_kwh"
+SOC_METRIC = "openess_soc_ratio"
+VOLTAGE_METRIC = "openess_voltage_volts"
+
 
 def _get_float(values: dict[Register, float | bytes | None], key: Register) -> float | None:
     """Extract a float value from read_many results, filtering out bytes and None."""
@@ -136,45 +141,48 @@ class VictronClient:
                     self.write(self.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 1)
 
     def collect_and_store_measurements(self) -> None:
-        if self._db_conn is None and self._timeseries is None:
+        if self._timeseries is None:
             return
         timestamp = datetime.now(UTC)
         samples: list[Sample] = []
 
-        def add_sample(metric: str, value: float | None) -> None:
+        def add(metric: str, value: float | None, labels: dict[str, str]) -> None:
+            labels["device"] = self.serial
             if value is not None:
-                samples.append(Sample(metric, value, timestamp))
+                samples.append(Sample(metric, value, timestamp, labels))
 
-        # Read System registers
+        # Grid power
         system_regs = [System.GRID_L1, System.GRID_L2, System.GRID_L3]
         system_values = self.read_many(self.system_id, system_regs)
-        add_sample("grid/power/l1", _get_float(system_values, System.GRID_L1))
-        add_sample("grid/power/l2", _get_float(system_values, System.GRID_L2))
-        add_sample("grid/power/l3", _get_float(system_values, System.GRID_L3))
+        add(POWER_METRIC, _get_float(system_values, System.GRID_L1), {"from": "grid", "phase": "L1"})
+        add(POWER_METRIC, _get_float(system_values, System.GRID_L2), {"from": "grid", "phase": "L2"})
+        add(POWER_METRIC, _get_float(system_values, System.GRID_L3), {"from": "grid", "phase": "L3"})
 
+        # Grid energy
         if self.grid_id:
             grid_values = self.read_many(
-                self.grid_id,
-                [GridMeter.ENERGY_TO_NET_TOTAL, GridMeter.ENERGY_FROM_NET_TOTAL],
+                self.grid_id, [GridMeter.ENERGY_TO_GRID_TOTAL, GridMeter.ENERGY_FROM_GRID_TOTAL]
             )
-            add_sample("grid/energy/import/total", _get_float(grid_values, GridMeter.ENERGY_FROM_NET_TOTAL))
-            add_sample("grid/energy/export/total", _get_float(grid_values, GridMeter.ENERGY_TO_NET_TOTAL))
+            add(
+                ENERGY_METRIC,
+                _get_float(grid_values, GridMeter.ENERGY_FROM_GRID_TOTAL),
+                {"from": "grid", "phase": "total"},
+            )
+            add(
+                ENERGY_METRIC, _get_float(grid_values, GridMeter.ENERGY_TO_GRID_TOTAL), {"to": "grid", "phase": "total"}
+            )
 
+        # PV inverter
         if self.pvinverter_id:
-            pvinverter_values = self.read_many(
+            pv_values = self.read_many(
                 self.pvinverter_id,
                 [SolarInverter.ENERGY_L1, SolarInverter.POWER_L1],
             )
-            add_sample(
-                f"victron/pvinverter/{self.pvinverter_id}/energy/l1",
-                _get_float(pvinverter_values, SolarInverter.ENERGY_L1),
-            )
-            add_sample(
-                f"victron/pvinverter/{self.pvinverter_id}/power/l1",
-                _get_float(pvinverter_values, SolarInverter.POWER_L1),
-            )
+            pv_labels = {"from": "pvinverter", "unit_id": str(self.pvinverter_id), "phase": "L1"}
+            add(POWER_METRIC, _get_float(pv_values, SolarInverter.POWER_L1), pv_labels)
+            add(ENERGY_METRIC, _get_float(pv_values, SolarInverter.ENERGY_L1), pv_labels)
 
-        # VEBus registers
+        # VEBus (inverter/charger)
         vebus_regs = [
             VEBus.AC_INPUT_POWER_L1,
             VEBus.AC_OUTPUT_POWER_L1,
@@ -188,54 +196,65 @@ class VictronClient:
             VEBus.ENERGY_BATTERY_TO_AC_OUT,
             VEBus.ENERGY_AC_OUT_TO_BATTERY,
         ]
-
-        vebus_prefix = self._control.vebus_prefix
         vebus_values = self.read_many(self.vebus_id, vebus_regs)
 
-        add_sample(f"{vebus_prefix}/power/ac_in/l1", _get_float(vebus_values, VEBus.AC_INPUT_POWER_L1))
-        add_sample(f"{vebus_prefix}/power/ac_out/l1", _get_float(vebus_values, VEBus.AC_OUTPUT_POWER_L1))
-        add_sample(f"{vebus_prefix}/soc", _get_float(vebus_values, VEBus.SOC))
+        # VEBus power
+        add(
+            POWER_METRIC,
+            _get_float(vebus_values, VEBus.AC_INPUT_POWER_L1),
+            {"from": "ac_in", "to": "system", "phase": "L1"},
+        )
+        add(
+            POWER_METRIC,
+            _get_float(vebus_values, VEBus.AC_OUTPUT_POWER_L1),
+            {"from": "ac_out", "to": "system", "phase": "L1"},
+        )
 
-        dc_current = _get_float(vebus_values, VEBus.DC_CURRENT)
-        dc_voltage = _get_float(vebus_values, VEBus.DC_VOLTAGE)
-        add_sample(f"{vebus_prefix}/voltage/battery", dc_voltage)
-        if dc_voltage is not None and dc_current is not None:
-            add_sample(f"{vebus_prefix}/power/battery", dc_current * dc_voltage)
+        # VEBus battery
+        vebus_dc_current = _get_float(vebus_values, VEBus.DC_CURRENT)
+        vebus_dc_voltage = _get_float(vebus_values, VEBus.DC_VOLTAGE)
+        vebus_battery_power = (
+            vebus_dc_current * vebus_dc_voltage
+            if vebus_dc_current is not None and vebus_dc_voltage is not None
+            else None
+        )
+        add(POWER_METRIC, vebus_battery_power, {"from": "system", "to": "battery", "unit": "vebus"})
+        add(VOLTAGE_METRIC, vebus_dc_voltage, {"node": "battery", "unit": "vebus"})
 
-        # Energy flows
-        add_sample(f"{vebus_prefix}/energy/ac_in_to_ac_out", _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_AC_OUT))
-        add_sample(f"{vebus_prefix}/energy/ac_in_import", _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_BATTERY))
-        add_sample(f"{vebus_prefix}/energy/ac_out_to_ac_in", _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_AC_IN1))
-        add_sample(f"{vebus_prefix}/energy/ac_in_export", _get_float(vebus_values, VEBus.ENERGY_BATTERY_TO_AC_IN1))
-        add_sample(f"{vebus_prefix}/energy/ac_out_export", _get_float(vebus_values, VEBus.ENERGY_BATTERY_TO_AC_OUT))
-        add_sample(f"{vebus_prefix}/energy/ac_out_import", _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_BATTERY))
+        # VEBus SOC
+        vebus_soc = _get_float(vebus_values, VEBus.SOC)
+        if vebus_soc is not None:
+            add(SOC_METRIC, vebus_soc / 100, {"node": "battery", "unit": "vebus"})
 
+        # VEBus energy flows
+        add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_AC_OUT), {"from": "ac_in", "to": "ac_out"})
+        add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_BATTERY), {"from": "ac_in", "to": "system"})
+        add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_AC_IN1), {"from": "ac_out", "to": "ac_in"})
+        add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_BATTERY_TO_AC_IN1), {"from": "system", "to": "ac_in"})
+        add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_BATTERY_TO_AC_OUT), {"from": "system", "to": "ac_out"})
+        add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_BATTERY), {"from": "ac_out", "to": "system"})
+
+        # BMS (direct battery measurements)
         if self.battery_id is not None:
-            bms_prefix = self._control.battery_prefix
             bms_values = self.read_many(
                 self.battery_id,
                 [Battery.DC_VOLTAGE, Battery.DC_POWER, Battery.SOC],
             )
-            add_sample(f"{bms_prefix}/power/battery", _get_float(bms_values, Battery.DC_POWER))
-            add_sample(f"{bms_prefix}/voltage/battery", _get_float(bms_values, Battery.DC_VOLTAGE))
-            add_sample(f"{bms_prefix}/soc", _get_float(bms_values, Battery.SOC))
+            add(
+                POWER_METRIC,
+                _get_float(bms_values, Battery.DC_POWER),
+                {"from": "system", "to": "battery", "unit": "battery"},
+            )
+            add(VOLTAGE_METRIC, _get_float(bms_values, Battery.DC_VOLTAGE), {"node": "battery", "unit": "battery"})
+            bms_soc = _get_float(bms_values, Battery.SOC)
+            if bms_soc is not None:
+                add(SOC_METRIC, bms_soc / 100, {"node": "battery", "unit": "battery"})
 
-        # Write to timeseries backend
-        if self._timeseries is not None and samples:
+        if samples:
             try:
                 self._timeseries.write(samples)
-            except Exception:
-                logger.exception("Failed to write samples to timeseries backend")
-
-        # Legacy: also write to database
-        if self._db_conn is not None:
-            for sample in samples:
-                if "power" in sample.metric or "voltage" in sample.metric:
-                    self._db_conn.insert_power(sample.metric, sample.timestamp, sample.value)
-                elif "energy" in sample.metric:
-                    self._db_conn.insert_energy(sample.metric, sample.timestamp, sample.value)
-                elif "soc" in sample.metric:
-                    self._db_conn.insert_soc(sample.metric, sample.timestamp, round(sample.value))
+            except Exception as e:
+                logger.exception(f"Failed to write samples to timeseries backend: {e}")
 
     # --------------------------------#
     #  VictronModbusClient bindings  #

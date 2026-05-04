@@ -60,8 +60,6 @@ class VictoriaMetricsBackend(TimeseriesBackend):
             timeout=config.timeout,
         )
 
-        self._job = config.job
-
     def write(self, samples: list[Sample]) -> None:
         """Write samples using Prometheus remote write protocol."""
         if not samples:
@@ -72,7 +70,7 @@ class VictoriaMetricsBackend(TimeseriesBackend):
                 metric=s.metric,
                 value=s.value,
                 timestamp_ms=int(s.timestamp.timestamp() * 1000),
-                labels={"job": self._job, **s.labels},
+                labels=s.labels,
             )
             for s in samples
         ]
@@ -91,9 +89,7 @@ class VictoriaMetricsBackend(TimeseriesBackend):
         )
 
         if response.status != 200:
-            raise RuntimeError(
-                f"Query failed: {response.status} {response.data.decode('utf-8', errors='replace')}"
-            )
+            raise RuntimeError(f"Query failed: {response.status} {response.data.decode('utf-8', errors='replace')}")
 
         data = json.loads(response.data.decode("utf-8"))
         return self._parse_response(data)
@@ -120,9 +116,7 @@ class VictoriaMetricsBackend(TimeseriesBackend):
         )
 
         if response.status != 200:
-            raise RuntimeError(
-                f"Query failed: {response.status} {response.data.decode('utf-8', errors='replace')}"
-            )
+            raise RuntimeError(f"Query failed: {response.status} {response.data.decode('utf-8', errors='replace')}")
 
         data = json.loads(response.data.decode("utf-8"))
         return self._parse_response(data)
@@ -146,10 +140,7 @@ class VictoriaMetricsBackend(TimeseriesBackend):
                 values = [(datetime.fromtimestamp(float(ts)), float(val))]
             elif "values" in item:
                 # Range query: [[timestamp, value], ...]
-                values = [
-                    (datetime.fromtimestamp(float(ts)), float(val))
-                    for ts, val in item["values"]
-                ]
+                values = [(datetime.fromtimestamp(float(ts)), float(val)) for ts, val in item["values"]]
             else:
                 values = []
 

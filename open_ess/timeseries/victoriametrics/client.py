@@ -74,9 +74,7 @@ class RemoteWriteClient:
             "block": True,
         }
         if username and password:
-            pool_kwargs["headers"] = {
-                "Authorization": f"Basic {self._encode_basic_auth(username, password)}"
-            }
+            pool_kwargs["headers"] = {"Authorization": f"Basic {self._encode_basic_auth(username, password)}"}
         self._pool = pool_cls(**pool_kwargs)
 
     @staticmethod

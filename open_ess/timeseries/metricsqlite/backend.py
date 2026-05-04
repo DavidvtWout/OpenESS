@@ -59,9 +59,7 @@ class MetricSQLiteBackend(TimeseriesBackend):
         result = self._client.query_range(query, start=start_ms, end=end_ms, step=step)
         return self._convert_matrix_result(result)
 
-    def _convert_result(
-        self, result: InstantVector | RangeVectorResult | ScalarResult
-    ) -> QueryResult:
+    def _convert_result(self, result: InstantVector | RangeVectorResult | ScalarResult) -> QueryResult:
         """Convert metricsqlite result to QueryResult."""
         if isinstance(result, ScalarResult):
             # Scalar result - single value
@@ -78,10 +76,7 @@ class MetricSQLiteBackend(TimeseriesBackend):
             # Range vector from instant query (e.g., metric[5m])
             series_list = []
             for labels, samples in result.series:
-                values = [
-                    (datetime.fromtimestamp(sample.timestamp / 1000), sample.value)
-                    for sample in samples
-                ]
+                values = [(datetime.fromtimestamp(sample.timestamp / 1000), sample.value) for sample in samples]
                 series_list.append(QueryResultSeries(metric=labels, values=values))
             return QueryResult(series=series_list)
 
@@ -100,10 +95,7 @@ class MetricSQLiteBackend(TimeseriesBackend):
         """Convert metricsqlite MatrixResult to QueryResult."""
         series_list = []
         for labels, samples in result.series:
-            values = [
-                (datetime.fromtimestamp(sample.timestamp / 1000), sample.value)
-                for sample in samples
-            ]
+            values = [(datetime.fromtimestamp(sample.timestamp / 1000), sample.value) for sample in samples]
             series_list.append(QueryResultSeries(metric=labels, values=values))
         return QueryResult(series=series_list)
 

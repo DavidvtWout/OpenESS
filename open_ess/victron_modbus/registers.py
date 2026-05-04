@@ -272,5 +272,5 @@ class GridMeter:
     ENERGY_FROM_NET_L3 = Register("Energy from net L3", 2630, DataType.UINT32, scale=100)
     ENERGY_TO_NET_L3 = Register("Energy to net L3", 2632, DataType.UINT32, scale=100)
 
-    ENERGY_FROM_NET_TOTAL = Register("Energy from net", 2634, DataType.UINT32, scale=100)
-    ENERGY_TO_NET_TOTAL = Register("Energy to net", 2636, DataType.UINT32, scale=100)
+    ENERGY_FROM_GRID_TOTAL = Register("Energy from net", 2634, DataType.UINT32, scale=100)
+    ENERGY_TO_GRID_TOTAL = Register("Energy to net", 2636, DataType.UINT32, scale=100)

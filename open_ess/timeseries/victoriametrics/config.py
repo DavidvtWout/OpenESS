@@ -10,7 +10,6 @@ class VictoriaMetricsConfig(BaseModel):
 
     backend: Literal["victoriametrics"]
     url: str
-    job: str = "open_ess"
     username: str | None = None
     password: str | None = None
     timeout: float = 30.0
