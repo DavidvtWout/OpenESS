@@ -5,6 +5,7 @@ from fastapi import Depends, Request
 from open_ess.battery_system import BatterySystem
 from open_ess.database import DatabaseConnection
 from open_ess.pricing import PriceConfig
+from open_ess.timeseries import TimeseriesBackend
 
 
 def get_database(request: Request) -> DatabaseConnection:
@@ -19,7 +20,12 @@ def get_battery_systems(request: Request) -> list[BatterySystem]:
     return request.app.state.battery_systems  # type: ignore[no-any-return]
 
 
+def get_timeseries(request: Request) -> TimeseriesBackend | None:
+    return request.app.state.timeseries  # type: ignore[no-any-return]
+
+
 # Type aliases for cleaner route signatures
 Database = Annotated[DatabaseConnection, Depends(get_database)]
 PriceConfigDep = Annotated[PriceConfig, Depends(get_price_config)]
 BatterySystemsDep = Annotated[list[BatterySystem], Depends(get_battery_systems)]
+TimeseriesDep = Annotated[TimeseriesBackend | None, Depends(get_timeseries)]

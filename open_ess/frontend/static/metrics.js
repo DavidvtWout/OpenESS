@@ -293,7 +293,10 @@
         }
     }
 
-    async function loadSocChart(elementId, start, end) {
+    // Toggle: set to true to use new Timeseries API, false for legacy API
+    var USE_TIMESERIES_FOR_SOC = false;
+
+    async function loadSocChartLegacy(elementId, start, end) {
         Utils.showLoading(elementId);
 
         try {
@@ -360,6 +363,78 @@
             console.error('Error loading SoC data:', error);
             Utils.showError(elementId, 'Failed to load SoC data');
         }
+    }
+
+    /**
+     * Load SOC chart using the new Timeseries API.
+     * This queries the timeseries backend directly via /api/v1/query_range.
+     */
+    async function loadSocChartTimeseries(elementId, start, end, batteryId) {
+        Utils.showLoading(elementId);
+
+        try {
+            // Initialize Timeseries with battery system ID
+            await Timeseries.init(batteryId);
+
+            // Query SOC and voltage in parallel
+            var [socResult, voltageResult] = await Promise.all([
+                Timeseries.queryRange('soc', start, end),
+                Timeseries.queryRange('voltage', start, end),
+            ]);
+
+            var traces = [];
+
+            // Convert SOC result to Plotly trace
+            var socTraces = Timeseries.toPlotlyTraces(socResult, { name: 'SoC' });
+            socTraces.forEach(function(trace) {
+                trace.line = { color: '#3498db', width: 2 };
+                trace.hovertemplate = '%{y:.1f}%<extra>SoC</extra>';
+                traces.push(trace);
+            });
+
+            // Convert voltage result to Plotly trace (on secondary y-axis)
+            var voltTraces = Timeseries.toPlotlyTraces(voltageResult, { name: 'Voltage' });
+            voltTraces.forEach(function(trace) {
+                trace.line = { color: '#ff7171', width: 2 };
+                trace.hovertemplate = '%{y:.1f}V<extra>Voltage</extra>';
+                trace.yaxis = 'y2';
+                traces.push(trace);
+            });
+
+            var layout = Utils.getDefaultLayout();
+            Utils.layoutSetXRange(layout, start, end);
+            Utils.layoutAddNowLine(layout, start, end);
+            layout.yaxis = layout.yaxis || {};
+            layout.yaxis.side = 'left';
+            layout.yaxis.range = [0, 100];
+            layout.yaxis.title = { text: "SoC (%)" };
+            layout.yaxis2 = {
+                overlaying: 'y',
+                side: 'right',
+                gridcolor: 'transparent',
+                title: { text: "Voltage (V)" },
+            };
+            Utils.makePlot(elementId, traces, layout);
+        } catch (error) {
+            console.error('Error loading SoC data via Timeseries:', error);
+            Utils.showError(elementId, 'Failed to load SoC data');
+        }
+    }
+
+    async function loadSocChart(elementId, start, end) {
+        if (USE_TIMESERIES_FOR_SOC) {
+            // Get battery system ID from system layout
+            var layout = await Api.systemLayout();
+            var batteryId = layout.battery_systems && layout.battery_systems[0]
+                ? layout.battery_systems[0].id
+                : null;
+
+            if (batteryId) {
+                return loadSocChartTimeseries(elementId, start, end, batteryId);
+            }
+            console.warn('No battery system found, falling back to legacy API');
+        }
+        return loadSocChartLegacy(elementId, start, end);
     }
 
     async function loadAndCacheEnergyData(start, end, bucketMinutes) {

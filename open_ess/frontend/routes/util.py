@@ -1,12 +1,37 @@
 from collections.abc import Iterable
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from open_ess.timeseries import QueryResult
 
 
 class TimeSeries(BaseModel):
     timestamps: list[datetime]
     values: list[float]
+
+
+def query_result_to_timeseries(result: "QueryResult", rounding: int | None = None) -> TimeSeries:
+    """Convert a timeseries QueryResult to TimeSeries format.
+
+    If multiple series are returned, they are merged (assumes same timestamps).
+    """
+    timestamps: list[datetime] = []
+    values: list[float] = []
+
+    # Take the first series (or merge if needed)
+    if result.series:
+        series = result.series[0]
+        for ts, val in series.values:
+            timestamps.append(ts)
+            if rounding is not None:
+                values.append(round(val, rounding))
+            else:
+                values.append(val)
+
+    return TimeSeries(timestamps=timestamps, values=values)
 
 
 def data_to_timeseries(data: Iterable[tuple[datetime, float]], rounding: int | None = None) -> TimeSeries:

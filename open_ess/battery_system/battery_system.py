@@ -37,9 +37,7 @@ class VictronBatterySystem(BatterySystem):
 
     @property
     def id(self) -> str | None:
-        if self._victron_client.serial is None:
-            return None
-        return f"victron/{self._victron_client.serial}"
+        return self._victron_client.serial
 
     def set_ess_setpoint(self, power: float, until: datetime | None = None) -> None:
         if until is None:
