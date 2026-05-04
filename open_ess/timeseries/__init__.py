@@ -1,4 +1,13 @@
-from .base import QueryResult, QueryResultSeries, Sample, TimeseriesBackend
+from .base import (
+    InstantQueryResult,
+    InstantSeries,
+    RangeQueryResult,
+    RangeSeries,
+    Sample,
+    ScalarResult,
+    TimeseriesBackend,
+    VectorResult,
+)
 from .config import TimeseriesConfig
 from .metricsqlite.config import MetricSQLiteConfig
 from .victoriametrics.config import VictoriaMetricsConfig
@@ -28,10 +37,14 @@ def create_backend(
 
 
 __all__ = [
-    "QueryResult",
-    "QueryResultSeries",
+    "InstantQueryResult",
+    "InstantSeries",
+    "RangeQueryResult",
+    "RangeSeries",
     "Sample",
+    "ScalarResult",
     "TimeseriesBackend",
     "TimeseriesConfig",
+    "VectorResult",
     "create_backend",
 ]

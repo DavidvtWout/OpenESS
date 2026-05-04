@@ -1,10 +1,22 @@
-from datetime import datetime
+import logging
+from datetime import UTC, datetime
 
 from metricsqlite import MetricsQLiteClient
 from metricsqlite.engine import InstantVector, MatrixResult, RangeVectorResult, ScalarResult
 
-from ..base import QueryResult, QueryResultSeries, Sample, TimeseriesBackend
+from ..base import (
+    InstantQueryResult,
+    InstantSeries,
+    RangeQueryResult,
+    RangeSeries,
+    Sample,
+    TimeseriesBackend,
+    VectorResult,
+)
+from ..base import ScalarResult as BaseScalarResult
 from .config import MetricSQLiteConfig
+
+logger = logging.getLogger(__name__)
 
 
 class MetricSQLiteBackend(TimeseriesBackend):
@@ -25,14 +37,14 @@ class MetricSQLiteBackend(TimeseriesBackend):
                 labels=sample.labels if sample.labels else None,
             )
 
-    def query(self, query: str, time: datetime | None = None) -> QueryResult:
+    def query(self, query: str, time: datetime | None = None) -> InstantQueryResult:
         """Execute an instant query."""
         eval_time: float | None = None
         if time is not None:
             eval_time = time.timestamp() * 1000
 
         result = self._client.query(query, time=eval_time)
-        return self._convert_result(result)
+        return self._convert_instant_result(result)
 
     def query_range(
         self,
@@ -40,53 +52,58 @@ class MetricSQLiteBackend(TimeseriesBackend):
         start: datetime,
         end: datetime,
         step: str = "1m",
-    ) -> QueryResult:
+    ) -> RangeQueryResult:
         """Execute a range query."""
         start_ms = start.timestamp() * 1000
         end_ms = end.timestamp() * 1000
 
         result = self._client.query_range(query, start=start_ms, end=end_ms, step=step)
-        return self._convert_matrix_result(result)
+        return self._convert_range_result(result)
 
-    def _convert_result(self, result: InstantVector | RangeVectorResult | ScalarResult) -> QueryResult:
-        """Convert metricsqlite result to QueryResult."""
+    def _convert_instant_result(self, result: InstantVector | RangeVectorResult | ScalarResult) -> InstantQueryResult:
+        """Convert metricsqlite instant query result."""
         if isinstance(result, ScalarResult):
-            # Scalar result - single value
-            return QueryResult(
-                series=[
-                    QueryResultSeries(
-                        metric={},
-                        values=[(datetime.fromtimestamp(result.timestamp / 1000), result.value)],
-                    )
-                ]
+            return BaseScalarResult(
+                timestamp=datetime.fromtimestamp(result.timestamp / 1000, tz=UTC),
+                value=result.value,
             )
 
         if isinstance(result, RangeVectorResult):
             # Range vector from instant query (e.g., metric[5m])
-            series_list = []
+            # Convert to VectorResult by taking the last value
+            logger.warning("Instant query returned range vector, taking last value")
+            series = []
             for labels, samples in result.series:
-                values = [(datetime.fromtimestamp(sample.timestamp / 1000), sample.value) for sample in samples]
-                series_list.append(QueryResultSeries(metric=labels, values=values))
-            return QueryResult(series=series_list)
+                if samples:
+                    last = samples[-1]
+                    series.append(
+                        InstantSeries(
+                            metric=labels,
+                            timestamp=datetime.fromtimestamp(last.timestamp / 1000, tz=UTC),
+                            value=last.value,
+                        )
+                    )
+            return VectorResult(series=series)
 
         # InstantVector
-        series_list = []
+        series = []
         for labels, sample in result.series:
-            series_list.append(
-                QueryResultSeries(
+            series.append(
+                InstantSeries(
                     metric=labels,
-                    values=[(datetime.fromtimestamp(sample.timestamp / 1000), sample.value)],
+                    timestamp=datetime.fromtimestamp(sample.timestamp / 1000, tz=UTC),
+                    value=sample.value,
                 )
             )
-        return QueryResult(series=series_list)
+        return VectorResult(series=series)
 
-    def _convert_matrix_result(self, result: MatrixResult) -> QueryResult:
-        """Convert metricsqlite MatrixResult to QueryResult."""
-        series_list = []
+    def _convert_range_result(self, result: MatrixResult) -> RangeQueryResult:
+        """Convert metricsqlite range query result."""
+        series = []
         for labels, samples in result.series:
-            values = [(datetime.fromtimestamp(sample.timestamp / 1000), sample.value) for sample in samples]
-            series_list.append(QueryResultSeries(metric=labels, values=values))
-        return QueryResult(series=series_list)
+            values = [(datetime.fromtimestamp(sample.timestamp / 1000, tz=UTC), sample.value) for sample in samples]
+            series.append(RangeSeries(metric=labels, values=values))
+        return RangeQueryResult(series=series)
 
     def close(self) -> None:
         """Close the database connection."""

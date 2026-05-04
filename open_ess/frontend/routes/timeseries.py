@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
+from open_ess.timeseries import ScalarResult, VectorResult
+
 from ..dependencies import TimeseriesDep
 
 router = APIRouter()
@@ -38,19 +40,31 @@ async def query(
     eval_time = _parse_timestamp(time) if time is not None else None
     result = timeseries.query(query, eval_time)
 
-    return {
-        "status": "success",
-        "data": {
-            "resultType": "vector",
-            "result": [
-                {
-                    "metric": series.metric,
-                    "value": [series.values[0][0].timestamp(), series.values[0][1]] if series.values else None,
-                }
-                for series in result.series
-            ],
-        },
-    }
+    if isinstance(result, ScalarResult):
+        return {
+            "status": "success",
+            "data": {
+                "resultType": "scalar",
+                "result": [result.timestamp.timestamp(), str(result.value)],
+            },
+        }
+
+    if isinstance(result, VectorResult):
+        return {
+            "status": "success",
+            "data": {
+                "resultType": "vector",
+                "result": [
+                    {
+                        "metric": series.metric,
+                        "value": [series.timestamp.timestamp(), str(series.value)],
+                    }
+                    for series in result.series
+                ],
+            },
+        }
+
+    raise HTTPException(500, f"Unexpected result type: {type(result)}")
 
 
 @router.get("/query_range")
@@ -77,7 +91,7 @@ async def query_range(
             "result": [
                 {
                     "metric": series.metric,
-                    "values": [[v[0].timestamp(), str(v[1])] for v in series.values],
+                    "values": [[ts.timestamp(), str(val)] for ts, val in series.values],
                 }
                 for series in result.series
             ],

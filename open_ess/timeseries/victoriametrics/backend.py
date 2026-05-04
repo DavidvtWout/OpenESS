@@ -2,12 +2,21 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from urllib3 import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.util import parse_url
 
-from ..base import QueryResult, QueryResultSeries, Sample, TimeseriesBackend
+from ..base import (
+    InstantQueryResult,
+    InstantSeries,
+    RangeQueryResult,
+    RangeSeries,
+    Sample,
+    ScalarResult,
+    TimeseriesBackend,
+    VectorResult,
+)
 from .client import RemoteWriteClient
 from .client import Sample as RemoteWriteSample
 from .config import VictoriaMetricsConfig
@@ -76,7 +85,7 @@ class VictoriaMetricsBackend(TimeseriesBackend):
         ]
         self._write_client.write(remote_samples)
 
-    def query(self, query: str, time: datetime | None = None) -> QueryResult:
+    def query(self, query: str, time: datetime | None = None) -> InstantQueryResult:
         """Execute an instant query."""
         params = {"query": query}
         if time is not None:
@@ -92,7 +101,7 @@ class VictoriaMetricsBackend(TimeseriesBackend):
             raise RuntimeError(f"Query failed: {response.status} {response.data.decode('utf-8', errors='replace')}")
 
         data = json.loads(response.data.decode("utf-8"))
-        return self._parse_response(data)
+        return self._parse_instant_response(data)
 
     def query_range(
         self,
@@ -100,7 +109,7 @@ class VictoriaMetricsBackend(TimeseriesBackend):
         start: datetime,
         end: datetime,
         step: str = "1m",
-    ) -> QueryResult:
+    ) -> RangeQueryResult:
         """Execute a range query."""
         params = {
             "query": query,
@@ -119,34 +128,76 @@ class VictoriaMetricsBackend(TimeseriesBackend):
             raise RuntimeError(f"Query failed: {response.status} {response.data.decode('utf-8', errors='replace')}")
 
         data = json.loads(response.data.decode("utf-8"))
-        return self._parse_response(data)
+        return self._parse_range_response(data)
 
-    def _parse_response(self, data: dict) -> QueryResult:
-        """Parse VictoriaMetrics/Prometheus API response."""
+    def _parse_instant_response(self, data: dict) -> InstantQueryResult:
+        """Parse VictoriaMetrics/Prometheus instant query response."""
+        if data.get("status") != "success":
+            error = data.get("error", "Unknown error")
+            raise RuntimeError(f"Query error: {error}")
+
+        result_type = data.get("data", {}).get("resultType", "vector")
+        result = data.get("data", {}).get("result", [])
+
+        if result_type == "scalar":
+            # Scalar: [timestamp, value]
+            ts, val = result
+            return ScalarResult(
+                timestamp=datetime.fromtimestamp(float(ts), tz=UTC),
+                value=float(val),
+            )
+
+        if result_type == "vector":
+            # Vector: list of {metric, value: [timestamp, value]}
+            series = []
+            for item in result:
+                metric = item.get("metric", {})
+                ts, val = item["value"]
+                series.append(
+                    InstantSeries(
+                        metric=metric,
+                        timestamp=datetime.fromtimestamp(float(ts), tz=UTC),
+                        value=float(val),
+                    )
+                )
+            return VectorResult(series=series)
+
+        if result_type == "matrix":
+            # Matrix from instant query (range selector like [5m])
+            # Convert to VectorResult by taking the last value from each series
+            logger.warning("Instant query returned matrix (range selector?), taking last value")
+            series = []
+            for item in result:
+                metric = item.get("metric", {})
+                values = item.get("values", [])
+                if values:
+                    ts, val = values[-1]
+                    series.append(
+                        InstantSeries(
+                            metric=metric,
+                            timestamp=datetime.fromtimestamp(float(ts), tz=UTC),
+                            value=float(val),
+                        )
+                    )
+            return VectorResult(series=series)
+
+        raise RuntimeError(f"Unknown result type: {result_type}")
+
+    def _parse_range_response(self, data: dict) -> RangeQueryResult:
+        """Parse VictoriaMetrics/Prometheus range query response."""
         if data.get("status") != "success":
             error = data.get("error", "Unknown error")
             raise RuntimeError(f"Query error: {error}")
 
         result = data.get("data", {}).get("result", [])
-        series_list = []
+        series = []
 
         for item in result:
             metric = item.get("metric", {})
+            values = [(datetime.fromtimestamp(float(ts), tz=UTC), float(val)) for ts, val in item.get("values", [])]
+            series.append(RangeSeries(metric=metric, values=values))
 
-            # Handle both instant query (value) and range query (values)
-            if "value" in item:
-                # Instant query: [timestamp, value]
-                ts, val = item["value"]
-                values = [(datetime.fromtimestamp(float(ts)), float(val))]
-            elif "values" in item:
-                # Range query: [[timestamp, value], ...]
-                values = [(datetime.fromtimestamp(float(ts)), float(val)) for ts, val in item["values"]]
-            else:
-                values = []
-
-            series_list.append(QueryResultSeries(metric=metric, values=values))
-
-        return QueryResult(series=series_list)
+        return RangeQueryResult(series=series)
 
     def close(self) -> None:
         """Close connections."""

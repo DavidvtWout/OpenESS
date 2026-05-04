@@ -8,7 +8,7 @@ from entsoe.Market import EnergyPrices
 from entsoe.utils import add_timestamps, extract_records
 from pandas import DataFrame
 
-from open_ess.timeseries import Sample, TimeseriesBackend
+from open_ess.timeseries import Sample, TimeseriesBackend, VectorResult
 
 from .areas import AREAS
 from .config import PriceConfig
@@ -77,21 +77,25 @@ class EntsoeClient:
             row_start = datetime.fromisoformat(row["timestamp"])
             interval_minutes = _parse_resolution(row["time_series.period.resolution"])
             row_end = row_start + timedelta(minutes=interval_minutes)
-            price = float(row["time_series.period.point.price_amount"])
+            price = float(row["time_series.period.point.price_amount"]) / 1000
             prices.append((row_start, row_end, price))
         return prices
 
     def fetch_missing_prices(self, area: str) -> None:
+        if area not in AREAS:
+            raise ValueError(f"Unknown area code: '{area}'")
+
         now = datetime.now(UTC)
         end_of_tomorrow = (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # TODO: prevent injection via area variable
-        result = self._mql_client.query(f'openess_prices{{area="{area}"}}')
+        result: VectorResult = self._mql_client.query(
+            f'last_over_time(openess_prices{{area="{area}"}}[8w])', time=end_of_tomorrow
+        )
         if len(result.series) == 0:
             fetch_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            fetch_start -= timedelta(weeks=6)
+            fetch_start -= timedelta(weeks=8)
         else:
-            latest, _ = result.series[0].values
+            latest = result.series[0].timestamp
             if latest >= end_of_tomorrow:
                 return
             else:
@@ -115,7 +119,8 @@ class EntsoeClient:
             )
 
         samples: list[Sample] = []
-        for ts, _, price in prices:
+        for ts_start, ts_end, price in prices:
+            ts = ts_start + (ts_end - ts_start) / 2
             samples.append(make_sample(ts, "market", price))
             samples.append(make_sample(ts, "buy", self._config.buy_price(price)))
             samples.append(make_sample(ts, "sell", self._config.sell_price(price)))

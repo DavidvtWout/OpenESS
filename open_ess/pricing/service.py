@@ -19,7 +19,6 @@ class EntsoeService(Service):
 
     def on_start(self) -> None:
         self._client = EntsoeClient(self._config, self._mql_client)
-        self._fetch_prices()
 
     def tick(self) -> None:
         self._fetch_prices()

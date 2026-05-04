@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 
 @dataclass
@@ -15,25 +16,54 @@ class Sample:
     labels: dict[str, str] = field(default_factory=dict)
 
 
+# --- Instant Query Result Types ---
+
+
 @dataclass
-class QueryResultSeries:
-    """A single series from a query result."""
+class ScalarResult:
+    """Result of an instant query returning a scalar value."""
+
+    result_type: Literal["scalar"] = field(default="scalar", repr=False)
+    timestamp: datetime = field(default_factory=datetime.now)
+    value: float = 0.0
+
+
+@dataclass
+class InstantSeries:
+    """A series with a single value (instant vector element)."""
+
+    metric: dict[str, str]
+    timestamp: datetime
+    value: float
+
+
+@dataclass
+class VectorResult:
+    """Result of an instant query returning an instant vector."""
+
+    result_type: Literal["vector"] = field(default="vector", repr=False)
+    series: list[InstantSeries] = field(default_factory=list)
+
+
+@dataclass
+class RangeSeries:
+    """A series with multiple values over time (range vector/matrix element)."""
 
     metric: dict[str, str]
     values: list[tuple[datetime, float]]  # (timestamp, value) pairs
 
 
+InstantQueryResult = ScalarResult | VectorResult
+
+
+# --- Range Query Result Type ---
+
+
 @dataclass
-class QueryResult:
-    """Result of a query or query_range call."""
+class RangeQueryResult:
+    """Result of a range query (always returns a matrix)."""
 
-    series: list[QueryResultSeries]
-
-    def scalar(self) -> float | None:
-        """Get single scalar value if result has exactly one series with one value."""
-        if len(self.series) == 1 and len(self.series[0].values) == 1:
-            return self.series[0].values[0][1]
-        return None
+    series: list[RangeSeries] = field(default_factory=list)
 
 
 class TimeseriesBackend(ABC):
@@ -53,7 +83,7 @@ class TimeseriesBackend(ABC):
         ...
 
     @abstractmethod
-    def query(self, query: str, time: datetime | None = None) -> QueryResult:
+    def query(self, query: str, time: datetime | None = None) -> InstantQueryResult:
         """Execute an instant query.
 
         Args:
@@ -61,7 +91,7 @@ class TimeseriesBackend(ABC):
             time: Evaluation timestamp. Defaults to now.
 
         Returns:
-            Query result containing matching series.
+            ScalarResult, VectorResult, or MatrixResult depending on query.
         """
         ...
 
@@ -72,7 +102,7 @@ class TimeseriesBackend(ABC):
         start: datetime,
         end: datetime,
         step: str = "1m",
-    ) -> QueryResult:
+    ) -> RangeQueryResult:
         """Execute a range query.
 
         Args:
@@ -82,7 +112,7 @@ class TimeseriesBackend(ABC):
             step: Query resolution (e.g., "1m", "5m", "1h").
 
         Returns:
-            Query result containing matching series with values at each step.
+            RangeQueryResult containing series with values at each step.
         """
         ...
 
