@@ -10,38 +10,44 @@ class MqttControl(BaseModel):
     topic: str
 
 
-class MetricsConfig(BaseModel):
-    battery_soc: str | list[str] | None = None
-    battery_voltage: str | list[str] | None = None
-    power_to_system: str | list[str] | None = None
-    power_to_battery: str | list[str] | None = None
-    energy_to_system: str | list[str] | None = None
-    energy_from_system: str | list[str] | None = None
-    energy_to_battery: str | list[str] | None = None
-    energy_from_battery: str | list[str] | None = None
-
-
 class QueriesConfig(BaseModel):
     # Battery state
-    soc: str = 'openess_soc_ratio{node="battery", device="$device"} * 100'
-    voltage: str = 'openess_voltage_volts{node="battery", device="$device"}'
+    # Readings from battery (BMS) have priority over readings from vebus (MultiPlus).
+    soc: str = """
+      (
+        openess_soc_ratio{device=~"$device", node="battery", unit="battery"}
+        or
+        openess_soc_ratio{device=~"$device", node="battery", unit="vebus"}
+      ) * 100
+    """  #
+    voltage: str = """
+      (
+        openess_voltage_volts{device=~"$device", node="battery", unit="battery"}
+        or
+        openess_voltage_volts{device=~"$device", node="battery", unit="vebus"}
+      ) * 100
+    """
 
     # Power
-    power_grid: str = 'openess_power_watts{from="grid", device="$device"}'
-    power_pv: str = 'openess_power_watts{from="pvinverter", device="$device"}'
-    power_battery: str = 'openess_power_watts{from="system", to="battery", device="$device"}'
-    power_ac_in: str = 'openess_power_watts{from="ac_in", device="$device"}'
-    power_ac_out: str = 'openess_power_watts{from="ac_out", device="$device"}'
+    system_power: str = """
+      openess_power_watts{device="$device", phase=~"$phase", from="ac_in", to="system"}
+      -
+      openess_power_watts{device="$device", phase=~"$phase", from="system", to="ac_out"}
+    """
+    battery_power: str = """
+      openess_power_watts{device="$device", from="system", to="battery", unit="battery"}
+      or
+      openess_power_watts{device="$device", from="system", to="battery", unit="vebus"}
+    """
 
-    # Energy
-    energy_grid_import: str = 'openess_energy_kwh{from="grid", device="$device"}'
-    energy_grid_export: str = 'openess_energy_kwh{to="grid", device="$device"}'
-    energy_to_battery: str = 'openess_energy_kwh{to="system", device="$device"}'
-    energy_from_battery: str = 'openess_energy_kwh{from="system", device="$device"}'
+    # energy_to_system: str | list[str] | None = None
+    # energy_from_system: str | list[str] | None = None
+    # energy_to_battery: str | list[str] | None = None
+    # energy_from_battery: str | list[str] | None = None
 
 
 class BatterySystemConfig(BaseModel):
-    name: str | None = None  # Is set to self.id if not provided.
+    name: str | None = None
     monitor_only: bool = False
     phases: int = 1
     capacity_kwh: float | None = None
@@ -52,7 +58,6 @@ class BatterySystemConfig(BaseModel):
     max_soc: int = 100
 
     control: Annotated[VictronConfig | MqttControl, Field(discriminator="type")]
-    metrics: MetricsConfig = MetricsConfig()
     queries: QueriesConfig = QueriesConfig()
 
     @property

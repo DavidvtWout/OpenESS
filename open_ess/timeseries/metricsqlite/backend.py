@@ -1,7 +1,4 @@
-"""MetricSQLite timeseries backend implementation."""
-
 from datetime import datetime
-from pathlib import Path
 
 from metricsqlite import MetricsQLiteClient
 from metricsqlite.engine import InstantVector, MatrixResult, RangeVectorResult, ScalarResult
@@ -11,17 +8,9 @@ from .config import MetricSQLiteConfig
 
 
 class MetricSQLiteBackend(TimeseriesBackend):
-    """MetricSQLite backend using SQLite for storage."""
-
-    def __init__(self, config: MetricSQLiteConfig, db_path: Path):
-        """Initialize MetricSQLite backend.
-
-        Args:
-            config: MetricSQLite configuration.
-            db_path: Path to SQLite database file.
-        """
+    def __init__(self, config: MetricSQLiteConfig):
         self.config = config
-        self._client = MetricsQLiteClient(db_path, enable_wal=True)
+        self._client = MetricsQLiteClient(config.db_path, enable_wal=True)
         self._client.connect()
         self._client.create_tables()
 

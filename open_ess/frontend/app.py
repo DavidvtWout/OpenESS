@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from open_ess.battery_system import BatterySystem
-from open_ess.database import Database
 from open_ess.timeseries import TimeseriesBackend
 from open_ess.timeseries.metricsqlite.backend import MetricSQLiteBackend
 
@@ -20,14 +19,12 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 
 def create_app(
-    database: Database,
     config: "Config",
     battery_systems: list[BatterySystem],
     timeseries: TimeseriesBackend | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        _app.state.database = database.connect()
         _app.state.price_config = config.prices
         _app.state.battery_systems = battery_systems
         _app.state.timeseries = timeseries

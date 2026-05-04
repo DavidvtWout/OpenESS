@@ -9,8 +9,8 @@ import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
 from open_ess.battery_system import BatterySystemConfig
-from open_ess.database import DatabaseConnection
 from open_ess.pricing import PriceConfig
+from open_ess.timeseries import TimeseriesBackend
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,8 @@ class Optimizer:
     the need for a separate binary variable.
     """
 
-    def __init__(self, db: DatabaseConnection, price_config: PriceConfig, battery_config: BatterySystemConfig):
-        self._database = db
+    def __init__(self, mql_client: TimeseriesBackend, price_config: PriceConfig, battery_config: BatterySystemConfig):
+        self._mql_client = mql_client
         self._price_config = price_config
         self._battery_config = battery_config
         # TODO: check for cbc

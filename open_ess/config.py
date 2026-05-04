@@ -4,7 +4,6 @@ import yaml
 from pydantic import BaseModel
 
 from open_ess.battery_system import BatterySystemConfig
-from open_ess.database import DatabaseConfig
 from open_ess.frontend import FrontendConfig
 from open_ess.pricing import PriceConfig
 from open_ess.timeseries import TimeseriesConfig
@@ -14,7 +13,6 @@ from open_ess.timeseries.metricsqlite.config import MetricSQLiteConfig
 
 
 class Config(BaseModel):
-    database: DatabaseConfig = DatabaseConfig()
     frontend: FrontendConfig
     prices: PriceConfig
     timeseries: TimeseriesConfig = MetricSQLiteConfig()

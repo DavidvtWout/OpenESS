@@ -8,7 +8,7 @@ from entsoe.Market import EnergyPrices
 from entsoe.utils import add_timestamps, extract_records
 from pandas import DataFrame
 
-from open_ess.database import DatabaseConnection
+from open_ess.timeseries import Sample, TimeseriesBackend
 
 from .areas import AREAS
 from .config import PriceConfig
@@ -17,21 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 class EntsoeClient:
-    def __init__(self, config: PriceConfig, db: DatabaseConnection):
+    def __init__(self, config: PriceConfig, mql_client: TimeseriesBackend):
         if config.area not in AREAS:
             raise ValueError(f"Unknown area code: '{config.area}'")
 
         self._config = config
-        self._db = db
-
-        self._eic_code, tz_name = AREAS[config.area]
-        self._tz = ZoneInfo(tz_name)
+        self._mql_client = mql_client
 
         if config.entsoe_api_key:
             set_config(security_token=config.entsoe_api_key)
 
+    @staticmethod
     def fetch_day_ahead_prices(
-        self,
+        area: str,
         start: datetime,
         end: datetime,
     ) -> list[tuple[datetime, datetime, float]]:
@@ -39,29 +37,33 @@ class EntsoeClient:
         Fetch day-ahead prices from ENTSO-E for a given area and time range.
 
         Args:
+            area:
             start: Start datetime (UTC)
             end: End datetime (UTC)
 
         Returns:
             List of (start_time, end_time, price) tuples with prices in EUR/MWh
         """
+        eic_code, tz_name = AREAS[area]
+        tz = ZoneInfo(tz_name)
 
         # ENTSO-E expects timestamps formatted as YYYYMMDDhhmm in the area's local timezone
-        start_local = start.astimezone(self._tz)
-        end_local = end.astimezone(self._tz)
+        start_local = start.astimezone(tz)
+        end_local = end.astimezone(tz)
 
         period_start = int(start_local.strftime("%Y%m%d%H%M"))
         period_end = int(end_local.strftime("%Y%m%d%H%M"))
 
         try:
             result = EnergyPrices(
-                in_domain=self._eic_code,
-                out_domain=self._eic_code,
+                in_domain=eic_code,
+                out_domain=eic_code,
                 period_start=period_start,
                 period_end=period_end,
             ).query_api()
         except ET.ParseError:
-            # On a 404, entsoe-apy still tries to parse the result which fails. Other errors such as 503 and timeouts are retried
+            # On a 404, entsoe-apy still tries to parse the result which fails.
+            # Other errors such as 503 and timeouts are retried.
             return []
 
         records = extract_records(result)
@@ -79,23 +81,45 @@ class EntsoeClient:
             prices.append((row_start, row_end, price))
         return prices
 
-    def fetch_missing_prices(self) -> None:
+    def fetch_missing_prices(self, area: str) -> None:
         now = datetime.now(UTC)
         end_of_tomorrow = (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        latest = self._db.get_latest_price_time(self._config.area)
-        if latest is None:
+        # TODO: prevent injection via area variable
+        result = self._mql_client.query(f'openess_prices{{area="{area}"}}')
+        if len(result.series) == 0:
             fetch_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            fetch_start -= timedelta(days=14)
-        elif latest >= end_of_tomorrow:
-            return
+            fetch_start -= timedelta(weeks=6)
         else:
-            fetch_start = latest
+            latest, _ = result.series[0].values
+            if latest >= end_of_tomorrow:
+                return
+            else:
+                fetch_start = latest
 
         logger.info(f"Fetching prices for {self._config.area} from {fetch_start} to {end_of_tomorrow}")
-        prices = self.fetch_day_ahead_prices(fetch_start, end_of_tomorrow)
+        prices = self.fetch_day_ahead_prices(area, fetch_start, end_of_tomorrow)
         if prices:
-            self._db.insert_prices(self._config.area, prices)
+            self._upsert_prices(area, prices)
+
+    def _upsert_prices(self, area: str, prices: list[tuple[datetime, datetime, float]]):
+        def make_sample(_ts: datetime, _price_type: str, _price: float):
+            return Sample(
+                metric="openess_prices",
+                labels={
+                    "area": area,
+                    "price": _price_type,
+                },
+                timestamp=_ts,
+                value=_price,
+            )
+
+        samples: list[Sample] = []
+        for ts, _, price in prices:
+            samples.append(make_sample(ts, "market", price))
+            samples.append(make_sample(ts, "buy", self._config.buy_price(price)))
+            samples.append(make_sample(ts, "sell", self._config.sell_price(price)))
+        self._mql_client.write(samples)
 
 
 def _parse_resolution(resolution: str) -> int:

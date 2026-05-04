@@ -3,13 +3,8 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from open_ess.battery_system import BatterySystem
-from open_ess.database import DatabaseConnection
 from open_ess.pricing import PriceConfig
 from open_ess.timeseries import TimeseriesBackend
-
-
-def get_database(request: Request) -> DatabaseConnection:
-    return request.app.state.database  # type: ignore[no-any-return]
 
 
 def get_price_config(request: Request) -> PriceConfig:
@@ -25,7 +20,6 @@ def get_timeseries(request: Request) -> TimeseriesBackend | None:
 
 
 # Type aliases for cleaner route signatures
-Database = Annotated[DatabaseConnection, Depends(get_database)]
 PriceConfigDep = Annotated[PriceConfig, Depends(get_price_config)]
 BatterySystemsDep = Annotated[list[BatterySystem], Depends(get_battery_systems)]
 TimeseriesDep = Annotated[TimeseriesBackend | None, Depends(get_timeseries)]

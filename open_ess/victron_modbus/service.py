@@ -2,7 +2,6 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from open_ess.database import Database
 from open_ess.service import Service
 from open_ess.timeseries import TimeseriesBackend
 
@@ -19,13 +18,12 @@ class VictronService(Service):
 
     def __init__(
         self,
-        db: Database,
         config: "BatterySystemConfig",
         timeseries: TimeseriesBackend | None = None,
     ):
         super().__init__("VictronService")
         self._config = config
-        self._client = VictronClient(db, config, timeseries)
+        self._client = VictronClient(config, timeseries)
 
     @property
     def client(self) -> VictronClient:

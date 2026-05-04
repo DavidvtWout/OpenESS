@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 from threading import Lock
 from typing import TYPE_CHECKING
 
-from open_ess.database import Database, DatabaseConnection
 from open_ess.timeseries import Sample, TimeseriesBackend
 
 from .config import VictronConfig
@@ -30,19 +29,16 @@ def _get_float(values: dict[Register, float | bytes | None], key: Register) -> f
 class VictronClient:
     def __init__(
         self,
-        database: Database,
         config: "BatterySystemConfig",
         timeseries: TimeseriesBackend | None = None,
     ):
         if not isinstance(config.control, VictronConfig):
             raise TypeError(f"VictronClient requires VictronConfig, got {type(config.control).__name__}")
-        self._db = database
         self._config = config
         self._control: VictronConfig = config.control
         self._client = VictronModbusClient(self._control)
         self._timeseries = timeseries
 
-        self._db_conn: DatabaseConnection | None = None
         self._serial: str | None = None
 
         self._setpoint: float = 0.0  # In Watt
@@ -51,7 +47,6 @@ class VictronClient:
         self._lock = Lock()
 
     def initialize(self) -> bool:
-        self._db_conn = self._db.connect()
         if not self.connect():
             return False
 
@@ -103,9 +98,6 @@ class VictronClient:
             self._setpoint_expiration = until
 
     def write_setpoints(self) -> None:
-        if self._db_conn is None:
-            return
-
         if self._config.monitor_only:
             return
 
@@ -207,7 +199,7 @@ class VictronClient:
         add(
             POWER_METRIC,
             _get_float(vebus_values, VEBus.AC_OUTPUT_POWER_L1),
-            {"from": "ac_out", "to": "system", "phase": "L1"},
+            {"from": "system", "to": "ac_out", "phase": "L1"},
         )
 
         # VEBus battery

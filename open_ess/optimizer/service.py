@@ -2,9 +2,9 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from open_ess.battery_system import BatterySystem
-from open_ess.database import Database, DatabaseConnection
 from open_ess.pricing import PriceConfig
 from open_ess.service import Service
+from open_ess.timeseries import TimeseriesBackend
 
 from .optimizer import Optimizer
 
@@ -14,26 +14,24 @@ logger = logging.getLogger(__name__)
 class OptimizerService(Service):
     def __init__(
         self,
-        db: Database,
+        mql_client: TimeseriesBackend,
         battery_system: BatterySystem,
         price_config: PriceConfig,
     ):
         super().__init__("OptimizerService")
-        self._db = db
+        self._mql_client = mql_client
         self._battery_system = battery_system
         self._price_config = price_config
 
-        self._db_conn: DatabaseConnection | None = None
         self._optimizer: Optimizer | None = None
 
     def on_start(self) -> None:
-        self._db_conn = self._db.connect()
         self._optimizer = Optimizer(
-            self._db_conn, price_config=self._price_config, battery_config=self._battery_system.config
+            self._mql_client, price_config=self._price_config, battery_config=self._battery_system.config
         )
 
     def tick(self) -> None:
-        if self._optimizer is None or self._db_conn is None:
+        if self._optimizer is None:
             return
 
         logger.debug("Running charge optimizer(s)")

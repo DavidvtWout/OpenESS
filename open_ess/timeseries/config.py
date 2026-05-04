@@ -1,5 +1,3 @@
-"""Timeseries backend configuration."""
-
 from typing import Annotated
 
 from pydantic import Field

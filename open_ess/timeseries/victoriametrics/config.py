@@ -1,13 +1,9 @@
-"""VictoriaMetrics timeseries backend configuration."""
-
 from typing import Literal
 
 from pydantic import BaseModel
 
 
 class VictoriaMetricsConfig(BaseModel):
-    """Configuration for VictoriaMetrics backend."""
-
     backend: Literal["victoriametrics"]
     url: str
     username: str | None = None
