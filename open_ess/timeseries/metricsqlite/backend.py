@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from metricsqlite import MetricsQLiteClient
 from metricsqlite.engine import InstantVector, MatrixResult, RangeVectorResult, ScalarResult
+from metricsqlite.fastapi import create_router
 
 from ..base import (
     InstantQueryResult,
@@ -104,6 +105,9 @@ class MetricSQLiteBackend(TimeseriesBackend):
             values = [(datetime.fromtimestamp(sample.timestamp / 1000, tz=UTC), sample.value) for sample in samples]
             series.append(RangeSeries(metric=labels, values=values))
         return RangeQueryResult(series=series)
+
+    def create_fastapi_router(self):
+        return create_router(self._client)
 
     def close(self) -> None:
         """Close the database connection."""

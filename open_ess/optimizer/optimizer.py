@@ -9,7 +9,7 @@ import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
 from open_ess.battery_system import BatterySystem, BatterySystemConfig
-from open_ess.pricing import PriceConfig, get_prices_from_mql
+from open_ess.pricing import PriceConfig
 from open_ess.timeseries import TimeseriesBackend
 
 logger = logging.getLogger(__name__)
@@ -48,8 +48,7 @@ class Optimizer:
         # Get hourly prices for the planning horizon
         now = datetime.now(UTC)
         start_hour = now.replace(minute=0, second=0, microsecond=0)
-        prices = get_prices_from_mql(
-            self._mql_client,
+        prices = self._mql_client.get_prices(
             self._price_config.area,
             start=start_hour - timedelta(weeks=6),
             end=start_hour + timedelta(days=2),

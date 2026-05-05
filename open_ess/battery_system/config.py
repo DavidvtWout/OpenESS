@@ -19,7 +19,7 @@ class QueriesConfig(BaseModel):
         or
         openess_soc_ratio{device=~"$device", node="battery", unit="vebus"}
       ) * 100
-    """  #
+    """
     voltage: str = """
       (
         openess_voltage_volts{device=~"$device", node="battery", unit="battery"}

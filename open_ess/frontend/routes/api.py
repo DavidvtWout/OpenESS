@@ -1,8 +1,11 @@
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from open_ess.frontend.dependencies import BatterySystemsDep, MqlClientDep
 
 from .util import TimeSeries
 
@@ -250,38 +253,37 @@ async def health_check() -> HealthResponse:
 #     except Exception as e:
 #         logger.exception("Failed to get battery ids")
 #         raise HTTPException(status_code=500, detail=str(e)) from e
-#
-#
-# # ------------------------ #
-# #  Metrics page endpoints  #
-# # ------------------------ #
-#
-#
-# class BatteryEnergySeries(BaseModel):
-#     energy_to_charger: list[float | None] = []
-#     energy_from_inverter: list[float | None] = []
-#     energy_to_battery: list[float | None] = []
-#     energy_from_battery: list[float | None] = []
-#     energy_loss_to_battery: list[float | None] = []
-#     energy_loss_from_battery: list[float | None] = []
-#
-#
-# class EnergyGraphResponse(BaseModel):
-#     timestamps: list[datetime]
-#
-#     grid_import: dict[str, list[float | None]]
-#     grid_export: dict[str, list[float | None]]
-#
-#     battery_systems: dict[str, BatteryEnergySeries]
-#
-#     solar: list[float | None] = []
-#     to_consumption: list[float | None] = []
-#     from_consumption: list[float | None] = []
-#
-#
+
+
+# ------------------------ #
+#  Metrics page endpoints  #
+# ------------------------ #
+
+
+class BatteryEnergySeries(BaseModel):
+    energy_to_charger: list[float | None] = []
+    energy_from_inverter: list[float | None] = []
+    energy_to_battery: list[float | None] = []
+    energy_from_battery: list[float | None] = []
+    energy_loss_to_battery: list[float | None] = []
+    energy_loss_from_battery: list[float | None] = []
+
+
+class EnergyGraphResponse(BaseModel):
+    timestamps: list[datetime]
+
+    grid_import: dict[str, list[float | None]]
+    grid_export: dict[str, list[float | None]]
+
+    battery_systems: dict[str, BatteryEnergySeries]
+
+    solar: list[float | None] = []
+    to_consumption: list[float | None] = []
+    from_consumption: list[float | None] = []
+
+
 # @router.get("/energy-graph", response_model=EnergyGraphResponse)
 # async def get_energy_flow_endpoint(
-#     db: Database,
 #     timeseries: TimeseriesDep,
 #     battery_systems: BatterySystemsDep,
 #     battery_id: str | None = Query(default=None),
@@ -311,17 +313,14 @@ async def health_check() -> HealthResponse:
 #         if end is None:
 #             end = now
 #
-#         if timeseries is not None:
-#             return await _get_energy_graph_timeseries(timeseries, battery_system, start, end, bucket_minutes)
-#
-#         return await _get_energy_graph_legacy(db, battery_system, start, end, bucket_minutes)
+#         return await _get_energy_graph_timeseries(timeseries, battery_system, start, end, bucket_minutes)
 #     except Exception as e:
 #         logger.exception("Failed to get energy flow")
 #         raise HTTPException(status_code=500, detail=str(e)) from e
 #
 #
 # async def _get_energy_graph_timeseries(
-#     timeseries: "TimeseriesBackend",
+#     mql_client: "TimeseriesBackend",
 #     battery_system,
 #     start: datetime,
 #     end: datetime,
@@ -339,10 +338,10 @@ async def health_check() -> HealthResponse:
 #     from_mp_query = queries.energy_from_battery.replace("$device", device)
 #
 #     # Use increase() to get energy delta per bucket
-#     grid_import_result = timeseries.query_range(f"increase({grid_import_query}[{step}])", start, end, step)
-#     grid_export_result = timeseries.query_range(f"increase({grid_export_query}[{step}])", start, end, step)
-#     to_mp_result = timeseries.query_range(f"increase({to_mp_query}[{step}])", start, end, step)
-#     from_mp_result = timeseries.query_range(f"increase({from_mp_query}[{step}])", start, end, step)
+#     grid_import_result = mql_client.query_range(f"increase({grid_import_query}[{step}])", start, end, step)
+#     grid_export_result = mql_client.query_range(f"increase({grid_export_query}[{step}])", start, end, step)
+#     to_mp_result = mql_client.query_range(f"increase({to_mp_query}[{step}])", start, end, step)
+#     from_mp_result = mql_client.query_range(f"increase({from_mp_query}[{step}])", start, end, step)
 #
 #     # Convert to dict for easier lookup
 #     def result_to_dict(result: "QueryResult") -> dict[datetime, float]:
@@ -389,189 +388,163 @@ async def health_check() -> HealthResponse:
 #         grid_import=grid_imports,
 #         battery_systems={battery_system.config.name: battery_stats},
 #     )
-#
-#
-# async def _get_energy_graph_legacy(
-#     db: "DatabaseConnection",
-#     battery_system,
-#     start: datetime,
-#     end: datetime,
-#     bucket_minutes: int,
-# ) -> EnergyGraphResponse:
-#     """Get energy graph data from legacy database."""
-#     series = {
-#         "grid_import": db.get_energy_aggregated(
-#             "grid/energy/import/total", bucket_minutes * 60, start, end, center_buckets=True
-#         ),
-#         "grid_export": db.get_energy_aggregated(
-#             "grid/energy/export/total", bucket_minutes * 60, start, end, center_buckets=True
-#         ),
-#         "vebus_228_import": db.get_energy_aggregated(
-#             battery_system.config.metrics.energy_to_system, bucket_minutes * 60, start, end, center_buckets=True
-#         ),
-#         "vebus_228_export": db.get_energy_aggregated(
-#             battery_system.config.metrics.energy_from_system, bucket_minutes * 60, start, end, center_buckets=True
-#         ),
-#     }
-#
-#     timestamps: set[datetime] = set()
-#     series_as_dict: dict[str, dict[datetime, float]] = {name: {} for name in series}
-#     for name, s in series.items():
-#         for ts, v in s:
-#             timestamps.add(ts)
-#             series_as_dict[name][ts] = v
-#     sorted_timestamps = sorted(timestamps)
-#
-#     grid_exports: dict[str, list[float | None]] = {"From MP": []}
-#     grid_imports: dict[str, list[float | None]] = {"Consumption": [], "To MP": []}
-#     battery_stats = BatteryEnergySeries()
-#
-#     for ts in sorted_timestamps:
-#         from_mp = series_as_dict["vebus_228_export"].get(ts)
-#         grid_exports["From MP"].append(from_mp)
-#         unaccounted_export = series_as_dict["grid_export"].get(ts, 0) - (from_mp or 0)
-#
-#         to_mp = series_as_dict["vebus_228_import"].get(ts)
-#         grid_imports["To MP"].append(to_mp)
-#         grid_import = series_as_dict["grid_import"].get(ts)
-#         if grid_import is not None:
-#             grid_import -= (to_mp or 0) - unaccounted_export
-#         grid_imports["Consumption"].append(grid_import)
-#
-#         battery_stats.energy_to_charger.append(to_mp)
-#         battery_stats.energy_from_inverter.append(from_mp)
-#
-#     return EnergyGraphResponse(
-#         timestamps=sorted_timestamps,
-#         grid_export=grid_exports,
-#         grid_import=grid_imports,
-#         battery_systems={"MultiPlus": battery_stats},
-#     )
-#
-#
-# def _calculate_step(start: datetime, end: datetime, aggregate_minutes: int) -> str:
-#     """Calculate query step from aggregate_minutes or time range."""
-#     if aggregate_minutes > 1:
-#         return f"{aggregate_minutes}m"
-#     # Auto-calculate based on range
-#     duration = (end - start).total_seconds()
-#     if duration <= 3600:  # 1 hour
-#         return "1m"
-#     if duration <= 6 * 3600:  # 6 hours
-#         return "5m"
-#     if duration <= 24 * 3600:  # 24 hours
-#         return "15m"
-#     return "1h"
-#
-#
-# @router.get("/power-graph", response_model=PowerResponse)
-# async def get_power_graph(
-#     db: Database,
-#     timeseries: TimeseriesDep,
-#     battery_systems: BatterySystemsDep,
-#     battery_id: str | None = Query(default=None),
-#     start: datetime | None = Query(default=None),
-#     end: datetime | None = Query(default=None),
-#     aggregate_minutes: int = Query(default=1),
-# ) -> PowerResponse:
-#     try:
-#         battery_system = None
-#         if battery_id:
-#             for bs in battery_systems:
-#                 if bs.id == battery_id:
-#                     battery_system = bs
-#                     break
-#         elif len(battery_systems) == 1:
-#             battery_system = battery_systems[0]
-#
-#         if battery_system is None:
-#             if battery_id:
-#                 raise HTTPException(status_code=400, detail=f"No battery system with id '{battery_id}'")
-#             else:
-#                 raise HTTPException(status_code=400, detail="Please provide a battery_id")
-#
-#         now = datetime.now(UTC)
-#         if start is None:
-#             start = now - timedelta(hours=24)
-#         if end is None:
-#             end = now
-#
-#         # Schedule always comes from database
-#         schedule_series: list[tuple[datetime, float]] = []
-#         for ts_start, ts_end, v, _ in db.get_schedule(battery_system.config.id, start):
-#             schedule_series.extend([(ts_start, v), (ts_end, v)])
-#
-#         if timeseries is not None:
-#             device = battery_system.id
-#             step = _calculate_step(start, end, aggregate_minutes)
-#
-#             series: dict[str, TimeSeries] = {}
-#
-#             # Grid power per phase
-#             for phase in ("L1", "L2", "L3"):
-#                 query = f'openess_power_watts{{from="grid", phase="{phase}", device="{device}"}}'
-#                 result = timeseries.query_range(query, start, end, step)
-#                 series[f"Grid {phase}"] = query_result_to_timeseries(result)
-#
-#             # AC power (to/from MultiPlus)
-#             ac_query = battery_system.config.queries.power_ac_in.replace("$device", device)
-#             ac_result = timeseries.query_range(ac_query, start, end, step)
-#             series["To MP"] = query_result_to_timeseries(ac_result)
-#
-#             # Battery DC power
-#             battery_query = battery_system.config.queries.power_battery.replace("$device", device)
-#             battery_result = timeseries.query_range(battery_query, start, end, step)
-#             series["Battery"] = query_result_to_timeseries(battery_result)
-#
-#             # Solar power (negated for display)
-#             solar_query = battery_system.config.queries.power_pv.replace("$device", device)
-#             solar_result = timeseries.query_range(solar_query, start, end, step)
-#             solar_ts = query_result_to_timeseries(solar_result)
-#             series["Solar"] = TimeSeries(
-#                 timestamps=solar_ts.timestamps,
-#                 values=[-v for v in solar_ts.values],
-#             )
-#
-#             series["Schedule"] = data_to_timeseries(schedule_series)
-#             return PowerResponse(series=series)
-#
-#         # Legacy database queries
-#         bucket_seconds = aggregate_minutes * 60
-#         legacy_series: dict[str, list[tuple[datetime, float]]] = {
-#             f"Grid L{i}": db.get_power(f"grid/power/l{i}", start, end, bucket_seconds) for i in (1, 2, 3)
-#         }
-#         legacy_series["To MP"] = db.get_power(battery_system.config.metrics.power_to_system, start, end, bucket_seconds)
-#         legacy_series["Battery"] = db.get_power(
-#             battery_system.config.metrics.power_to_battery, start, end, bucket_seconds
-#         )
-#         legacy_series["Solar"] = [
-#             (t, -p) for t, p in db.get_power("victron/pvinverter/31/power/l1", start, end, bucket_seconds)
-#         ]
-#         legacy_series["Schedule"] = schedule_series
-#
-#         return PowerResponse(series={k: data_to_timeseries(v) for k, v in legacy_series.items()})
-#     except Exception as e:
-#         logger.exception("Failed to get power data")
-#         raise HTTPException(status_code=500, detail=str(e)) from e
-#
-#
-# class PricePoint(BaseModel):
-#     time: datetime
-#     market: float | None
-#     buy: float | None
-#     sell: float | None
-#
-#
-# class PricesResponse(BaseModel):
-#     area: str
-#     aggregate_minutes: int
-#     unit: str = "€/kWh"  # TODO: based on area
-#     timeseries: list[PricePoint]
-#
-#
+
+
+def _calculate_step(start: datetime, end: datetime, aggregate_minutes: int) -> str:
+    """Calculate query step from aggregate_minutes or time range."""
+    if aggregate_minutes > 1:
+        return f"{aggregate_minutes}m"
+    # Auto-calculate based on range
+    duration = (end - start).total_seconds()
+    if duration <= 3600:  # 1 hour
+        return "1m"
+    if duration <= 6 * 3600:  # 6 hours
+        return "5m"
+    if duration <= 24 * 3600:  # 24 hours
+        return "15m"
+    return "1h"
+
+
+class PowerQueryDef(BaseModel):
+    label: str
+    query: str
+    is_total: bool | None = None
+
+
+class ChartsPowerResponse(BaseModel):
+    queries: list[PowerQueryDef]
+    phases: list[str]
+
+
+@router.get("/charts/power-queries", response_model=ChartsPowerResponse)
+async def get_power_queries(
+    timeseries: MqlClientDep,
+    battery_systems: BatterySystemsDep,
+) -> ChartsPowerResponse:
+    queries: list[PowerQueryDef] = []
+
+    phases: list[str] = []
+    if timeseries is not None:
+        result = timeseries.query('openess_power_watts{from="grid"}')
+        phase_set: set[str] = set()
+        if hasattr(result, "series"):
+            for series in result.series:
+                phase_label = series.metric.get("phase")
+                if phase_label:
+                    phase_set.add(phase_label)
+        phases = sorted(phase_set)
+
+    # Grid power queries
+    if len(phases) > 1:
+        queries.append(
+            PowerQueryDef(
+                query='sum(avg_over_time(openess_power_watts{from="grid"}[$step]))',
+                label="Grid",
+                is_total=True,
+            )
+        )
+        for phase in phases:
+            queries.append(
+                PowerQueryDef(
+                    query=f'avg_over_time(openess_power_watts{{from="grid", phase="{phase}"}}[$step])',
+                    label=f"Grid {phase}",
+                    is_total=False,
+                )
+            )
+    else:
+        queries.append(
+            PowerQueryDef(
+                query='avg_over_time(openess_power_watts{from="grid"}[$step])',
+                label="Grid",
+            )
+        )
+
+    # Battery system queries
+    for bs in battery_systems:
+        device = bs.device_serial or "unknown"
+        bs_name = bs.config.name or bs.id
+
+        # Discover phases for this battery system
+        bs_phases: list[str] = []
+        if timeseries is not None:
+            result = timeseries.query(f'openess_power_watts{{to="system", device="{device}"}}')
+            phase_set: set[str] = set()
+            if hasattr(result, "series"):
+                for series in result.series:
+                    phase_label = series.metric.get("phase")
+                    if phase_label:
+                        phase_set.add(phase_label)
+            bs_phases = sorted(phase_set)
+
+        if len(bs_phases) > 1:
+            queries.append(
+                PowerQueryDef(
+                    query=f"""
+                      sum by (device) (avg_over_time(openess_power_watts{{from="ac_in", to="system", device="{device}"}}[$step]))
+                      - on(device)
+                      sum by (device) (avg_over_time(openess_power_watts{{from="system", to="ac_out", device="{device}"}}[$step]))
+                    """,
+                    label=f"{bs_name} AC",
+                    is_total=True,
+                )
+            )
+            for phase in bs_phases:
+                queries.append(
+                    PowerQueryDef(
+                        query=f"""
+                          sum by (device, phase) (avg_over_time(openess_power_watts{{from="ac_in", to="system", device="{device}", phase="{phase}"}}[$step]))
+                          - on(device, phase)
+                          sum by (device, phase) (avg_over_time(openess_power_watts{{from="system", to="ac_out", device="{device}", phase="{phase}"}}[$step]))
+                        """,
+                        label=f"{bs_name} AC {phase}",
+                        is_total=False,
+                    )
+                )
+        else:
+            queries.append(
+                PowerQueryDef(
+                    query=f"""
+                      sum by (device) (avg_over_time(openess_power_watts{{from="ac_in", to="system", device="{device}"}}[$step]))
+                      - on(device)
+                      sum by (device) (avg_over_time(openess_power_watts{{from="system", to="ac_out", device="{device}"}}[$step]))
+                    """,
+                    label=f"{bs_name} AC",
+                )
+            )
+
+        queries.append(
+            PowerQueryDef(
+                query=f"""
+                  avg_over_time(openess_power_watts{{from="system", to="battery", unit="battery", device="{device}"}}[$step])
+                  or
+                  avg_over_time(openess_power_watts{{from="system", to="battery", unit="vebus", device="{device}"}}[$step])
+                """,
+                label=f"{bs_name} Battery",
+            )
+        )
+
+    return ChartsPowerResponse(
+        queries=queries,
+        phases=phases,
+    )
+
+
+class PricePoint(BaseModel):
+    time: datetime
+    market: float | None
+    buy: float | None
+    sell: float | None
+
+
+class PricesResponse(BaseModel):
+    area: str
+    aggregate_minutes: int
+    unit: str = "€/kWh"  # TODO: based on area
+    timeseries: list[PricePoint]
+
+
 # @router.get("/prices", response_model=PricesResponse)
 # async def get_price_data(
-#     db: Database,
 #     price_config: PriceConfigDep,
 #     area: str | None = Query(default=None),
 #     start: datetime | None = Query(default=None),
@@ -618,7 +591,6 @@ async def health_check() -> HealthResponse:
 #
 # @router.get("/battery-graph", response_model=dict[str, BatteryGraphResponse])
 # async def get_battery_graph(
-#     db: Database,
 #     timeseries: TimeseriesDep,
 #     battery_systems: BatterySystemsDep,
 #     battery_id: str | None = Query(default=None),
@@ -668,8 +640,8 @@ async def health_check() -> HealthResponse:
 #     except Exception as e:
 #         logger.exception("Failed to get battery SOC")
 #         raise HTTPException(status_code=500, detail=str(e)) from e
-#
-#
+
+
 # # ---------------#
 # #  Cycles page  #
 # # ---------------#

@@ -34,7 +34,13 @@
 </div>
 
 <div class="chart-container">
-    <h2>Power</h2>
+    <div class="chart-header">
+        <h2>Power</h2>
+        <div class="button-group" id="power-phase-buttons" style="display: none;">
+            <button class="btn-toggle active" data-value="total">Total</button>
+            <button class="btn-toggle" data-value="phases">Phases</button>
+        </div>
+    </div>
     <div id="power-chart" class="chart"></div>
 </div>
 

@@ -15,11 +15,11 @@ def get_battery_systems(request: Request) -> list[BatterySystem]:
     return request.app.state.battery_systems  # type: ignore[no-any-return]
 
 
-def get_timeseries(request: Request) -> TimeseriesBackend | None:
-    return request.app.state.timeseries  # type: ignore[no-any-return]
+def get_mql_client(request: Request) -> TimeseriesBackend:
+    return request.app.state.mql_client  # type: ignore[no-any-return]
 
 
 # Type aliases for cleaner route signatures
 PriceConfigDep = Annotated[PriceConfig, Depends(get_price_config)]
 BatterySystemsDep = Annotated[list[BatterySystem], Depends(get_battery_systems)]
-TimeseriesDep = Annotated[TimeseriesBackend | None, Depends(get_timeseries)]
+MqlClientDep = Annotated[TimeseriesBackend, Depends(get_mql_client)]

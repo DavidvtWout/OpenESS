@@ -5,7 +5,9 @@
     var dashboardStart = null;
     var dashboardEnd = null;
     var currentFoR = 'multiplus';
+    var currentPowerMode = 'total';  // 'total' or 'phases'
     var cachedEnergyData = null;
+    var cachedPowerConfig = null;    // Cached power chart config
     var rangeOffset = 0;
     var isRelayoutInProgress = false;
 
@@ -173,49 +175,141 @@
         }
     }
 
+    /**
+     * Fetch power chart configuration from backend.
+     * @returns {Promise<Object>} Chart config with queries, phases, has_phase_toggle
+     */
+    async function fetchPowerChartConfig() {
+        if (cachedPowerConfig) {
+            return cachedPowerConfig;
+        }
+        var response = await fetch('/api/charts/power-queries');
+        if (!response.ok) {
+            throw new Error('Failed to fetch power chart config: HTTP ' + response.status);
+        }
+        cachedPowerConfig = await response.json();
+
+        // Show/hide phase toggle button based on phases
+        var toggleContainer = document.getElementById('power-phase-buttons');
+        if (toggleContainer) {
+            toggleContainer.style.display = cachedPowerConfig.phases.length > 1 ? '' : 'none';
+        }
+
+        return cachedPowerConfig;
+    }
+
+    /**
+     * Filter queries based on current phase mode.
+     * @param {Array} queries - All query definitions
+     * @param {string} mode - 'total' or 'phases'
+     * @returns {Array} Filtered queries
+     */
+    function filterQueriesByMode(queries, mode) {
+        return queries.filter(function(q) {
+            // null means show in both modes
+            if (q.is_total === null) {
+                return true;
+            }
+            if (mode === 'total') {
+                return q.is_total === true;
+            } else {
+                return q.is_total === false;
+            }
+        });
+    }
+
+    /**
+     * Execute a single MetricsQL query and return Plotly trace data.
+     * @param {Object} queryDef - Query definition {query, label, group, variant}
+     * @param {Date} start - Start time
+     * @param {Date} end - End time
+     * @param {string} step - Step value like '5m'
+     * @returns {Promise<Object|null>} Plotly trace or null if no data
+     */
+    async function executeQuery(queryDef, start, end, step) {
+        // Replace $step placeholder
+        var query = queryDef.query.replace(/\$step/g, step);
+
+        var params = new URLSearchParams({
+            query: query,
+            start: (start.getTime() / 1000).toString(),
+            end: (end.getTime() / 1000).toString(),
+            step: step,
+        });
+
+        var response = await fetch('/api/v1/query_range?' + params);
+        if (!response.ok) {
+            console.error('Query failed for', queryDef.label, ':', response.status);
+            return null;
+        }
+
+        var result = await response.json();
+        if (!result.data || !result.data.result || result.data.result.length === 0) {
+            return null;
+        }
+
+        // Take the first series (most queries return single series)
+        var series = result.data.result[0];
+        return {
+            x: series.values.map(function(v) { return new Date(v[0] * 1000); }),
+            y: series.values.map(function(v) { return parseFloat(v[1]); }),
+            type: 'scatter',
+            mode: 'lines',
+            name: queryDef.label,
+            line: { width: 1.5 },
+            connectgaps: false,
+        };
+    }
+
     async function loadPowerChart(elementId, start, end, aggregateMinutes) {
         aggregateMinutes = aggregateMinutes || 5;
         Utils.showLoading(elementId);
 
         try {
-            var data = await Api.powerGraph({
-                start: Utils.formatDate(start),
-                end: Utils.formatDate(end),
-                aggregate_minutes: aggregateMinutes,
-            });
+            var config = await fetchPowerChartConfig();
+            var step = aggregateMinutes + 'm';
 
+            // Filter queries based on current mode
+            var activeQueries = filterQueriesByMode(config.queries, currentPowerMode);
+
+            // Execute all queries in parallel
+            var tracePromises = activeQueries.map(function(q) {
+                return executeQuery(q, start, end, step);
+            });
+            var traces = await Promise.all(tracePromises);
+
+            // Filter out null results and apply settings
             var settings = Settings.load();
             var useKw = settings.powerUnit === 'kw';
             var unit = useKw ? 'kW' : 'W';
+            var divisor = useKw ? 1000 : 1;
 
-            var traces = [];
-            var series = data.series || {};
-            var sortedKeys = Object.keys(series).sort();
-
-            for (var i = 0; i < sortedKeys.length; i++) {
-                var key = sortedKeys[i];
-                var s = series[key];
-                if (!s.timestamps || !s.values) continue;
-
-                traces.push({
-                    x: s.timestamps.map(function(t) { return new Date(t); }),
-                    y: s.values,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: key,
-                    line: { width: 1.5 },
-                    connectgaps: false,
-                    hovertemplate: '%{y:.1f} ' + unit + '<extra>' + key + '</extra>',
-                });
-            }
+            var validTraces = traces.filter(function(t) { return t !== null; });
+            validTraces.forEach(function(trace) {
+                if (useKw) {
+                    trace.y = trace.y.map(function(v) { return v / divisor; });
+                }
+                trace.hovertemplate = '%{y:.1f} ' + unit + '<extra>' + trace.name + '</extra>';
+            });
 
             var layout = Utils.getDefaultLayout();
             Utils.layoutSetXRange(layout, start, end);
             Utils.layoutAddNowLine(layout, start, end);
-            Utils.makePlot(elementId, traces, layout);
+            Utils.makePlot(elementId, validTraces, layout);
         } catch (error) {
             console.error('Error loading power data:', error);
             Utils.showError(elementId, 'Failed to load power data');
+        }
+    }
+
+    /**
+     * Re-render power chart with current settings (called when toggle changes).
+     */
+    function reloadPowerChart() {
+        if (dashboardStart && dashboardEnd) {
+            var hours = parseInt(document.getElementById('range-select').value);
+            var aggregateMinutes = getAggregateMinutes(hours);
+            loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes);
         }
     }
 
@@ -486,13 +580,22 @@
     document.addEventListener('DOMContentLoaded', function() {
         var savedRange = Settings.loadPagePref('dashboard', 'range', '24');
         var savedFoR = Settings.loadPagePref('dashboard', 'for', 'multiplus');
+        var savedPowerMode = Settings.loadPagePref('dashboard', 'powerMode', 'total');
 
         document.getElementById('range-select').value = savedRange;
         currentFoR = savedFoR;
+        currentPowerMode = savedPowerMode;
 
+        // Energy frame-of-reference buttons
         var forButtons = document.querySelectorAll('#for-buttons .btn-toggle');
         forButtons.forEach(function(btn) {
             btn.classList.toggle('active', btn.dataset.value === savedFoR);
+        });
+
+        // Power phase toggle buttons
+        var powerPhaseButtons = document.querySelectorAll('#power-phase-buttons .btn-toggle');
+        powerPhaseButtons.forEach(function(btn) {
+            btn.classList.toggle('active', btn.dataset.value === savedPowerMode);
         });
 
         document.getElementById('range-select').addEventListener('change', function(e) {
@@ -520,6 +623,17 @@
                 currentFoR = btn.dataset.value || 'multiplus';
                 Settings.savePagePref('dashboard', 'for', currentFoR);
                 renderEnergyOnly();
+            });
+        });
+
+        // Power phase toggle handlers
+        powerPhaseButtons.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('#power-phase-buttons .btn-toggle').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                currentPowerMode = btn.dataset.value || 'total';
+                Settings.savePagePref('dashboard', 'powerMode', currentPowerMode);
+                reloadPowerChart();
             });
         });
 

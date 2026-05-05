@@ -25,6 +25,12 @@ class BatterySystem(ABC):
     @abstractmethod
     def id(self) -> str | None: ...
 
+    @property
+    @abstractmethod
+    def device_serial(self) -> str | None:
+        """Device serial number used for metrics labeling."""
+        ...
+
     @abstractmethod
     def set_ess_setpoint(self, power: float, until: datetime | None = None) -> None: ...
 
@@ -40,6 +46,10 @@ class VictronBatterySystem(BatterySystem):
 
     @property
     def id(self) -> str | None:
+        return self._victron_client.serial
+
+    @property
+    def device_serial(self) -> str | None:
         return self._victron_client.serial
 
     def set_ess_setpoint(self, power: float, until: datetime | None = None) -> None:

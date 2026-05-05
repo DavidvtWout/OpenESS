@@ -3,7 +3,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from open_ess.battery_system import BatterySystem
 
 
 @dataclass
@@ -120,3 +123,36 @@ class TimeseriesBackend(ABC):
     def close(self) -> None:
         """Close any connections."""
         ...
+
+    def get_prices(
+        self,
+        area: str,
+        start: datetime,
+        end: datetime,
+        hourly=False,
+        price: Literal["market", "buy", "sell"] = "market",
+    ) -> list[tuple[datetime, float]]:
+        """Prices are returned in currency per Kwh (usually €/kWh)."""
+        # Lazy import to avoid circular dependency
+        from open_ess.pricing import AREAS
+
+        # Validate area and price to prevent MetricsQL injection.
+        if area not in AREAS:
+            raise ValueError(f"Unknown area code: '{area}'")
+        if price not in ("market", "buy", "sell"):
+            raise ValueError(f"Unknown price type: '{price}'")
+
+        if hourly:
+            query = f'avg_over_time(openess_prices{{area="{area}", price="{price}"}}[1h])'
+            step = "1h"
+        else:
+            query = f'openess_prices{{area="{area}", price="{price}"}}'
+            step = "15m"
+        result = self.query_range(query, start, end, step)
+
+        if not result.series:
+            return []
+        return list(result.series[0].values)
+
+    def get_schedule(self, battery_system: "BatterySystem"):
+        return []

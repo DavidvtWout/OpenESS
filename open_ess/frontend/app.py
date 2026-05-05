@@ -29,7 +29,7 @@ def create_app(
         _app.state.battery_systems = battery_systems
         _app.state.mql_client = mql_client
         yield
-        _app.state.database.close()
+        # _app.state.mql_client.close()
 
     app = FastAPI(
         title="OpenESS",
@@ -43,9 +43,7 @@ def create_app(
     # Mount timeseries query endpoints
     if mql_client is not None:
         if isinstance(mql_client, MetricSQLiteBackend):
-            from metricsqlite.fastapi import create_router as create_metricsqlite_router
-
-            app.include_router(create_metricsqlite_router(mql_client._client), prefix="/api/v1")
+            app.include_router(mql_client.create_fastapi_router(), prefix="/api/v1")
         else:
             app.include_router(timeseries_router, prefix="/api/v1")
 

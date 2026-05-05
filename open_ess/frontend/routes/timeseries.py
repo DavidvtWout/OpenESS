@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 
 from open_ess.timeseries import ScalarResult, VectorResult
 
-from ..dependencies import TimeseriesDep
+from ..dependencies import MqlClientDep
 
 router = APIRouter()
 
@@ -29,7 +29,7 @@ def _parse_timestamp(value: float | str) -> datetime:
 
 @router.get("/query")
 async def get_query(
-    timeseries: TimeseriesDep,
+    timeseries: MqlClientDep,
     query: str,
     time: float | str | None = None,
 ) -> dict:
@@ -69,7 +69,7 @@ async def get_query(
 
 @router.get("/query_range")
 async def get_query_range(
-    timeseries: TimeseriesDep,
+    timeseries: MqlClientDep,
     query: str,
     start: float | str,
     end: float | str,
