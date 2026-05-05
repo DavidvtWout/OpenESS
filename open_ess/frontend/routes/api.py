@@ -415,6 +415,19 @@ class ChartsPowerResponse(BaseModel):
     phases: list[str]
 
 
+def _discover_phases(mql_client, query: str) -> list[str]:
+    if mql_client is None:
+        return []
+    result = mql_client.query(query)
+    phase_set: set[str] = set()
+    if hasattr(result, "series"):
+        for series in result.series:
+            phase_label = series.metric.get("phase")
+            if phase_label:
+                phase_set.add(phase_label)
+    return sorted(phase_set)
+
+
 @router.get("/charts/power-queries", response_model=ChartsPowerResponse)
 async def get_power_queries(
     mql_client: MqlClientDep,
@@ -422,16 +435,8 @@ async def get_power_queries(
 ) -> ChartsPowerResponse:
     queries: list[PowerQueryDef] = []
 
-    phases: list[str] = []
-    if mql_client is not None:
-        result = mql_client.query('openess_power_watts{from="grid"}')
-        phase_set: set[str] = set()
-        if hasattr(result, "series"):
-            for series in result.series:
-                phase_label = series.metric.get("phase")
-                if phase_label:
-                    phase_set.add(phase_label)
-        phases = sorted(phase_set)
+    # Discover grid phases
+    phases = _discover_phases(mql_client, 'openess_power_watts{from="grid"}')
 
     # Grid power queries
     if len(phases) > 1:
@@ -461,66 +466,10 @@ async def get_power_queries(
     # Battery system queries
     for bs in battery_systems:
         device = bs.device_serial or "unknown"
-        bs_name = bs.config.name or bs.id
-
-        # Discover phases for this battery system
-        bs_phases: list[str] = []
-        if mql_client is not None:
-            result = mql_client.query(f'openess_power_watts{{to="system", device="{device}"}}')
-            phase_set: set[str] = set()
-            if hasattr(result, "series"):
-                for series in result.series:
-                    phase_label = series.metric.get("phase")
-                    if phase_label:
-                        phase_set.add(phase_label)
-            bs_phases = sorted(phase_set)
-
-        if len(bs_phases) > 1:
-            queries.append(
-                PowerQueryDef(
-                    query=f"""
-                      sum by (device) (avg_over_time(openess_power_watts{{from="ac_in", to="system", device="{device}"}}[$step]))
-                      - on(device)
-                      sum by (device) (avg_over_time(openess_power_watts{{from="system", to="ac_out", device="{device}"}}[$step]))
-                    """,
-                    label=f"{bs_name} AC",
-                    is_total=True,
-                )
-            )
-            for phase in bs_phases:
-                queries.append(
-                    PowerQueryDef(
-                        query=f"""
-                          sum by (device, phase) (avg_over_time(openess_power_watts{{from="ac_in", to="system", device="{device}", phase="{phase}"}}[$step]))
-                          - on(device, phase)
-                          sum by (device, phase) (avg_over_time(openess_power_watts{{from="system", to="ac_out", device="{device}", phase="{phase}"}}[$step]))
-                        """,
-                        label=f"{bs_name} AC {phase}",
-                        is_total=False,
-                    )
-                )
-        else:
-            queries.append(
-                PowerQueryDef(
-                    query=f"""
-                      sum by (device) (avg_over_time(openess_power_watts{{from="ac_in", to="system", device="{device}"}}[$step]))
-                      - on(device)
-                      sum by (device) (avg_over_time(openess_power_watts{{from="system", to="ac_out", device="{device}"}}[$step]))
-                    """,
-                    label=f"{bs_name} AC",
-                )
-            )
-
-        queries.append(
-            PowerQueryDef(
-                query=f"""
-                  avg_over_time(openess_power_watts{{from="system", to="battery", unit="battery", device="{device}"}}[$step])
-                  or
-                  avg_over_time(openess_power_watts{{from="system", to="battery", unit="vebus", device="{device}"}}[$step])
-                """,
-                label=f"{bs_name} Battery",
-            )
-        )
+        bs_phases = _discover_phases(mql_client, f'openess_power_watts{{to="system", device="{device}"}}')
+        bs_queries = bs.get_power_queries(bs_phases)
+        for q in bs_queries.queries:
+            queries.append(PowerQueryDef(query=q.query, label=q.label, is_total=q.is_total))
 
     return ChartsPowerResponse(
         queries=queries,
@@ -546,7 +495,7 @@ async def get_price_data(
             area = price_config.area
         # TODO: validate area value
 
-        step = "1h" if price_config.hourly_average else "15m"
+        step: Literal["15m", "1h"] = "1h" if price_config.hourly_average else "15m"
 
         return PriceQueriesResponse(
             market_query=f'avg_over_time(openess_prices{{area="{area}", price="market"}}[{step}])',
@@ -571,19 +520,12 @@ async def get_battery_graph(
 ) -> dict[str, BatteryQueriesResponse]:
     try:
         result = {}
-        for battery_system in battery_systems:
-            result[battery_system.config.name] = BatteryQueriesResponse(
-                soc_query=f"""
-                  openess_soc_ratio{{device="{battery_system.id}", node="battery", unit="battery"}} * 100
-                  or
-                  openess_soc_ratio{{device="{battery_system.id}", node="battery", unit="vebus"}} * 100
-                """,
-                schedule_soc_query=f'first_over_time(openess_scheduled_soc_ratio{{device="{battery_system.id}"}}) * 100',
-                voltage_query=f"""
-                  openess_voltage_volts{{device="{battery_system.id}", node="battery", unit="battery"}}
-                  or
-                  openess_voltage_volts{{device="{battery_system.id}", node="battery", unit="vebus"}}
-                """,
+        for bs in battery_systems:
+            queries = bs.get_battery_queries()
+            result[bs.config.name] = BatteryQueriesResponse(
+                soc_query=queries.soc_query,
+                schedule_soc_query=queries.schedule_soc_query,
+                voltage_query=queries.voltage_query,
             )
         return result
     except Exception as e:
