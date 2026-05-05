@@ -183,11 +183,7 @@
         if (cachedPowerConfig) {
             return cachedPowerConfig;
         }
-        var response = await fetch('/api/charts/power-queries');
-        if (!response.ok) {
-            throw new Error('Failed to fetch power chart config: HTTP ' + response.status);
-        }
-        cachedPowerConfig = await response.json();
+        cachedPowerConfig = await Api.chartsPowerQueries({});
 
         // Show/hide phase toggle button based on phases
         var toggleContainer = document.getElementById('power-phase-buttons');
@@ -218,49 +214,6 @@
         });
     }
 
-    /**
-     * Execute a single MetricsQL query and return Plotly trace data.
-     * @param {Object} queryDef - Query definition {query, label, group, variant}
-     * @param {Date} start - Start time
-     * @param {Date} end - End time
-     * @param {string} step - Step value like '5m'
-     * @returns {Promise<Object|null>} Plotly trace or null if no data
-     */
-    async function executeQuery(queryDef, start, end, step) {
-        // Replace $step placeholder
-        var query = queryDef.query.replace(/\$step/g, step);
-
-        var params = new URLSearchParams({
-            query: query,
-            start: (start.getTime() / 1000).toString(),
-            end: (end.getTime() / 1000).toString(),
-            step: step,
-        });
-
-        var response = await fetch('/api/v1/query_range?' + params);
-        if (!response.ok) {
-            console.error('Query failed for', queryDef.label, ':', response.status);
-            return null;
-        }
-
-        var result = await response.json();
-        if (!result.data || !result.data.result || result.data.result.length === 0) {
-            return null;
-        }
-
-        // Take the first series (most queries return single series)
-        var series = result.data.result[0];
-        return {
-            x: series.values.map(function(v) { return new Date(v[0] * 1000); }),
-            y: series.values.map(function(v) { return parseFloat(v[1]); }),
-            type: 'scatter',
-            mode: 'lines',
-            name: queryDef.label,
-            line: { width: 1.5 },
-            connectgaps: false,
-        };
-    }
-
     async function loadPowerChart(elementId, start, end, aggregateMinutes) {
         aggregateMinutes = aggregateMinutes || 5;
         Utils.showLoading(elementId);
@@ -272,9 +225,17 @@
             // Filter queries based on current mode
             var activeQueries = filterQueriesByMode(config.queries, currentPowerMode);
 
-            // Execute all queries in parallel
-            var tracePromises = activeQueries.map(function(q) {
-                return executeQuery(q, start, end, step);
+            // Execute all queries in parallel using Timeseries helper
+            var tracePromises = activeQueries.map(async function(q) {
+                var query = q.query.replace(/\$step/g, step);
+                try {
+                    var result = await Timeseries.queryRangeRaw(query, start, end, step);
+                    var traces = Timeseries.toPlotlyTraces(result, { name: q.label });
+                    return traces[0] || null;
+                } catch (e) {
+                    console.error('Query failed for', q.label, ':', e);
+                    return null;
+                }
             });
             var traces = await Promise.all(tracePromises);
 
@@ -313,67 +274,78 @@
         }
     }
 
+    /**
+     * Extend trace data with one extra point for step-function display.
+     * @param {Object} trace - Plotly trace with x and y arrays
+     * @param {string} step - Step string like '1h' or '15m'
+     */
+    function extendTraceForStepFunction(trace, step) {
+        if (trace.x.length > 0) {
+            var lastTime = trace.x[trace.x.length - 1];
+            var stepMs = step === '1h' ? 3600000 : 900000;
+            trace.x.push(new Date(lastTime.getTime() + stepMs));
+            trace.y.push(trace.y[trace.y.length - 1]);
+        }
+    }
+
     async function loadPriceChart(elementId, start, end) {
         Utils.showLoading(elementId);
 
+        // Extend end to show future prices
         var extendedEnd = new Date(end.getTime() + 2 * 24 * 60 * 60 * 1000);
 
         try {
-            var data = await Api.prices({
-                start: Utils.formatDate(start),
-                end: Utils.formatDate(extendedEnd),
-            });
+            // Fetch query definitions from backend
+            var config = await Api.graphPriceQueries({});
 
-            if (!data.timeseries || data.timeseries.length === 0) {
+            // Execute all price queries in parallel
+            var [marketResult, buyResult, sellResult] = await Promise.all([
+                Timeseries.queryRangeRaw(config.market_query, start, extendedEnd, config.step).catch(function() { return null; }),
+                Timeseries.queryRangeRaw(config.buy_query, start, extendedEnd, config.step).catch(function() { return null; }),
+                Timeseries.queryRangeRaw(config.sell_query, start, extendedEnd, config.step).catch(function() { return null; }),
+            ]);
+
+            var marketTraces = Timeseries.toPlotlyTraces(marketResult, { name: 'Market' });
+            var buyTraces = Timeseries.toPlotlyTraces(buyResult, { name: 'Buy' });
+            var sellTraces = Timeseries.toPlotlyTraces(sellResult, { name: 'Sell' });
+
+            if (marketTraces.length === 0 && buyTraces.length === 0 && sellTraces.length === 0) {
                 Utils.showError(elementId, 'No price data available');
                 return;
             }
 
             var settings = Settings.load();
             var priceMultiplier = settings.priceUnit === 'cent' ? 100 : 1;
-            var priceLabel = settings.priceUnit === 'cent' ? 'ct/kWh' : (data.unit || '€/kWh');
+            var priceLabel = settings.priceUnit === 'cent' ? 'ct/kWh' : (config.currency + '/kWh');
 
-            var timestamps = data.timeseries.map(function(d) { return new Date(d.time); });
-            var marketPrices = data.timeseries.map(function(d) { return (d.market || 0) * priceMultiplier; });
-            var buyPrices = data.timeseries.map(function(d) { return (d.buy || 0) * priceMultiplier; });
-            var sellPrices = data.timeseries.map(function(d) { return (d.sell || 0) * priceMultiplier; });
+            var traces = [];
 
-            var lastTime = timestamps[timestamps.length - 1];
-            var extendedTime = new Date(lastTime.getTime() + (data.aggregate_minutes || 60) * 60 * 1000);
-            timestamps.push(extendedTime);
-            marketPrices.push(marketPrices[marketPrices.length - 1]);
-            buyPrices.push(buyPrices[buyPrices.length - 1]);
-            sellPrices.push(sellPrices[sellPrices.length - 1]);
+            if (marketTraces[0]) {
+                var marketTrace = marketTraces[0];
+                marketTrace.y = marketTrace.y.map(function(v) { return v * priceMultiplier; });
+                marketTrace.line = { shape: 'hv', color: '#95a5a6', width: 1 };
+                marketTrace.hovertemplate = 'Market: %{y:.2f} ' + priceLabel + '<extra></extra>';
+                extendTraceForStepFunction(marketTrace, config.step);
+                traces.push(marketTrace);
+            }
 
-            var traces = [
-                {
-                    name: 'Market',
-                    x: timestamps,
-                    y: marketPrices,
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { shape: 'hv', color: '#95a5a6', width: 1 },
-                    hovertemplate: 'Market: %{y:.2f} ' + priceLabel + '<extra></extra>',
-                },
-                {
-                    name: 'Buy',
-                    x: timestamps,
-                    y: buyPrices,
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { shape: 'hv', color: '#e74c3c', width: 1.5 },
-                    hovertemplate: 'Buy: %{y:.2f} ' + priceLabel + '<extra></extra>',
-                },
-                {
-                    name: 'Sell',
-                    x: timestamps,
-                    y: sellPrices,
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: { shape: 'hv', color: '#2ecc71', width: 1.5 },
-                    hovertemplate: 'Sell: %{y:.2f} ' + priceLabel + '<extra></extra>',
-                },
-            ];
+            if (buyTraces[0]) {
+                var buyTrace = buyTraces[0];
+                buyTrace.y = buyTrace.y.map(function(v) { return v * priceMultiplier; });
+                buyTrace.line = { shape: 'hv', color: '#e74c3c', width: 1.5 };
+                buyTrace.hovertemplate = 'Buy: %{y:.2f} ' + priceLabel + '<extra></extra>';
+                extendTraceForStepFunction(buyTrace, config.step);
+                traces.push(buyTrace);
+            }
+
+            if (sellTraces[0]) {
+                var sellTrace = sellTraces[0];
+                sellTrace.y = sellTrace.y.map(function(v) { return v * priceMultiplier; });
+                sellTrace.line = { shape: 'hv', color: '#2ecc71', width: 1.5 };
+                sellTrace.hovertemplate = 'Sell: %{y:.2f} ' + priceLabel + '<extra></extra>';
+                extendTraceForStepFunction(sellTrace, config.step);
+                traces.push(sellTrace);
+            }
 
             var layout = Utils.getDefaultLayout();
             Utils.layoutSetXRange(layout, start, end);

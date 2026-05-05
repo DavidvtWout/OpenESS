@@ -1,17 +1,16 @@
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from open_ess.frontend.dependencies import BatterySystemsDep, MqlClientDep
+from open_ess.frontend.dependencies import BatterySystemsDep, MqlClientDep, PriceConfigDep
 
 from .util import TimeSeries
 
 if TYPE_CHECKING:
     pass
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["api"])
@@ -529,60 +528,37 @@ async def get_power_queries(
     )
 
 
-class PricePoint(BaseModel):
-    time: datetime
-    market: float | None
-    buy: float | None
-    sell: float | None
+class PriceQueriesResponse(BaseModel):
+    market_query: str
+    buy_query: str
+    sell_query: str
+    step: Literal["15m", "1h"]
+    currency: str = "€"  # TODO: based on area
 
 
-class PricesResponse(BaseModel):
-    area: str
-    aggregate_minutes: int
-    unit: str = "€/kWh"  # TODO: based on area
-    timeseries: list[PricePoint]
+@router.get("/graph/price-queries", response_model=PriceQueriesResponse)
+async def get_price_data(
+    price_config: PriceConfigDep,
+    area: str | None = Query(default=None),
+) -> PriceQueriesResponse:
+    try:
+        if not area:
+            area = price_config.area
+        # TODO: validate area value
+
+        step = "1h" if price_config.hourly_average else "15m"
+
+        return PriceQueriesResponse(
+            market_query=f'avg_over_time(openess_prices{{area="{area}", price="market"}}[{step}])',
+            buy_query=f'avg_over_time(openess_prices{{area="{area}", price="buy"}}[{step}])',
+            sell_query=f'avg_over_time(openess_prices{{area="{area}", price="sell"}}[{step}])',
+            step=step,
+        )
+    except Exception as e:
+        logger.exception("Failed to get prices")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-# @router.get("/prices", response_model=PricesResponse)
-# async def get_price_data(
-#     price_config: PriceConfigDep,
-#     area: str | None = Query(default=None),
-#     start: datetime | None = Query(default=None),
-#     end: datetime | None = Query(default=None),
-#     aggregate_minutes: int | None = Query(default=None),
-# ) -> PricesResponse:
-#     try:
-#         if area is None:
-#             area = price_config.area
-#         now = datetime.now(UTC)
-#         if start is None:
-#             start = now - timedelta(days=7)
-#         if end is None:
-#             end = now + timedelta(days=2)
-#         if aggregate_minutes is None:
-#             aggregate_minutes = price_config.aggregate_minutes
-#
-#         timeseries = []
-#         for timestamp, price in db.get_prices(area, start, end, aggregate_minutes=aggregate_minutes):
-#             timeseries.append(
-#                 PricePoint(
-#                     time=timestamp,
-#                     market=round(price, 4),
-#                     buy=round(price_config.buy_price(price), 4),
-#                     sell=round(price_config.sell_price(price), 4),
-#                 )
-#             )
-#
-#         return PricesResponse(
-#             area=area,
-#             aggregate_minutes=aggregate_minutes,
-#             timeseries=timeseries,
-#         )
-#     except Exception as e:
-#         logger.exception("Failed to get prices")
-#         raise HTTPException(status_code=500, detail=str(e)) from e
-#
-#
 # class BatteryGraphResponse(BaseModel):
 #     soc: TimeSeries
 #     schedule: TimeSeries  # Scheduled (past and future) SoC

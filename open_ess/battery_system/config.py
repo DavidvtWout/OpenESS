@@ -58,7 +58,6 @@ class BatterySystemConfig(BaseModel):
     max_soc: int = 100
 
     control: Annotated[VictronConfig | MqttControl, Field(discriminator="type")]
-    queries: QueriesConfig = QueriesConfig()
 
     @property
     def is_victron(self) -> bool:
