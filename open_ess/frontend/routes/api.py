@@ -417,14 +417,14 @@ class ChartsPowerResponse(BaseModel):
 
 @router.get("/charts/power-queries", response_model=ChartsPowerResponse)
 async def get_power_queries(
-    timeseries: MqlClientDep,
+    mql_client: MqlClientDep,
     battery_systems: BatterySystemsDep,
 ) -> ChartsPowerResponse:
     queries: list[PowerQueryDef] = []
 
     phases: list[str] = []
-    if timeseries is not None:
-        result = timeseries.query('openess_power_watts{from="grid"}')
+    if mql_client is not None:
+        result = mql_client.query('openess_power_watts{from="grid"}')
         phase_set: set[str] = set()
         if hasattr(result, "series"):
             for series in result.series:
@@ -465,8 +465,8 @@ async def get_power_queries(
 
         # Discover phases for this battery system
         bs_phases: list[str] = []
-        if timeseries is not None:
-            result = timeseries.query(f'openess_power_watts{{to="system", device="{device}"}}')
+        if mql_client is not None:
+            result = mql_client.query(f'openess_power_watts{{to="system", device="{device}"}}')
             phase_set: set[str] = set()
             if hasattr(result, "series"):
                 for series in result.series:
@@ -559,63 +559,36 @@ async def get_price_data(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-# class BatteryGraphResponse(BaseModel):
-#     soc: TimeSeries
-#     schedule: TimeSeries  # Scheduled (past and future) SoC
-#     voltage: TimeSeries
-#
-#
-# @router.get("/battery-graph", response_model=dict[str, BatteryGraphResponse])
-# async def get_battery_graph(
-#     timeseries: TimeseriesDep,
-#     battery_systems: BatterySystemsDep,
-#     battery_id: str | None = Query(default=None),
-#     start: datetime | None = Query(default=None),
-#     end: datetime | None = Query(default=None),
-# ) -> dict[str, BatteryGraphResponse]:
-#     try:
-#         now = datetime.now(UTC)
-#         if start is None:
-#             start = now - timedelta(hours=48)
-#         if end is None:
-#             end = now + timedelta(hours=24)
-#
-#         result = {}
-#         for battery_system in battery_systems:
-#             if battery_id is not None and battery_system.config.id != battery_id:
-#                 continue
-#
-#             # Schedule still comes from database (not in timeseries)
-#             scheduled = [(t, soc) for _, t, _, soc in db.get_schedule(battery_system.config.id, start)]
-#
-#             # SOC and voltage from timeseries backend
-#             if timeseries is not None:
-#                 device = battery_system.id
-#                 soc_query = battery_system.config.queries.soc.replace("$device", device)
-#                 voltage_query = battery_system.config.queries.voltage.replace("$device", device)
-#
-#                 soc_result = timeseries.query_range(soc_query, start, end, step="1m")
-#                 voltage_result = timeseries.query_range(voltage_query, start, end, step="1m")
-#
-#                 result[battery_system.config.name] = BatteryGraphResponse(
-#                     soc=query_result_to_timeseries(soc_result, rounding=1),
-#                     schedule=data_to_timeseries(scheduled, rounding=1),
-#                     voltage=query_result_to_timeseries(voltage_result, rounding=2),
-#                 )
-#             else:
-#                 # Fallback to legacy database queries
-#                 soc = db.get_battery_soc(battery_system.config.metrics.battery_soc, start, end)
-#                 voltage = db.get_voltage(battery_system.config.metrics.battery_voltage, start, end, bucket_seconds=60)
-#
-#                 result[battery_system.config.name] = BatteryGraphResponse(
-#                     soc=data_to_timeseries(soc, rounding=1),
-#                     schedule=data_to_timeseries(scheduled, rounding=1),
-#                     voltage=data_to_timeseries(voltage, rounding=2),
-#                 )
-#         return result
-#     except Exception as e:
-#         logger.exception("Failed to get battery SOC")
-#         raise HTTPException(status_code=500, detail=str(e)) from e
+class BatteryQueriesResponse(BaseModel):
+    soc_query: str
+    schedule_soc_query: str
+    voltage_query: str
+
+
+@router.get("/charts/battery-queries", response_model=dict[str, BatteryQueriesResponse])
+async def get_battery_graph(
+    battery_systems: BatterySystemsDep,
+) -> dict[str, BatteryQueriesResponse]:
+    try:
+        result = {}
+        for battery_system in battery_systems:
+            result[battery_system.config.name] = BatteryQueriesResponse(
+                soc_query=f"""
+                  openess_soc_ratio{{device="{battery_system.id}", node="battery", unit="battery"}} * 100
+                  or
+                  openess_soc_ratio{{device="{battery_system.id}", node="battery", unit="vebus"}} * 100
+                """,
+                schedule_soc_query=f'first_over_time(openess_scheduled_soc_ratio{{device="{battery_system.id}"}}) * 100',
+                voltage_query=f"""
+                  openess_voltage_volts{{device="{battery_system.id}", node="battery", unit="battery"}}
+                  or
+                  openess_voltage_volts{{device="{battery_system.id}", node="battery", unit="vebus"}}
+                """,
+            )
+        return result
+    except Exception as e:
+        logger.exception("Failed to get battery SOC")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # # ---------------#

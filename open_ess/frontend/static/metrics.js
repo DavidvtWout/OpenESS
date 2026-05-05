@@ -230,7 +230,10 @@
                 var query = q.query.replace(/\$step/g, step);
                 try {
                     var result = await Timeseries.queryRangeRaw(query, start, end, step);
-                    var traces = Timeseries.toPlotlyTraces(result, { name: q.label });
+                    var traces = Timeseries.toPlotlyTraces(result);
+                    if (traces[0]) {
+                        traces[0].name = q.label;
+                    }
                     return traces[0] || null;
                 } catch (e) {
                     console.error('Query failed for', q.label, ':', e);
@@ -359,53 +362,76 @@
         }
     }
 
-    // Toggle: set to true to use new Timeseries API, false for legacy API
-    var USE_TIMESERIES_FOR_SOC = false;
-
-    async function loadSocChartLegacy(elementId, start, end) {
+    async function loadSocChart(elementId, start, end) {
         Utils.showLoading(elementId);
 
         try {
-            var data = await Api.batteryGraph({
-                start: Utils.formatDate(start),
-                end: Utils.formatDate(end),
-            });
-
-            var keys = Object.keys(data);
-            var multipleSystems = keys.length > 1;
+            // Fetch query definitions from backend
+            var config = await Api.chartsBatteryQueries();
+            var batteryNames = Object.keys(config);
+            var multipleSystems = batteryNames.length > 1;
             var traces = [];
 
-            for (var i = 0; i < keys.length; i++) {
-                var name = keys[i];
-                var battery = data[name];
+            // Query all battery systems in parallel
+            var queryPromises = batteryNames.map(async function(name) {
+                var queries = config[name];
+                var [socResult, scheduleResult, voltageResult] = await Promise.all([
+                    Timeseries.queryRangeRaw(queries.soc_query, start, end).catch(function() { return null; }),
+                    Timeseries.queryRangeRaw(queries.schedule_soc_query, start, end).catch(function() { return null; }),
+                    Timeseries.queryRangeRaw(queries.voltage_query, start, end).catch(function() { return null; }),
+                ]);
+                return { name: name, socResult: socResult, scheduleResult: scheduleResult, voltageResult: voltageResult };
+            });
 
-                var socTrace = Utils.makeTrace('SoC', Utils.timeseriesExtendToNow(battery.soc || { timestamps: [], values: [] }));
-                socTrace.line = { color: '#3498db', width: 2 };
-                socTrace.hovertemplate = '%{y}%<extra>SoC</extra>';
-                if (multipleSystems) {
-                    socTrace.legendgroup = name;
-                    socTrace.legendgrouptitle = { text: name };
-                }
-                traces.push(socTrace);
+            var results = await Promise.all(queryPromises);
 
-                var schedTrace = Utils.makeTrace('Scheduled', battery.schedule || { timestamps: [], values: [] });
-                schedTrace.line = { color: '#2ecc71', width: 2, dash: 'dot' };
-                schedTrace.hovertemplate = '%{y}%<extra>Scheduled</extra>';
-                if (multipleSystems) {
-                    schedTrace.legendgroup = name;
-                    schedTrace.legendgrouptitle = { text: name };
-                }
-                traces.push(schedTrace);
+            for (var i = 0; i < results.length; i++) {
+                var result = results[i];
+                var batteryName = result.name;
+                var prefix = multipleSystems ? batteryName + ' ' : '';
 
-                var voltTrace = Utils.makeTrace('Voltage', battery.voltage || { timestamps: [], values: [] });
-                voltTrace.line = { color: '#ff7171', width: 2 };
-                voltTrace.hovertemplate = '%{y}V<extra>Voltage</extra>';
-                voltTrace.yaxis = 'y2';
-                if (multipleSystems) {
-                    voltTrace.legendgroup = name;
-                    voltTrace.legendgrouptitle = { text: name };
+                // SOC trace
+                var socTraces = Timeseries.toPlotlyTraces(result.socResult);
+                if (socTraces[0]) {
+                    var socTrace = socTraces[0];
+                    socTrace.name = prefix + 'SoC';
+                    socTrace.line = { color: '#3498db', width: 2 };
+                    socTrace.hovertemplate = '%{y:.1f}%<extra>' + socTrace.name + '</extra>';
+                    if (multipleSystems) {
+                        socTrace.legendgroup = batteryName;
+                        socTrace.legendgrouptitle = { text: batteryName };
+                    }
+                    traces.push(socTrace);
                 }
-                traces.push(voltTrace);
+
+                // Scheduled SOC trace
+                var schedTraces = Timeseries.toPlotlyTraces(result.scheduleResult);
+                if (schedTraces[0]) {
+                    var schedTrace = schedTraces[0];
+                    schedTrace.name = prefix + 'Scheduled';
+                    schedTrace.line = { color: '#2ecc71', width: 2, dash: 'dot' };
+                    schedTrace.hovertemplate = '%{y:.1f}%<extra>' + schedTrace.name + '</extra>';
+                    if (multipleSystems) {
+                        schedTrace.legendgroup = batteryName;
+                        schedTrace.legendgrouptitle = { text: batteryName };
+                    }
+                    traces.push(schedTrace);
+                }
+
+                // Voltage trace (secondary y-axis)
+                var voltTraces = Timeseries.toPlotlyTraces(result.voltageResult);
+                if (voltTraces[0]) {
+                    var voltTrace = voltTraces[0];
+                    voltTrace.name = prefix + 'Voltage';
+                    voltTrace.line = { color: '#ff7171', width: 2 };
+                    voltTrace.hovertemplate = '%{y:.1f}V<extra>' + voltTrace.name + '</extra>';
+                    voltTrace.yaxis = 'y2';
+                    if (multipleSystems) {
+                        voltTrace.legendgroup = batteryName;
+                        voltTrace.legendgrouptitle = { text: batteryName };
+                    }
+                    traces.push(voltTrace);
+                }
             }
 
             var layout = Utils.getDefaultLayout();
@@ -429,78 +455,6 @@
             console.error('Error loading SoC data:', error);
             Utils.showError(elementId, 'Failed to load SoC data');
         }
-    }
-
-    /**
-     * Load SOC chart using the new Timeseries API.
-     * This queries the timeseries backend directly via /api/v1/query_range.
-     */
-    async function loadSocChartTimeseries(elementId, start, end, batteryId) {
-        Utils.showLoading(elementId);
-
-        try {
-            // Initialize Timeseries with battery system ID
-            await Timeseries.init(batteryId);
-
-            // Query SOC and voltage in parallel
-            var [socResult, voltageResult] = await Promise.all([
-                Timeseries.queryRange('soc', start, end),
-                Timeseries.queryRange('voltage', start, end),
-            ]);
-
-            var traces = [];
-
-            // Convert SOC result to Plotly trace
-            var socTraces = Timeseries.toPlotlyTraces(socResult, { name: 'SoC' });
-            socTraces.forEach(function(trace) {
-                trace.line = { color: '#3498db', width: 2 };
-                trace.hovertemplate = '%{y:.1f}%<extra>SoC</extra>';
-                traces.push(trace);
-            });
-
-            // Convert voltage result to Plotly trace (on secondary y-axis)
-            var voltTraces = Timeseries.toPlotlyTraces(voltageResult, { name: 'Voltage' });
-            voltTraces.forEach(function(trace) {
-                trace.line = { color: '#ff7171', width: 2 };
-                trace.hovertemplate = '%{y:.1f}V<extra>Voltage</extra>';
-                trace.yaxis = 'y2';
-                traces.push(trace);
-            });
-
-            var layout = Utils.getDefaultLayout();
-            Utils.layoutSetXRange(layout, start, end);
-            Utils.layoutAddNowLine(layout, start, end);
-            layout.yaxis = layout.yaxis || {};
-            layout.yaxis.side = 'left';
-            layout.yaxis.range = [0, 100];
-            layout.yaxis.title = { text: "SoC (%)" };
-            layout.yaxis2 = {
-                overlaying: 'y',
-                side: 'right',
-                gridcolor: 'transparent',
-                title: { text: "Voltage (V)" },
-            };
-            Utils.makePlot(elementId, traces, layout);
-        } catch (error) {
-            console.error('Error loading SoC data via Timeseries:', error);
-            Utils.showError(elementId, 'Failed to load SoC data');
-        }
-    }
-
-    async function loadSocChart(elementId, start, end) {
-        if (USE_TIMESERIES_FOR_SOC) {
-            // Get battery system ID from system layout
-            var layout = await Api.systemLayout();
-            var batteryId = layout.battery_systems && layout.battery_systems[0]
-                ? layout.battery_systems[0].id
-                : null;
-
-            if (batteryId) {
-                return loadSocChartTimeseries(elementId, start, end, batteryId);
-            }
-            console.warn('No battery system found, falling back to legacy API');
-        }
-        return loadSocChartLegacy(elementId, start, end);
     }
 
     async function loadAndCacheEnergyData(start, end, bucketMinutes) {

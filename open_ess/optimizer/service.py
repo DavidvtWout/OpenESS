@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from open_ess.battery_system import BatterySystem
 from open_ess.pricing import PriceConfig
 from open_ess.service import Service
-from open_ess.timeseries import TimeseriesBackend
+from open_ess.timeseries import Sample, TimeseriesBackend
 
 from .optimizer import Optimizer
 
@@ -37,7 +37,7 @@ class OptimizerService(Service):
         if schedule:
             _, _, power, _ = schedule[0]
             self._battery_system.set_ess_setpoint(power)
-            # TODO self._db_conn.set_schedule(self._battery_system.id, schedule)  # type: ignore[arg-type]
+            self._upsert_schedule(schedule)
             logger.debug(f"Updated schedule with {len(schedule)} entries")
         else:
             logger.warning("Optimizer returned empty schedule")
@@ -51,3 +51,36 @@ class OptimizerService(Service):
             microsecond=0,
         ) + timedelta(minutes=self._price_config.aggregate_minutes)
         self.wait_seconds((next_run - now).total_seconds())
+
+    def _upsert_schedule(self, schedule: list[tuple[datetime, datetime, int, float]]):
+        """
+        Schedules are stored in a bit of an insane way in the timeseries backend...
+        The timestamp of each inserted sample is increased by a tiny bit, proportional to how far in
+        the future the sample is. This way, a first_over_time() query will return the most recently
+        generated sample for a given timestamp.
+        """
+
+        samples: list[Sample] = []
+
+        now = datetime.now(UTC)
+        for ts_start, ts_end, power, soc in schedule:
+            delta = timedelta(milliseconds=1 + (ts_start - now).total_seconds() // 60)
+
+            samples.append(
+                Sample(
+                    metric="openess_scheduled_power_watts",
+                    timestamp=ts_start + delta,
+                    value=power,
+                    labels={"device": self._battery_system.id},
+                )
+            )
+            samples.append(
+                Sample(
+                    metric="openess_scheduled_soc_ratio",
+                    timestamp=ts_end + delta,
+                    value=soc / 100,
+                    labels={"device": self._battery_system.id},
+                )
+            )
+
+        self._mql_client.write(samples)
