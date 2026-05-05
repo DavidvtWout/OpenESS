@@ -30,17 +30,18 @@ class VictronClient:
     def __init__(
         self,
         config: "BatterySystemConfig",
-        timeseries: TimeseriesBackend | None = None,
+        mql_client: TimeseriesBackend | None = None,
     ):
         if not isinstance(config.control, VictronConfig):
             raise TypeError(f"VictronClient requires VictronConfig, got {type(config.control).__name__}")
         self._config = config
         self._control: VictronConfig = config.control
         self._client = VictronModbusClient(self._control)
-        self._timeseries = timeseries
+        self._mql_client = mql_client
 
         self._serial: str | None = None
 
+        self._current_soc: float | None = None
         self._setpoint: float = 0.0  # In Watt
         self._setpoint_expiration: datetime | None = None
 
@@ -57,6 +58,8 @@ class VictronClient:
         # Enable ESS mode 3 (external control)
         if not self._config.monitor_only:
             self.write(self.system_id, System.ESS_MODE, 3)
+
+        self._current_soc = self.read(self.system_id, System.BATTERY_SOC)
 
         return True
 
@@ -92,6 +95,10 @@ class VictronClient:
     def need_mode_3(self) -> bool:
         return not self._config.monitor_only
 
+    @property
+    def current_soc(self) -> float | None:
+        return self._current_soc
+
     def set_ess_setpoint(self, power: float, until: datetime) -> None:
         with self._lock:
             self._setpoint = power
@@ -115,7 +122,7 @@ class VictronClient:
                 return
 
         idle_threshold = self._config.idle_threshold_w / 1000
-        if (self._db_conn.get_current_soc() or 0) >= 99 and self._setpoint >= -idle_threshold:
+        if (self._current_soc or 0) >= 99 and self._setpoint >= -idle_threshold:
             # Keep putting power into the battery to allow balancing of the cells by the BMS.
             # TODO: implement balancing limits?
             self.write(self.vebus_id, VEBus.ESS_SETPOINT_L1, int((self._config.max_charge_power_kw or 0) * 1000))
@@ -132,8 +139,8 @@ class VictronClient:
                 if self._control.disable_inverter_when_idle:
                     self.write(self.vebus_id, VEBus.ESS_DISABLE_FEEDBACK, 1)
 
-    def collect_and_store_measurements(self) -> None:
-        if self._timeseries is None:
+    def scrape_metrics(self) -> None:
+        if self._mql_client is None:
             return
         timestamp = datetime.now(UTC)
         samples: list[Sample] = []
@@ -227,6 +234,7 @@ class VictronClient:
         add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_BATTERY), {"from": "ac_out", "to": "system"})
 
         # BMS (direct battery measurements)
+        bms_soc = None
         if self.battery_id is not None:
             bms_values = self.read_many(
                 self.battery_id,
@@ -244,9 +252,14 @@ class VictronClient:
 
         if samples:
             try:
-                self._timeseries.write(samples)
+                self._mql_client.write(samples)
             except Exception as e:
                 logger.exception(f"Failed to write samples to timeseries backend: {e}")
+
+        if bms_soc is not None:
+            self._current_soc = bms_soc
+        elif vebus_soc is not None:
+            self._current_soc = vebus_soc
 
     # --------------------------------#
     #  VictronModbusClient bindings  #

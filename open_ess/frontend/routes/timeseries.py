@@ -28,7 +28,7 @@ def _parse_timestamp(value: float | str) -> datetime:
 
 
 @router.get("/query")
-async def query(
+async def get_query(
     timeseries: TimeseriesDep,
     query: str,
     time: float | str | None = None,
@@ -68,7 +68,7 @@ async def query(
 
 
 @router.get("/query_range")
-async def query_range(
+async def get_query_range(
     timeseries: TimeseriesDep,
     query: str,
     start: float | str,

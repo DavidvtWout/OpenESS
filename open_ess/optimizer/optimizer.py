@@ -8,8 +8,8 @@ import pyomo.core
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 
-from open_ess.battery_system import BatterySystemConfig
-from open_ess.pricing import PriceConfig
+from open_ess.battery_system import BatterySystem, BatterySystemConfig
+from open_ess.pricing import PriceConfig, get_prices_from_mql
 from open_ess.timeseries import TimeseriesBackend
 
 logger = logging.getLogger(__name__)
@@ -26,15 +26,15 @@ class Optimizer:
     the need for a separate binary variable.
     """
 
-    def __init__(self, mql_client: TimeseriesBackend, price_config: PriceConfig, battery_config: BatterySystemConfig):
-        self._mql_client = mql_client
+    def __init__(self, price_config: PriceConfig, battery_system: BatterySystem, mql_client: TimeseriesBackend):
         self._price_config = price_config
-        self._battery_config = battery_config
+        self._battery_system = battery_system
+        self._mql_client = mql_client
         # TODO: check for cbc
 
     @property
     def battery_config(self) -> BatterySystemConfig:
-        return self._battery_config
+        return self._battery_system.config
 
     def optimize(self) -> list[tuple[datetime, datetime, int, float]]:
         """Generate optimal charge schedule using mixed-integer linear programming.
@@ -48,20 +48,23 @@ class Optimizer:
         # Get hourly prices for the planning horizon
         now = datetime.now(UTC)
         start_hour = now.replace(minute=0, second=0, microsecond=0)
-        prices = self._database.get_prices(
+        prices = get_prices_from_mql(
+            self._mql_client,
             self._price_config.area,
             start=start_hour - timedelta(weeks=6),
-            aggregate_minutes=self._price_config.aggregate_minutes,
+            end=start_hour + timedelta(days=2),
+            hourly=self._price_config.hourly_average,
         )
 
         # Get current SOC
-        current_soc = self._database.get_current_soc()
+        current_soc = self._battery_system.get_soc()
+        logger.info(current_soc)
         if current_soc is None:
             logger.error("No SoC data available")
             return []
-        current_soc = min(max(current_soc, self._battery_config.min_soc), self._battery_config.max_soc)
+        current_soc = min(max(current_soc, self.battery_config.min_soc), self.battery_config.max_soc)
         # ^ current_soc may be outside the allowed boundaries. Clamp it between the bounds or pyomo will fail.
-        # TODO: actually fix the issue by allowing soc to be out of bound but don't allow it to go out of bounds.
+        # TODO: actually fix the issue by allowing soc to BE out of bound but don't allow it to GO out of bounds.
 
         if not prices:
             logger.warning("No price data available")
@@ -80,13 +83,13 @@ class Optimizer:
             return []
 
         # Build piecewise linear breakpoints for loss functions
-        assert self._battery_config.max_charge_power_kw is not None
-        assert self._battery_config.max_invert_power_kw is not None
+        assert self.battery_config.max_charge_power_kw is not None
+        assert self.battery_config.max_invert_power_kw is not None
         charger_bp, charger_loss_vals = build_piecewise_loss_points(
-            self._battery_config.max_charge_power_kw, charger_loss
+            self.battery_config.max_charge_power_kw, charger_loss
         )
         inverter_bp, inverter_loss_vals = build_piecewise_loss_points(
-            self._battery_config.max_invert_power_kw, inverter_loss
+            self.battery_config.max_invert_power_kw, inverter_loss
         )
 
         model = pyo.ConcreteModel()
@@ -99,9 +102,9 @@ class Optimizer:
         model.market_price = pyo.Param(model.T, initialize=price_dict)
 
         # Decision variables
-        model.charge_power = pyo.Var(model.T, bounds=(0, self._battery_config.max_charge_power_kw))
-        model.discharge_power = pyo.Var(model.T, bounds=(0, self._battery_config.max_invert_power_kw))
-        model.soc = pyo.Var(model.T, bounds=(self._battery_config.min_soc, self._battery_config.max_soc))
+        model.charge_power = pyo.Var(model.T, bounds=(0, self.battery_config.max_charge_power_kw))
+        model.discharge_power = pyo.Var(model.T, bounds=(0, self.battery_config.max_invert_power_kw))
+        model.soc = pyo.Var(model.T, bounds=(self.battery_config.min_soc, self.battery_config.max_soc))
 
         # Auxiliary variables for piecewise linear losses
         max_charger_loss = charger_loss_vals[-1]
@@ -140,12 +143,11 @@ class Optimizer:
                 * self._price_config.aggregate_minutes
                 / 60
             )
-            soc_change = 100 * net_energy / self._battery_config.capacity_kwh
+            soc_change = 100 * net_energy / self.battery_config.capacity_kwh
             return model.soc[t] == prev_soc + soc_change
 
         model.soc_balance = pyo.Constraint(model.T, rule=soc_balance_rule)
         model.final_soc = pyo.Constraint(expr=model.soc[model_length - 1] == current_soc)
-
         # ^ Final SoC should equal starting SOC (energy neutral over horizon)
 
         # Objective: minimize cost (buy cost - sell revenue)

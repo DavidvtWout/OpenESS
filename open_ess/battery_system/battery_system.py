@@ -28,6 +28,9 @@ class BatterySystem(ABC):
     @abstractmethod
     def set_ess_setpoint(self, power: float, until: datetime | None = None) -> None: ...
 
+    @abstractmethod
+    def get_soc(self) -> float | None: ...
+
 
 class VictronBatterySystem(BatterySystem):
     def __init__(self, config: BatterySystemConfig, control: VictronClient):
@@ -44,3 +47,6 @@ class VictronBatterySystem(BatterySystem):
             until = datetime.now(tz=UTC) + timedelta(hours=1)
         logger.info(f"{self.name}: Set setpoint to {power} W")
         self._victron_client.set_ess_setpoint(power, until)
+
+    def get_soc(self) -> float | None:
+        return self._victron_client.current_soc

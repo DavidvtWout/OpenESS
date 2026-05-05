@@ -14,21 +14,19 @@ logger = logging.getLogger(__name__)
 class OptimizerService(Service):
     def __init__(
         self,
-        mql_client: TimeseriesBackend,
         battery_system: BatterySystem,
         price_config: PriceConfig,
+        mql_client: TimeseriesBackend,
     ):
         super().__init__("OptimizerService")
-        self._mql_client = mql_client
         self._battery_system = battery_system
         self._price_config = price_config
+        self._mql_client = mql_client
 
         self._optimizer: Optimizer | None = None
 
     def on_start(self) -> None:
-        self._optimizer = Optimizer(
-            self._mql_client, price_config=self._price_config, battery_config=self._battery_system.config
-        )
+        self._optimizer = Optimizer(self._price_config, self._battery_system, self._mql_client)
 
     def tick(self) -> None:
         if self._optimizer is None:
@@ -39,7 +37,7 @@ class OptimizerService(Service):
         if schedule:
             _, _, power, _ = schedule[0]
             self._battery_system.set_ess_setpoint(power)
-            self._db_conn.set_schedule(self._battery_system.id, schedule)  # type: ignore[arg-type]
+            # TODO self._db_conn.set_schedule(self._battery_system.id, schedule)  # type: ignore[arg-type]
             logger.debug(f"Updated schedule with {len(schedule)} entries")
         else:
             logger.warning("Optimizer returned empty schedule")

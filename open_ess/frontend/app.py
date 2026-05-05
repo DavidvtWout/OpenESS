@@ -21,13 +21,13 @@ STATIC_DIR = Path(__file__).parent / "static"
 def create_app(
     config: "Config",
     battery_systems: list[BatterySystem],
-    timeseries: TimeseriesBackend | None = None,
+    mql_client: TimeseriesBackend | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         _app.state.price_config = config.prices
         _app.state.battery_systems = battery_systems
-        _app.state.timeseries = timeseries
+        _app.state.mql_client = mql_client
         yield
         _app.state.database.close()
 
@@ -41,11 +41,11 @@ def create_app(
     app.include_router(api_router, prefix="/api")
 
     # Mount timeseries query endpoints
-    if timeseries is not None:
-        if isinstance(timeseries, MetricSQLiteBackend):
+    if mql_client is not None:
+        if isinstance(mql_client, MetricSQLiteBackend):
             from metricsqlite.fastapi import create_router as create_metricsqlite_router
 
-            app.include_router(create_metricsqlite_router(timeseries._client), prefix="/api/v1")
+            app.include_router(create_metricsqlite_router(mql_client._client), prefix="/api/v1")
         else:
             app.include_router(timeseries_router, prefix="/api/v1")
 
