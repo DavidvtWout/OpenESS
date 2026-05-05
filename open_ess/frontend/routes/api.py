@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -259,26 +258,63 @@ async def health_check() -> HealthResponse:
 # ------------------------ #
 
 
-class BatteryEnergySeries(BaseModel):
-    energy_to_charger: list[float | None] = []
-    energy_from_inverter: list[float | None] = []
-    energy_to_battery: list[float | None] = []
-    energy_from_battery: list[float | None] = []
-    energy_loss_to_battery: list[float | None] = []
-    energy_loss_from_battery: list[float | None] = []
+class BatterySystemQueries(BaseModel):
+    energy_to_charger: str
+    energy_from_inverter: str
+    energy_to_battery: str
+    energy_from_battery: str
+    energy_loss_to_battery: str
+    energy_loss_from_battery: str
 
 
-class EnergyGraphResponse(BaseModel):
-    timestamps: list[datetime]
+class EnergyQueriesResponse(BaseModel):
+    grid_import_query: str
+    grid_export_query: str
 
-    grid_import: dict[str, list[float | None]]
-    grid_export: dict[str, list[float | None]]
+    battery_systems: dict[str, BatterySystemQueries]
+    solar_query: str
 
-    battery_systems: dict[str, BatteryEnergySeries]
 
-    solar: list[float | None] = []
-    to_consumption: list[float | None] = []
-    from_consumption: list[float | None] = []
+@router.get("/charts/energy-queries", response_model=EnergyQueriesResponse)
+async def get_energy_queries(battery_systems: BatterySystemsDep) -> EnergyQueriesResponse:
+    try:
+        battery_system_queries: dict[str, BatterySystemQueries] = {}
+        grid_import_parts: list[str] = []
+        grid_export_parts: list[str] = []
+
+        for battery_system in battery_systems:
+            device = battery_system.device_serial
+            queries = battery_system.get_energy_queries()
+
+            battery_system_queries[battery_system.id] = BatterySystemQueries(
+                energy_to_charger=queries.energy_to_charger,
+                energy_from_inverter=queries.energy_from_inverter,
+                energy_to_battery=queries.energy_to_battery,
+                energy_from_battery=queries.energy_from_battery,
+                energy_loss_to_battery=queries.energy_loss_to_battery,
+                energy_loss_from_battery=queries.energy_loss_from_battery,
+            )
+
+            # Collect grid queries per device (will sum across all battery systems)
+            grid_import_parts.append(
+                f'(increase(openess_energy_kwh{{from="grid", to="system", device="{device}"}}[$step]))'
+            )
+            grid_export_parts.append(
+                f'(increase(openess_energy_kwh{{from="system", to="grid", device="{device}"}}[$step]))'
+            )
+
+        grid_import_query = " + ".join(grid_import_parts)
+        grid_export_query = " + ".join(grid_export_parts)
+
+        return EnergyQueriesResponse(
+            grid_import_query=grid_import_query,
+            grid_export_query=grid_export_query,
+            battery_systems=battery_system_queries,
+            solar_query="",  # TODO: add solar query when solar support is implemented
+        )
+    except Exception as e:
+        logger.exception("Failed to get energy queries")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # @router.get("/energy-graph", response_model=EnergyGraphResponse)
@@ -389,21 +425,6 @@ class EnergyGraphResponse(BaseModel):
 #     )
 
 
-def _calculate_step(start: datetime, end: datetime, aggregate_minutes: int) -> str:
-    """Calculate query step from aggregate_minutes or time range."""
-    if aggregate_minutes > 1:
-        return f"{aggregate_minutes}m"
-    # Auto-calculate based on range
-    duration = (end - start).total_seconds()
-    if duration <= 3600:  # 1 hour
-        return "1m"
-    if duration <= 6 * 3600:  # 6 hours
-        return "5m"
-    if duration <= 24 * 3600:  # 24 hours
-        return "15m"
-    return "1h"
-
-
 class PowerQueryDef(BaseModel):
     label: str
     query: str
@@ -485,8 +506,8 @@ class PriceQueriesResponse(BaseModel):
     currency: str = "€"  # TODO: based on area
 
 
-@router.get("/graph/price-queries", response_model=PriceQueriesResponse)
-async def get_price_data(
+@router.get("/charts/price-queries", response_model=PriceQueriesResponse)
+async def get_price_queries(
     price_config: PriceConfigDep,
     area: str | None = Query(default=None),
 ) -> PriceQueriesResponse:
@@ -515,7 +536,7 @@ class BatteryQueriesResponse(BaseModel):
 
 
 @router.get("/charts/battery-queries", response_model=dict[str, BatteryQueriesResponse])
-async def get_battery_graph(
+async def get_battery_queries(
     battery_systems: BatterySystemsDep,
 ) -> dict[str, BatteryQueriesResponse]:
     try:
@@ -529,7 +550,7 @@ async def get_battery_graph(
             )
         return result
     except Exception as e:
-        logger.exception("Failed to get battery SOC")
+        logger.exception("Failed to get battery queries")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -880,6 +901,20 @@ async def get_battery_graph(
 # #  Generalized endpoints  #
 # # -------------------------#
 #
+
+# def _calculate_step(start: datetime, end: datetime, aggregate_minutes: int) -> str:
+#     """Calculate query step from aggregate_minutes or time range."""
+#     if aggregate_minutes > 1:
+#         return f"{aggregate_minutes}m"
+#     # Auto-calculate based on range
+#     duration = (end - start).total_seconds()
+#     if duration <= 3600:  # 1 hour
+#         return "1m"
+#     if duration <= 6 * 3600:  # 6 hours
+#         return "5m"
+#     if duration <= 24 * 3600:  # 24 hours
+#         return "15m"
+#     return "1h"
 #
 # # TODO: add parameter to select subset of series
 # @router.get("/power", response_model=PowerResponse)

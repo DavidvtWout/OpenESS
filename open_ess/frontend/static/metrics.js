@@ -6,7 +6,6 @@
     var dashboardEnd = null;
     var currentFoR = 'multiplus';
     var currentPowerMode = 'total';  // 'total' or 'phases'
-    var cachedEnergyData = null;
     var cachedPowerConfig = null;    // Cached power chart config
     var rangeOffset = 0;
     var isRelayoutInProgress = false;
@@ -90,88 +89,110 @@
         });
     }
 
-    function renderGridEnergyChart(elementId, data, start, end) {
-        var settings = Settings.load();
-        var useKw = settings.powerUnit === 'kw';
-        var toDisplay = useKw ? function(wh) { return wh ? wh / 1000 : 0; } : function(wh) { return wh || 0; };
+    var cachedEnergyConfig = null;
 
-        var timestamps = (data.timestamps || []).map(function(t) { return new Date(t); });
+    /**
+     * Execute a MetricsQL query and return a Plotly trace.
+     * @param {string} query - MetricsQL query with $step placeholder
+     * @param {string} label - Trace label
+     * @param {Date} start - Start time
+     * @param {Date} end - End time
+     * @param {string} step - Step string like '60m'
+     * @param {Object} opts - Trace options (color, negate)
+     * @returns {Promise<Object|null>} Plotly trace or null
+     */
+    async function executeEnergyQuery(query, label, start, end, step, opts) {
+        if (!query) return null;
+        opts = opts || {};
 
-        var gridExport = data.grid_export || {};
-        var gridImport = data.grid_import || {};
+        try {
+            var resolvedQuery = query.replace(/\$step/g, step);
+            var result = await Timeseries.queryRangeRaw(resolvedQuery, start, end, step);
+            var plotlyTraces = Timeseries.toPlotlyTraces(result);
 
-        var traces = [
-            {
-                x: timestamps,
-                y: (gridExport["From MP"] || []).map(function(v) { return toDisplay(v); }),
-                type: 'bar',
-                name: 'From MP',
-                marker: { color: '#278e60' },
-                textposition: 'none',
-            },
-            {
-                x: timestamps,
-                y: (gridImport["Consumption"] || []).map(function(v) { return -toDisplay(v); }),
-                type: 'bar',
-                name: 'Consumption',
-                marker: { color: '#3498db' },
-                textposition: 'none',
-            },
-            {
-                x: timestamps,
-                y: (gridImport["To MP"] || []).map(function(v) { return -toDisplay(v); }),
-                type: 'bar',
-                name: 'To MP',
-                marker: { color: '#3498ab' },
-                textposition: 'none',
-            },
-        ];
+            if (plotlyTraces[0]) {
+                var trace = plotlyTraces[0];
+                trace.name = label;
+                trace.type = 'bar';
+                delete trace.mode;
+                delete trace.line;
+                trace.marker = { color: opts.color || '#95a5a6' };
 
-        var layout = Utils.getDefaultLayout();
-        Utils.layoutSetXRange(layout, start, end);
-        Utils.layoutAddNowLine(layout, start, end);
-        Utils.makePlot(elementId, traces, layout);
+                if (opts.negate) {
+                    trace.y = trace.y.map(function(v) { return -v; });
+                }
+
+                return trace;
+            }
+        } catch (e) {
+            console.error('Query failed for', label, ':', e);
+        }
+        return null;
     }
 
-    function renderBatteryEnergyChart(elementId, data, start, end) {
-        var settings = Settings.load();
-        var useKw = settings.powerUnit === 'kw';
-        var toDisplay = useKw ? function(wh) { return wh ? wh / 1000 : 0; } : function(wh) { return wh || 0; };
+    async function loadEnergyChart(elementId, start, end, bucketMinutes) {
+        Utils.showLoading(elementId);
 
-        var timestamps = (data.timestamps || []).map(function(t) { return new Date(t); });
-        var mpData = (data.battery_systems || {})["MultiPlus"] || {};
+        try {
+            // Fetch query definitions (cached after first call)
+            if (!cachedEnergyConfig) {
+                cachedEnergyConfig = await Api.chartsEnergyQueries();
+            }
 
-        var traces = [
-            {
-                x: timestamps,
-                y: (mpData.energy_from_inverter || []).map(function(v) { return toDisplay(v); }),
-                type: 'bar',
-                name: 'Inverter Output',
-                marker: { color: '#f39c12' },
-                textposition: 'none',
-            },
-            {
-                x: timestamps,
-                y: (mpData.energy_to_charger || []).map(function(v) { return -toDisplay(v); }),
-                type: 'bar',
-                name: 'Charger Input',
-                marker: { color: '#3498db' },
-                textposition: 'none',
-            },
-        ];
+            var step = bucketMinutes + 'm';
+            var promises = [];
 
-        var layout = Utils.getDefaultLayout();
-        Utils.layoutSetXRange(layout, start, end);
-        Utils.layoutAddNowLine(layout, start, end);
-        Utils.makePlot(elementId, traces, layout);
-    }
+            // Grid queries (system-wide)
+            promises.push(executeEnergyQuery(
+                cachedEnergyConfig.grid_import_query, 'Grid Import',
+                start, end, step, { color: '#e74c3c', negate: true }
+            ));
+            promises.push(executeEnergyQuery(
+                cachedEnergyConfig.grid_export_query, 'Grid Export',
+                start, end, step, { color: '#2ecc71' }
+            ));
 
-    function renderEnergyFlowChart(elementId, data, start, end, frameOfReference) {
-        frameOfReference = frameOfReference || 'multiplus';
-        if (frameOfReference === 'grid') {
-            renderGridEnergyChart(elementId, data, start, end);
-        } else {
-            renderBatteryEnergyChart(elementId, data, start, end);
+            // Solar query (if available)
+            if (cachedEnergyConfig.solar_query) {
+                promises.push(executeEnergyQuery(
+                    cachedEnergyConfig.solar_query, 'Solar',
+                    start, end, step, { color: '#f1c40f' }
+                ));
+            }
+
+            // Per-battery-system queries
+            var batteryIds = Object.keys(cachedEnergyConfig.battery_systems || {});
+            var multipleSystems = batteryIds.length > 1;
+
+            for (var i = 0; i < batteryIds.length; i++) {
+                var bsId = batteryIds[i];
+                var bs = cachedEnergyConfig.battery_systems[bsId];
+                var prefix = multipleSystems ? bsId + ' ' : '';
+
+                // AC side: charger input (charge) and inverter output (discharge)
+                promises.push(executeEnergyQuery(
+                    bs.energy_to_charger, prefix + 'Charge',
+                    start, end, step, { color: '#3498db', negate: true }
+                ));
+                promises.push(executeEnergyQuery(
+                    bs.energy_from_inverter, prefix + 'Discharge',
+                    start, end, step, { color: '#f39c12' }
+                ));
+            }
+
+            var results = await Promise.all(promises);
+            var traces = results.filter(function(t) { return t !== null; });
+
+            var layout = Utils.getDefaultLayout();
+            layout.barmode = 'relative';
+            Utils.layoutSetXRange(layout, start, end);
+            Utils.layoutAddNowLine(layout, start, end);
+            layout.yaxis = layout.yaxis || {};
+            layout.yaxis.title = { text: 'kWh' };
+            Utils.makePlot(elementId, traces, layout);
+        } catch (error) {
+            console.error('Error loading energy data:', error);
+            Utils.showError(elementId, 'Failed to load energy data');
         }
     }
 
@@ -299,7 +320,7 @@
 
         try {
             // Fetch query definitions from backend
-            var config = await Api.graphPriceQueries({});
+            var config = await Api.chartsPriceQueries({});
 
             // Execute all price queries in parallel
             var [marketResult, buyResult, sellResult] = await Promise.all([
@@ -457,19 +478,6 @@
         }
     }
 
-    async function loadAndCacheEnergyData(start, end, bucketMinutes) {
-        try {
-            cachedEnergyData = await Api.energyGraph({
-                start: Utils.formatDate(start),
-                end: Utils.formatDate(end),
-                bucket_minutes: bucketMinutes,
-            });
-        } catch (error) {
-            console.error('Error fetching energy data:', error);
-            cachedEnergyData = null;
-        }
-    }
-
     async function loadDashboard() {
         var hours = parseInt(document.getElementById('range-select').value);
         var aggregateMinutes = getAggregateMinutes(hours);
@@ -481,25 +489,21 @@
 
         updateRangeLabel();
 
-        cachedEnergyData = null;
-
         await Promise.all([
-            loadAndCacheEnergyData(dashboardStart, dashboardEnd, bucketMinutes),
+            loadEnergyChart('energy-chart', dashboardStart, dashboardEnd, bucketMinutes),
             loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes),
             loadPriceChart('prices-chart', dashboardStart, dashboardEnd),
             loadSocChart('soc-chart', dashboardStart, dashboardEnd)
         ]);
 
-        if (cachedEnergyData) {
-            renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR);
-        }
-
         setupZoomSync();
     }
 
-    function renderEnergyOnly() {
-        if (dashboardStart && dashboardEnd && cachedEnergyData) {
-            renderEnergyFlowChart('energy-chart', cachedEnergyData, dashboardStart, dashboardEnd, currentFoR);
+    function reloadEnergyChart() {
+        if (dashboardStart && dashboardEnd) {
+            var hours = parseInt(document.getElementById('range-select').value);
+            var bucketMinutes = getBucketMinutes(hours);
+            loadEnergyChart('energy-chart', dashboardStart, dashboardEnd, bucketMinutes);
         }
     }
 
@@ -548,7 +552,7 @@
                 btn.classList.add('active');
                 currentFoR = btn.dataset.value || 'multiplus';
                 Settings.savePagePref('dashboard', 'for', currentFoR);
-                renderEnergyOnly();
+                reloadEnergyChart();
             });
         });
 

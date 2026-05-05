@@ -12,20 +12,20 @@
  */
 
 /**
- * @typedef {Object} BatteryEnergySeries
- * @property {(number | null)[]} [energy_to_charger]
- * @property {(number | null)[]} [energy_from_inverter]
- * @property {(number | null)[]} [energy_to_battery]
- * @property {(number | null)[]} [energy_from_battery]
- * @property {(number | null)[]} [energy_loss_to_battery]
- * @property {(number | null)[]} [energy_loss_from_battery]
- */
-
-/**
  * @typedef {Object} BatteryQueriesResponse
  * @property {string} [soc_query]
  * @property {string} [schedule_soc_query]
  * @property {string} [voltage_query]
+ */
+
+/**
+ * @typedef {Object} BatterySystemQueries
+ * @property {string} [energy_to_charger]
+ * @property {string} [energy_from_inverter]
+ * @property {string} [energy_to_battery]
+ * @property {string} [energy_from_battery]
+ * @property {string} [energy_loss_to_battery]
+ * @property {string} [energy_loss_from_battery]
  */
 
 /**
@@ -35,14 +35,11 @@
  */
 
 /**
- * @typedef {Object} EnergyGraphResponse
- * @property {string[]} [timestamps]
- * @property {Object.<string, (number | null)[]>} [grid_import]
- * @property {Object.<string, (number | null)[]>} [grid_export]
- * @property {Object.<string, BatteryEnergySeries>} [battery_systems]
- * @property {(number | null)[]} [solar]
- * @property {(number | null)[]} [to_consumption]
- * @property {(number | null)[]} [from_consumption]
+ * @typedef {Object} EnergyQueriesResponse
+ * @property {string} [grid_import_query]
+ * @property {string} [grid_export_query]
+ * @property {Object.<string, BatterySystemQueries>} [battery_systems]
+ * @property {string} [solar_query]
  */
 
 /**
@@ -104,6 +101,17 @@
     },
 
     /**
+     * @returns {Promise<EnergyQueriesResponse>}
+     */
+    chartsEnergyQueries: async function() {
+        var response = await fetch('/api/charts/energy-queries');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
+
+    /**
      * @param {Annotated} params.mql_client
      * @returns {Promise<ChartsPowerResponse>}
      */
@@ -122,11 +130,11 @@
      * @param {(string | null)} [params.area]
      * @returns {Promise<PriceQueriesResponse>}
      */
-    graphPriceQueries: async function(params) {
+    chartsPriceQueries: async function(params) {
         var searchParams = new URLSearchParams();
         if (params.area !== undefined) searchParams.set('area', String(params.area));
         var query = searchParams.toString() ? '?' + searchParams.toString() : '';
-        var response = await fetch('/api/graph/price-queries' + query);
+        var response = await fetch('/api/charts/price-queries' + query);
         if (!response.ok) {
             throw new Error('HTTP ' + response.status);
         }

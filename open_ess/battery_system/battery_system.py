@@ -11,9 +11,30 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class PowerQueryDef:
-    """Definition of a power chart query."""
+class EnergyQueryDef:
+    query: str
+    label: str
 
+
+@dataclass
+class EnergyQueries:
+    queries: list[EnergyQueryDef] = field(default_factory=list)
+
+
+@dataclass
+class EnergyQuerySet:
+    """Structured energy queries for a battery system."""
+
+    energy_to_charger: str  # AC input to charger
+    energy_from_inverter: str  # AC output from inverter
+    energy_to_battery: str  # DC energy into battery
+    energy_from_battery: str  # DC energy from battery
+    energy_loss_to_battery: str  # Charge losses (AC - DC)
+    energy_loss_from_battery: str  # Discharge losses (DC - AC)
+
+
+@dataclass
+class PowerQueryDef:
     query: str
     label: str
     is_total: bool | None = None  # True=total only, False=phases only, None=both
@@ -21,16 +42,12 @@ class PowerQueryDef:
 
 @dataclass
 class PowerQueries:
-    """Power chart queries for a battery system."""
-
     queries: list[PowerQueryDef] = field(default_factory=list)
     phases: list[str] = field(default_factory=list)
 
 
 @dataclass
 class BatteryQueries:
-    """Battery chart queries (SOC, voltage, schedule)."""
-
     soc_query: str
     voltage_query: str
     schedule_soc_query: str
@@ -65,6 +82,11 @@ class BatterySystem(ABC):
     def get_soc(self) -> float | None: ...
 
     @abstractmethod
+    def get_energy_queries(self) -> EnergyQuerySet:
+        """Return structured energy queries for this battery system."""
+        ...
+
+    @abstractmethod
     def get_power_queries(self, phases: list[str] | None = None) -> PowerQueries:
         """Return power chart queries for this battery system."""
         ...
@@ -97,6 +119,30 @@ class VictronBatterySystem(BatterySystem):
 
     def get_soc(self) -> float | None:
         return self._victron_client.current_soc
+
+    def get_energy_queries(self) -> EnergyQuerySet:
+        device = self.device_serial
+
+        # AC side energy (charger input / inverter output)
+        energy_to_charger = f'increase(openess_energy_kwh{{from="ac_in", to="system", device="{device}"}}[$step])'
+        energy_from_inverter = f'increase(openess_energy_kwh{{from="system", to="ac_out", device="{device}"}}[$step])'
+
+        # DC side energy (battery charge/discharge)
+        energy_to_battery = f'increase(openess_energy_kwh{{from="system", to="battery", device="{device}"}}[$step])'
+        energy_from_battery = f'increase(openess_energy_kwh{{from="battery", to="system", device="{device}"}}[$step])'
+
+        # Losses = AC - DC (positive means energy lost as heat)
+        energy_loss_to_battery = f"({energy_to_charger}) - ({energy_to_battery})"
+        energy_loss_from_battery = f"({energy_from_battery}) - ({energy_from_inverter})"
+
+        return EnergyQuerySet(
+            energy_to_charger=energy_to_charger,
+            energy_from_inverter=energy_from_inverter,
+            energy_to_battery=energy_to_battery,
+            energy_from_battery=energy_from_battery,
+            energy_loss_to_battery=energy_loss_to_battery,
+            energy_loss_from_battery=energy_loss_from_battery,
+        )
 
     def get_power_queries(self, phases: list[str] | None = None) -> PowerQueries:
         device = self.device_serial or "unknown"
