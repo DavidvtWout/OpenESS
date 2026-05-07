@@ -109,6 +109,64 @@ var Timeseries = (function () {
     }
 
     /**
+     * Execute an instant query against the timeseries backend.
+     *
+     * @param {string} query - MetricsQL query string
+     * @param {Date} [time] - Optional evaluation time (defaults to now)
+     * @returns {Promise<Object>} Query result in Prometheus/VM format
+     */
+    async function queryInstant(query, time) {
+        var params = new URLSearchParams({ query: query });
+        if (time) {
+            params.set("time", (time.getTime() / 1000).toString());
+        }
+
+        var response = await fetch("/api/v1/query?" + params);
+        if (!response.ok) {
+            throw new Error("Query failed: HTTP " + response.status);
+        }
+        return response.json();
+    }
+
+    /**
+     * Extract a single value from an instant query result.
+     *
+     * @param {Object} result - Query result from queryInstant
+     * @returns {number|null} The value or null if not found
+     */
+    function getInstantValue(result) {
+        if (!result || !result.data || !result.data.result || result.data.result.length === 0) {
+            return null;
+        }
+        var first = result.data.result[0];
+        if (first.value && first.value.length === 2) {
+            return parseFloat(first.value[1]);
+        }
+        return null;
+    }
+
+    /**
+     * Extract all values from an instant query result as a map.
+     *
+     * @param {Object} result - Query result from queryInstant
+     * @param {string} labelKey - Label key to use as map key
+     * @returns {Object<string, number>} Map of label value to metric value
+     */
+    function getInstantValues(result, labelKey) {
+        var values = {};
+        if (!result || !result.data || !result.data.result) {
+            return values;
+        }
+        result.data.result.forEach(function(series) {
+            var key = series.metric[labelKey] || "unknown";
+            if (series.value && series.value.length === 2) {
+                values[key] = parseFloat(series.value[1]);
+            }
+        });
+        return values;
+    }
+
+    /**
      * Format metric labels into a readable string.
      *
      * @param {Object} metric - Metric labels object
@@ -192,6 +250,9 @@ var Timeseries = (function () {
         init: init,
         queryRange: queryRange,
         queryRangeRaw: queryRangeRaw,
+        queryInstant: queryInstant,
+        getInstantValue: getInstantValue,
+        getInstantValues: getInstantValues,
         toPlotlyTraces: toPlotlyTraces,
         calculateStep: calculateStep,
         formatLabels: formatLabels,

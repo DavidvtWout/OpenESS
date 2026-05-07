@@ -4,9 +4,10 @@
 
     var dashboardStart = null;
     var dashboardEnd = null;
-    var currentFoR = 'multiplus';
+    var currentEnergyView = null;    // Current energy view ID
     var currentPowerMode = 'total';  // 'total' or 'phases'
     var cachedPowerConfig = null;    // Cached power chart config
+    var cachedEnergyConfig = null;   // Cached energy chart config
     var rangeOffset = 0;
     var isRelayoutInProgress = false;
 
@@ -89,8 +90,6 @@
         });
     }
 
-    var cachedEnergyConfig = null;
-
     /**
      * Execute a MetricsQL query and return a Plotly trace.
      * @param {string} query - MetricsQL query with $step placeholder
@@ -130,6 +129,61 @@
         return null;
     }
 
+    /**
+     * Initialize energy view buttons based on config.
+     */
+    function initEnergyViewButtons() {
+        if (!cachedEnergyConfig || !cachedEnergyConfig.views) return;
+
+        var container = document.getElementById('for-buttons');
+        if (!container) return;
+
+        // Clear existing buttons
+        container.innerHTML = '';
+
+        // Create buttons for each view
+        cachedEnergyConfig.views.forEach(function(view, index) {
+            var btn = document.createElement('button');
+            btn.className = 'btn-toggle';
+            btn.dataset.value = view.id;
+            btn.textContent = view.name;
+
+            // Set first button or saved preference as active
+            if (currentEnergyView === view.id || (!currentEnergyView && index === 0)) {
+                btn.classList.add('active');
+                currentEnergyView = view.id;
+            }
+
+            btn.addEventListener('click', function() {
+                container.querySelectorAll('.btn-toggle').forEach(function(b) {
+                    b.classList.remove('active');
+                });
+                btn.classList.add('active');
+                currentEnergyView = view.id;
+                Settings.savePagePref('dashboard', 'for', currentEnergyView);
+                reloadEnergyChart();
+            });
+
+            container.appendChild(btn);
+        });
+    }
+
+    /**
+     * Get the current view config.
+     * @returns {Object|null} Current view config or null
+     */
+    function getCurrentEnergyView() {
+        if (!cachedEnergyConfig || !cachedEnergyConfig.views) return null;
+
+        for (var i = 0; i < cachedEnergyConfig.views.length; i++) {
+            if (cachedEnergyConfig.views[i].id === currentEnergyView) {
+                return cachedEnergyConfig.views[i];
+            }
+        }
+        // Fallback to first view
+        return cachedEnergyConfig.views[0] || null;
+    }
+
     async function loadEnergyChart(elementId, start, end, bucketMinutes) {
         Utils.showLoading(elementId);
 
@@ -137,48 +191,27 @@
             // Fetch query definitions (cached after first call)
             if (!cachedEnergyConfig) {
                 cachedEnergyConfig = await Api.chartsEnergyQueries();
+                initEnergyViewButtons();
+            }
+
+            var view = getCurrentEnergyView();
+            if (!view || !view.queries) {
+                Utils.showError(elementId, 'No energy view configured');
+                return;
             }
 
             var step = bucketMinutes + 'm';
             var promises = [];
 
-            // Grid queries (system-wide)
-            promises.push(executeEnergyQuery(
-                cachedEnergyConfig.grid_import_query, 'Grid Import',
-                start, end, step, { color: '#e74c3c', negate: true }
-            ));
-            promises.push(executeEnergyQuery(
-                cachedEnergyConfig.grid_export_query, 'Grid Export',
-                start, end, step, { color: '#2ecc71' }
-            ));
-
-            // Solar query (if available)
-            if (cachedEnergyConfig.solar_query) {
+            // Execute all queries for the current view
+            view.queries.forEach(function(queryDef) {
                 promises.push(executeEnergyQuery(
-                    cachedEnergyConfig.solar_query, 'Solar',
-                    start, end, step, { color: '#f1c40f' }
+                    queryDef.query,
+                    queryDef.label,
+                    start, end, step,
+                    { color: queryDef.color, negate: queryDef.negate }
                 ));
-            }
-
-            // Per-battery-system queries
-            var batteryIds = Object.keys(cachedEnergyConfig.battery_systems || {});
-            var multipleSystems = batteryIds.length > 1;
-
-            for (var i = 0; i < batteryIds.length; i++) {
-                var bsId = batteryIds[i];
-                var bs = cachedEnergyConfig.battery_systems[bsId];
-                var prefix = multipleSystems ? bsId + ' ' : '';
-
-                // AC side: charger input (charge) and inverter output (discharge)
-                promises.push(executeEnergyQuery(
-                    bs.energy_to_charger, prefix + 'Charge',
-                    start, end, step, { color: '#3498db', negate: true }
-                ));
-                promises.push(executeEnergyQuery(
-                    bs.energy_from_inverter, prefix + 'Discharge',
-                    start, end, step, { color: '#f39c12' }
-                ));
-            }
+            });
 
             var results = await Promise.all(promises);
             var traces = results.filter(function(t) { return t !== null; });
@@ -312,7 +345,7 @@
         }
     }
 
-    async function loadPriceChart(elementId, start, end) {
+    async function loadPriceChart(elementId, start, end, aggregateMinutes) {
         Utils.showLoading(elementId);
 
         // Extend end to show future prices
@@ -383,11 +416,12 @@
         }
     }
 
-    async function loadSocChart(elementId, start, end) {
+    async function loadSocChart(elementId, start, end, aggregateMinutes) {
         Utils.showLoading(elementId);
 
         try {
             // Fetch query definitions from backend
+            var step = aggregateMinutes + 'm';
             var config = await Api.chartsBatteryQueries();
             var batteryNames = Object.keys(config);
             var multipleSystems = batteryNames.length > 1;
@@ -397,9 +431,9 @@
             var queryPromises = batteryNames.map(async function(name) {
                 var queries = config[name];
                 var [socResult, scheduleResult, voltageResult] = await Promise.all([
-                    Timeseries.queryRangeRaw(queries.soc_query, start, end).catch(function() { return null; }),
-                    Timeseries.queryRangeRaw(queries.schedule_soc_query, start, end).catch(function() { return null; }),
-                    Timeseries.queryRangeRaw(queries.voltage_query, start, end).catch(function() { return null; }),
+                    Timeseries.queryRangeRaw(queries.soc_query, start, end, step).catch(function() { return null; }),
+                    Timeseries.queryRangeRaw(queries.schedule_soc_query, start, end, step).catch(function() { return null; }),
+                    Timeseries.queryRangeRaw(queries.voltage_query, start, end, step).catch(function() { return null; }),
                 ]);
                 return { name: name, socResult: socResult, scheduleResult: scheduleResult, voltageResult: voltageResult };
             });
@@ -492,8 +526,8 @@
         await Promise.all([
             loadEnergyChart('energy-chart', dashboardStart, dashboardEnd, bucketMinutes),
             loadPowerChart('power-chart', dashboardStart, dashboardEnd, aggregateMinutes),
-            loadPriceChart('prices-chart', dashboardStart, dashboardEnd),
-            loadSocChart('soc-chart', dashboardStart, dashboardEnd)
+            loadPriceChart('prices-chart', dashboardStart, dashboardEnd, aggregateMinutes),
+            loadSocChart('soc-chart', dashboardStart, dashboardEnd, aggregateMinutes)
         ]);
 
         setupZoomSync();
@@ -509,18 +543,12 @@
 
     document.addEventListener('DOMContentLoaded', function() {
         var savedRange = Settings.loadPagePref('dashboard', 'range', '24');
-        var savedFoR = Settings.loadPagePref('dashboard', 'for', 'multiplus');
+        var savedEnergyView = Settings.loadPagePref('dashboard', 'for', null);
         var savedPowerMode = Settings.loadPagePref('dashboard', 'powerMode', 'total');
 
         document.getElementById('range-select').value = savedRange;
-        currentFoR = savedFoR;
+        currentEnergyView = savedEnergyView;  // Will be validated when config loads
         currentPowerMode = savedPowerMode;
-
-        // Energy frame-of-reference buttons
-        var forButtons = document.querySelectorAll('#for-buttons .btn-toggle');
-        forButtons.forEach(function(btn) {
-            btn.classList.toggle('active', btn.dataset.value === savedFoR);
-        });
 
         // Power phase toggle buttons
         var powerPhaseButtons = document.querySelectorAll('#power-phase-buttons .btn-toggle');
@@ -544,16 +572,6 @@
                 rangeOffset--;
                 loadDashboard();
             }
-        });
-
-        forButtons.forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('#for-buttons .btn-toggle').forEach(function(b) { b.classList.remove('active'); });
-                btn.classList.add('active');
-                currentFoR = btn.dataset.value || 'multiplus';
-                Settings.savePagePref('dashboard', 'for', currentFoR);
-                reloadEnergyChart();
-            });
         });
 
         // Power phase toggle handlers

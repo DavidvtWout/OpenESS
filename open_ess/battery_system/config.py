@@ -10,42 +10,6 @@ class MqttControl(BaseModel):
     topic: str
 
 
-class QueriesConfig(BaseModel):
-    # Battery state
-    # Readings from battery (BMS) have priority over readings from vebus (MultiPlus).
-    soc: str = """
-      (
-        openess_soc_ratio{device=~"$device", node="battery", unit="battery"}
-        or
-        openess_soc_ratio{device=~"$device", node="battery", unit="vebus"}
-      ) * 100
-    """
-    voltage: str = """
-      (
-        openess_voltage_volts{device=~"$device", node="battery", unit="battery"}
-        or
-        openess_voltage_volts{device=~"$device", node="battery", unit="vebus"}
-      ) * 100
-    """
-
-    # Power
-    system_power: str = """
-      openess_power_watts{device="$device", phase=~"$phase", from="ac_in", to="system"}
-      -
-      openess_power_watts{device="$device", phase=~"$phase", from="system", to="ac_out"}
-    """
-    battery_power: str = """
-      openess_power_watts{device="$device", from="system", to="battery", unit="battery"}
-      or
-      openess_power_watts{device="$device", from="system", to="battery", unit="vebus"}
-    """
-
-    # energy_to_system: str | list[str] | None = None
-    # energy_from_system: str | list[str] | None = None
-    # energy_to_battery: str | list[str] | None = None
-    # energy_from_battery: str | list[str] | None = None
-
-
 class BatterySystemConfig(BaseModel):
     name: str | None = None
     monitor_only: bool = False

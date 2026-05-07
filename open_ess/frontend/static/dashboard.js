@@ -71,6 +71,7 @@
                 '</div>' +
                 '<div class="block-label">' + battery.name + '</div>' +
                 '<div class="block-values">' +
+                    '<div class="phase-value" id="' + battery.id + '-soc">SOC: --%</div>' +
                     '<div class="phase-value" id="' + battery.id + '-charger-power">Charger:</div>' +
                     '<div class="phase-value" id="' + battery.id + '-inverter-power">Inverter:</div>' +
                     '<div class="phase-value" id="' + battery.id + '-battery-power">Battery:</div>' +
@@ -180,11 +181,15 @@
 
         for (var k = 0; k < layout.battery_systems.length; k++) {
             var battery = layout.battery_systems[k];
-            var battData = data.batteries[battery.id];
+            var battData = data.batteries[battery.id] || {};
             var chargerPwr = battData.charger || 0;
             var inverterPwr = battData.inverter || 0;
             var batteryPwr = battData.battery || 0;
             var lossesPwr = battData.losses || 0;
+            var soc = battData.soc;
+
+            var socEl = document.getElementById(battery.id + '-soc');
+            if (socEl) socEl.textContent = 'SOC: ' + (soc != null ? Math.round(soc) + '%' : '--%');
 
             var chargerEl = document.getElementById(battery.id + '-charger-power');
             if (chargerEl) chargerEl.textContent = 'Charger: ' + formatPower(chargerPwr);

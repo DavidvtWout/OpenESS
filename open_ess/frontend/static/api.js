@@ -19,27 +19,29 @@
  */
 
 /**
- * @typedef {Object} BatterySystemQueries
- * @property {string} [energy_to_charger]
- * @property {string} [energy_from_inverter]
- * @property {string} [energy_to_battery]
- * @property {string} [energy_from_battery]
- * @property {string} [energy_loss_to_battery]
- * @property {string} [energy_loss_from_battery]
+ * @typedef {Object} EnergyQueryDef
+ * @property {string} query
+ * @property {string} label
+ * @property {string} color
+ * @property {boolean} [negate]
+ */
+
+/**
+ * @typedef {Object} EnergyViewConfig
+ * @property {string} id
+ * @property {string} name
+ * @property {EnergyQueryDef[]} queries
+ */
+
+/**
+ * @typedef {Object} EnergyQueriesResponse
+ * @property {EnergyViewConfig[]} views
  */
 
 /**
  * @typedef {Object} ChartsPowerResponse
  * @property {PowerQueryDef[]} [queries]
  * @property {string[]} [phases]
- */
-
-/**
- * @typedef {Object} EnergyQueriesResponse
- * @property {string} [grid_import_query]
- * @property {string} [grid_export_query]
- * @property {Object.<string, BatterySystemQueries>} [battery_systems]
- * @property {string} [solar_query]
  */
 
 /**
@@ -146,6 +148,79 @@
      */
     chartsBatteryQueries: async function() {
         var response = await fetch('/api/charts/battery-queries');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
+
+    /**
+     * @returns {Promise<SystemLayoutData>}
+     */
+    systemLayout: async function() {
+        var response = await fetch('/api/system-layout');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
+
+    /**
+     * @returns {Promise<PowerFlowData>}
+     */
+    powerFlow: async function() {
+        var response = await fetch('/api/power-flow');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
+
+    /**
+     * @returns {Promise<ServicesStatusResponse>}
+     */
+    servicesStatus: async function() {
+        var response = await fetch('/api/services-status');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
+
+    /**
+     * @param {Object} params
+     * @param {number} [params.aggregate_minutes]
+     * @param {number} [params.limit]
+     * @returns {Promise<Array>}
+     */
+    efficiencyScatter: async function(params) {
+        params = params || {};
+        var searchParams = new URLSearchParams();
+        if (params.aggregate_minutes !== undefined) searchParams.set('aggregate_minutes', String(params.aggregate_minutes));
+        if (params.limit !== undefined) searchParams.set('limit', String(params.limit));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/efficiency-scatter' + query);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    },
+
+    /**
+     * @param {Object} params
+     * @param {string} [params.start]
+     * @param {string} [params.end]
+     * @param {number} [params.min_soc_swing]
+     * @returns {Promise<Array>}
+     */
+    cycles: async function(params) {
+        params = params || {};
+        var searchParams = new URLSearchParams();
+        if (params.start !== undefined) searchParams.set('start', params.start);
+        if (params.end !== undefined) searchParams.set('end', params.end);
+        if (params.min_soc_swing !== undefined) searchParams.set('min_soc_swing', String(params.min_soc_swing));
+        var query = searchParams.toString() ? '?' + searchParams.toString() : '';
+        var response = await fetch('/api/cycles' + query);
         if (!response.ok) {
             throw new Error('HTTP ' + response.status);
         }

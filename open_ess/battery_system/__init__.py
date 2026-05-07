@@ -8,7 +8,7 @@ from .battery_system import (
     PowerQueryDef,
     VictronBatterySystem,
 )
-from .config import BatterySystemConfig, QueriesConfig
+from .config import BatterySystemConfig
 
 __all__ = [
     "BatteryQueries",
@@ -19,6 +19,5 @@ __all__ = [
     "EnergyQuerySet",
     "PowerQueries",
     "PowerQueryDef",
-    "QueriesConfig",
     "VictronBatterySystem",
 ]
