@@ -9,6 +9,7 @@ from entsoe.utils import add_timestamps, extract_records
 from pandas import DataFrame
 
 from open_ess.timeseries import Sample, TimeseriesBackend, VectorResult
+from open_ess.util import ms_to_dt
 
 from .areas import AREAS
 from .config import PriceConfig
@@ -89,13 +90,14 @@ class EntsoeClient:
         end_of_tomorrow = (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
 
         result: VectorResult = self._mql_client.query(
-            f'last_over_time(openess_prices{{area="{area}"}}[8w])', time=end_of_tomorrow
+            f'timestamp(openess_prices{{area="{area}", price="market"}}[8w])', time=end_of_tomorrow
         )
         if len(result.series) == 0:
             fetch_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             fetch_start -= timedelta(weeks=8)
         else:
-            latest = result.series[0].timestamp
+            latest_ms = int(result.series[0].value) * 1000
+            latest = ms_to_dt(latest_ms)
             if latest >= end_of_tomorrow:
                 return
             else:
