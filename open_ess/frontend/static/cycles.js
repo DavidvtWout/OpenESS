@@ -3,6 +3,8 @@
     'use strict';
 
     var cyclesTable = null;
+    var currentScatterMode = 'losses';  // 'losses' or 'efficiency'
+    var cachedScatterData = null;
 
     function getEfficiencyClass(efficiency) {
         if (efficiency == null) return '';
@@ -34,102 +36,128 @@
                 limit: parseInt(limit),
             });
 
-            if (data.length === 0) {
-                document.getElementById(elementId).innerHTML = '<div class="no-data">No data available</div>';
-                return;
-            }
-
-            var isDark = Utils.isDarkTheme();
-            var settings = Settings.load();
-            var useKw = settings.powerUnit === 'kw';
-            var divisor = useKw ? 1000 : 1;
-            var powerUnit = useKw ? 'kW' : 'W';
-
-            var categories = {
-                charging: { data: [], color: 'rgba(52, 152, 219, 0.5)', name: 'Charging' },
-                discharging: { data: [], color: 'rgba(231, 76, 60, 0.5)', name: 'Discharging' },
-                idling: { data: [], color: 'rgba(149, 165, 166, 0.5)', name: 'Idling' },
-                balancing: { data: [], color: 'rgba(155, 89, 182, 0.5)', name: 'Balancing' },
-            };
-
-            for (var i = 0; i < data.length; i++) {
-                var d = data[i];
-                if (d.category && categories[d.category]) {
-                    categories[d.category].data.push(d);
-                }
-            }
-
-            function fmtPower(w) {
-                return useKw ? (w / 1000).toFixed(2) : Math.round(w).toString();
-            }
-
-            function buildHoverText(d) {
-                var eff = d.efficiency != null ? d.efficiency.toFixed(1) + '%' : 'N/A';
-                var soc = d.soc != null ? d.soc + '%' : 'N/A';
-                var time = formatScatterTime(d.time || '');
-
-                switch (d.category) {
-                    case 'charging':
-                        return 'Time: ' + time + '<br>SOC: ' + soc + '<br>Battery: ' + fmtPower(d.battery_power || 0) + ' ' + powerUnit + '<br>Charger: ' + fmtPower(d.inverter_charger_power || 0) + ' ' + powerUnit + '<br>Losses: ' + fmtPower(d.losses || 0) + ' ' + powerUnit + '<br>Efficiency: ' + eff;
-                    case 'discharging':
-                        return 'Time: ' + time + '<br>SOC: ' + soc + '<br>Battery: ' + fmtPower(d.battery_power || 0) + ' ' + powerUnit + '<br>Inverter: ' + fmtPower(Math.abs(d.inverter_charger_power || 0)) + ' ' + powerUnit + '<br>Losses: ' + fmtPower(d.losses || 0) + ' ' + powerUnit + '<br>Efficiency: ' + eff;
-                    case 'balancing':
-                        return 'Time: ' + time + '<br>SOC: ' + soc + '<br>Battery: ' + fmtPower(d.battery_power || 0) + ' ' + powerUnit + '<br>Balancing power';
-                    case 'idling':
-                        return 'Time: ' + time + '<br>SOC: ' + soc + '<br>Idle consumption: ' + fmtPower(d.losses || 0) + ' ' + powerUnit;
-                    default:
-                        return 'Time: ' + time;
-                }
-            }
-
-            var traces = Object.keys(categories).map(function(key) {
-                var cat = categories[key];
-                return {
-                    x: cat.data.map(function(d) { return (d.battery_power || 0) / divisor; }),
-                    y: cat.data.map(function(d) { return (d.losses || 0) / divisor; }),
-                    type: 'scatter',
-                    mode: 'markers',
-                    name: cat.name,
-                    marker: { color: cat.color, size: 8 },
-                    text: cat.data.map(buildHoverText),
-                    hoverinfo: 'text',
-                };
-            });
-
-            var layout = {
-                margin: { t: 30, r: 30, b: 60, l: 60 },
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-                font: {
-                    family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                    color: isDark ? '#e4e4e4' : '#333333',
-                },
-                xaxis: {
-                    title: 'Battery Power (' + powerUnit + ')',
-                    gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
-                    linecolor: isDark ? '#3a3a5a' : '#dddddd',
-                    rangemode: 'tozero',
-                },
-                yaxis: {
-                    title: 'Losses (' + powerUnit + ')',
-                    gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
-                    linecolor: isDark ? '#3a3a5a' : '#dddddd',
-                    rangemode: 'tozero',
-                },
-                legend: {
-                    orientation: 'h',
-                    y: -0.15,
-                    font: { color: isDark ? '#e4e4e4' : '#333333' },
-                },
-                hovermode: 'closest',
-            };
-
-            document.getElementById(elementId).innerHTML = '';
-            Plotly.newPlot(elementId, traces, layout, { responsive: true, displayModeBar: false });
+            cachedScatterData = data;
+            renderScatterChart(data);
 
         } catch (error) {
             console.error('Error loading scatter chart:', error);
             document.getElementById(elementId).innerHTML = '<div class="error">Failed to load scatter chart</div>';
+        }
+    }
+
+    function renderScatterChart(data) {
+        var elementId = 'scatter-chart';
+
+        if (!data || data.length === 0) {
+            document.getElementById(elementId).innerHTML = '<div class="no-data">No data available</div>';
+            return;
+        }
+
+        var isDark = Utils.isDarkTheme();
+        var settings = Settings.load();
+        var useKw = settings.powerUnit === 'kw';
+        var divisor = useKw ? 1000 : 1;
+        var powerUnit = useKw ? 'kW' : 'W';
+        var isEfficiencyMode = currentScatterMode === 'efficiency';
+
+        var categories = {
+            charging: { data: [], color: 'rgba(52, 152, 219, 0.5)', name: 'Charging' },
+            discharging: { data: [], color: 'rgba(231, 76, 60, 0.5)', name: 'Discharging' },
+            idling: { data: [], color: 'rgba(149, 165, 166, 0.5)', name: 'Idling' },
+            balancing: { data: [], color: 'rgba(155, 89, 182, 0.5)', name: 'Balancing' },
+        };
+
+        for (var i = 0; i < data.length; i++) {
+            var d = data[i];
+            if (d.category && categories[d.category]) {
+                // For efficiency mode, only include points with valid efficiency
+                if (!isEfficiencyMode || d.efficiency != null) {
+                    categories[d.category].data.push(d);
+                }
+            }
+        }
+
+        function fmtPower(w) {
+            return useKw ? (w / 1000).toFixed(2) : Math.round(w).toString();
+        }
+
+        function buildHoverText(d) {
+            var eff = d.efficiency != null ? d.efficiency.toFixed(1) + '%' : 'N/A';
+            var soc = d.soc != null ? d.soc + '%' : 'N/A';
+            var time = formatScatterTime(d.time || '');
+
+            switch (d.category) {
+                case 'charging':
+                    return 'Time: ' + time + '<br>SOC: ' + soc + '<br>Battery: ' + fmtPower(d.battery_power || 0) + ' ' + powerUnit + '<br>Charger: ' + fmtPower(d.inverter_charger_power || 0) + ' ' + powerUnit + '<br>Losses: ' + fmtPower(d.losses || 0) + ' ' + powerUnit + '<br>Efficiency: ' + eff;
+                case 'discharging':
+                    return 'Time: ' + time + '<br>SOC: ' + soc + '<br>Battery: ' + fmtPower(d.battery_power || 0) + ' ' + powerUnit + '<br>Inverter: ' + fmtPower(Math.abs(d.inverter_charger_power || 0)) + ' ' + powerUnit + '<br>Losses: ' + fmtPower(d.losses || 0) + ' ' + powerUnit + '<br>Efficiency: ' + eff;
+                case 'balancing':
+                    return 'Time: ' + time + '<br>SOC: ' + soc + '<br>Battery: ' + fmtPower(d.battery_power || 0) + ' ' + powerUnit + '<br>Balancing power';
+                case 'idling':
+                    return 'Time: ' + time + '<br>SOC: ' + soc + '<br>Idle consumption: ' + fmtPower(d.losses || 0) + ' ' + powerUnit;
+                default:
+                    return 'Time: ' + time;
+            }
+        }
+
+        var traces = Object.keys(categories).map(function(key) {
+            var cat = categories[key];
+            return {
+                x: cat.data.map(function(d) { return (d.battery_power || 0) / divisor; }),
+                y: cat.data.map(function(d) {
+                    if (isEfficiencyMode) {
+                        return d.efficiency || 0;
+                    }
+                    return (d.losses || 0) / divisor;
+                }),
+                type: 'scatter',
+                mode: 'markers',
+                name: cat.name,
+                marker: { color: cat.color, size: 8 },
+                text: cat.data.map(buildHoverText),
+                hoverinfo: 'text',
+            };
+        });
+
+        var yAxisTitle = isEfficiencyMode ? 'Efficiency (%)' : 'Losses (' + powerUnit + ')';
+        var yAxisRange = isEfficiencyMode ? [50, 100] : undefined;
+
+        var layout = {
+            margin: { t: 30, r: 30, b: 60, l: 60 },
+            paper_bgcolor: 'transparent',
+            plot_bgcolor: 'transparent',
+            font: {
+                family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                color: isDark ? '#e4e4e4' : '#333333',
+            },
+            xaxis: {
+                title: 'Battery Power (' + powerUnit + ')',
+                gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
+                linecolor: isDark ? '#3a3a5a' : '#dddddd',
+                rangemode: 'tozero',
+            },
+            yaxis: {
+                title: yAxisTitle,
+                gridcolor: isDark ? '#2a2a4a' : '#eeeeee',
+                linecolor: isDark ? '#3a3a5a' : '#dddddd',
+                rangemode: isEfficiencyMode ? undefined : 'tozero',
+                range: yAxisRange,
+            },
+            legend: {
+                orientation: 'h',
+                y: -0.15,
+                font: { color: isDark ? '#e4e4e4' : '#333333' },
+            },
+            hovermode: 'closest',
+        };
+
+        document.getElementById(elementId).innerHTML = '';
+        Plotly.newPlot(elementId, traces, layout, { responsive: true, displayModeBar: false });
+    }
+
+    function reloadScatterFromCache() {
+        if (cachedScatterData) {
+            renderScatterChart(cachedScatterData);
         }
     }
 
@@ -241,6 +269,24 @@
         document.getElementById('scatter-limit-select').value = Settings.loadPagePref('cycles', 'limit', '2000');
         document.getElementById('days-select').value = Settings.loadPagePref('cycles', 'days', '30');
         document.getElementById('swing-select').value = Settings.loadPagePref('cycles', 'swing', '10');
+
+        // Initialize scatter mode from saved preference
+        currentScatterMode = Settings.loadPagePref('cycles', 'scatterMode', 'losses');
+        var scatterModeButtons = document.querySelectorAll('#scatter-mode-buttons .btn-toggle');
+        scatterModeButtons.forEach(function(btn) {
+            btn.classList.toggle('active', btn.dataset.value === currentScatterMode);
+        });
+
+        // Scatter mode toggle handlers
+        scatterModeButtons.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('#scatter-mode-buttons .btn-toggle').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                currentScatterMode = btn.dataset.value || 'losses';
+                Settings.savePagePref('cycles', 'scatterMode', currentScatterMode);
+                reloadScatterFromCache();
+            });
+        });
 
         document.getElementById('scatter-aggregate-select').addEventListener('change', function(e) {
             Settings.savePagePref('cycles', 'aggregate', e.target.value);

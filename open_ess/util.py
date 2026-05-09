@@ -1,5 +1,6 @@
 import argparse
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
 
@@ -70,3 +71,13 @@ def parse_args(description: str) -> argparse.Namespace:
         help="Path to config file (YAML)",
     )
     return parser.parse_args()
+
+
+def dt_to_ms(dt: datetime) -> int:
+    """UTC datetime to Unix milliseconds."""
+    return int(dt.timestamp() * 1000)
+
+
+def ms_to_dt(ms: int) -> datetime:
+    """Unix milliseconds to UTC datetime."""
+    return datetime.fromtimestamp(ms / 1000, tz=UTC)

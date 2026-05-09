@@ -1,12 +1,51 @@
 from collections.abc import Iterable
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from open_ess.timeseries import InstantQueryResult, RangeQueryResult
 
 
 class TimeSeries(BaseModel):
     timestamps: list[datetime]
     values: list[float]
+
+
+def range_result_to_timeseries(result: "RangeQueryResult", rounding: int | None = None) -> TimeSeries:
+    """Convert a RangeQueryResult to TimeSeries format.
+
+    Takes the first series if multiple are returned.
+    """
+    timestamps: list[datetime] = []
+    values: list[float] = []
+
+    if result.series:
+        series = result.series[0]
+        for ts, val in series.values:
+            timestamps.append(ts)
+            if rounding is not None:
+                values.append(round(val, rounding))
+            else:
+                values.append(val)
+
+    return TimeSeries(timestamps=timestamps, values=values)
+
+
+def instant_result_to_value(result: "InstantQueryResult") -> float | None:
+    """Extract the value from an instant query result.
+
+    For ScalarResult, returns the scalar value.
+    For VectorResult, returns the first series' value.
+    """
+    from open_ess.timeseries import ScalarResult, VectorResult
+
+    if isinstance(result, ScalarResult):
+        return result.value
+    if isinstance(result, VectorResult) and result.series:
+        return result.series[0].value
+    return None
 
 
 def data_to_timeseries(data: Iterable[tuple[datetime, float]], rounding: int | None = None) -> TimeSeries:

@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from open_ess.victron_modbus import VictronConfig
 
@@ -9,24 +9,9 @@ class MqttControl(BaseModel):
     type: Literal["mqtt"] = "mqtt"
     topic: str
 
-    @property
-    def metrics_prefix(self) -> str:
-        return f"mqtt/{self.topic}"
-
-
-class MetricsConfig(BaseModel):
-    battery_soc: str | list[str] | None = None
-    battery_voltage: str | list[str] | None = None
-    power_to_system: str | list[str] | None = None
-    power_to_battery: str | list[str] | None = None
-    energy_to_system: str | list[str] | None = None
-    energy_from_system: str | list[str] | None = None
-    energy_to_battery: str | list[str] | None = None
-    energy_from_battery: str | list[str] | None = None
-
 
 class BatterySystemConfig(BaseModel):
-    name: str | None = None  # Is set to self.id if not provided.
+    name: str | None = None
     monitor_only: bool = False
     phases: int = 1
     capacity_kwh: float | None = None
@@ -37,15 +22,6 @@ class BatterySystemConfig(BaseModel):
     max_soc: int = 100
 
     control: Annotated[VictronConfig | MqttControl, Field(discriminator="type")]
-    metrics: MetricsConfig = MetricsConfig()
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def id(self) -> str:
-        if isinstance(self.control, VictronConfig):
-            return f"victron/vebus/{self.control.vebus_id}"
-        else:
-            return f"mqtt/{self.control.topic}"
 
     @property
     def is_victron(self) -> bool:
@@ -62,57 +38,4 @@ class BatterySystemConfig(BaseModel):
                 raise ValueError(
                     "max_invert_power_kw is not configured. Either set a value or set monitor_only to True."
                 )
-        return self
-
-    @model_validator(mode="after")
-    def set_defaults(self) -> "BatterySystemConfig":
-        if self.name is None:
-            self.name = self.id
-
-        if isinstance(self.control, VictronConfig):
-            vebus_prefix = self.control.vebus_prefix
-            bms_prefix = self.control.battery_prefix
-
-            if self.metrics.battery_soc is None:
-                if bms_prefix:
-                    self.metrics.battery_soc = [f"{bms_prefix}/soc", f"{vebus_prefix}/soc"]
-                else:
-                    self.metrics.battery_soc = f"{vebus_prefix}/soc"
-            if self.metrics.battery_voltage is None:
-                if bms_prefix:
-                    self.metrics.battery_voltage = [f"{bms_prefix}/voltage/battery", f"{vebus_prefix}/voltage/battery"]
-                else:
-                    self.metrics.battery_voltage = f"{vebus_prefix}/voltage/battery"
-            if self.metrics.power_to_system is None:
-                self.metrics.power_to_system = f"{vebus_prefix}/power/ac_in/l1"
-            if self.metrics.power_to_battery is None:
-                if bms_prefix:
-                    self.metrics.power_to_battery = [f"{bms_prefix}/power/battery", f"{vebus_prefix}/power/battery"]
-                else:
-                    self.metrics.power_to_battery = f"{vebus_prefix}/power/battery"
-            if self.metrics.energy_to_system is None:
-                self.metrics.energy_to_system = f"{vebus_prefix}/energy/ac_in_import"  # TODO + ac_out_import
-            if self.metrics.energy_from_system is None:
-                self.metrics.energy_from_system = f"{vebus_prefix}/energy/ac_in_export"  # TODO + ac_out_export
-            if self.metrics.energy_to_battery is None:
-                if bms_prefix:
-                    self.metrics.energy_to_battery = [
-                        f"{bms_prefix}/energy/charged_energy",
-                        f"{bms_prefix}/power/battery",  # integrate power to obtain energy
-                        f"{vebus_prefix}/power/battery",  # integrate power to obtain energy
-                    ]
-                else:
-                    self.metrics.energy_to_battery = f"{vebus_prefix}/power/battery"
-            if self.metrics.energy_from_battery is None:
-                if bms_prefix:
-                    self.metrics.energy_from_battery = [
-                        f"{bms_prefix}/energy/discharged_energy",
-                        f"-{bms_prefix}/power/battery",  # integrate power to obtain energy
-                        f"-{vebus_prefix}/power/battery",  # integrate power to obtain energy
-                    ]
-                else:
-                    self.metrics.energy_from_battery = f"-{vebus_prefix}/power/battery"
-        else:
-            pass  # TODO
-
         return self

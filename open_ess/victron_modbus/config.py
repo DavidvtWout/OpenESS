@@ -18,11 +18,3 @@ class VictronConfig(BaseModel):
 
     disable_charger_when_idle: bool = False
     disable_inverter_when_idle: bool = False
-
-    @property
-    def vebus_prefix(self) -> str:
-        return f"victron/vebus/{self.vebus_id}"
-
-    @property
-    def battery_prefix(self) -> str | None:
-        return f"victron/battery/{self.battery_id}" if self.battery_id else None

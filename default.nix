@@ -1,6 +1,6 @@
 { lib, buildPythonPackage, fetchPypi, setuptools, setuptools-scm, entsoe-apy
 , fastapi, jinja2, numpy, pandas, pydantic, pymodbus, pyomo, pyyaml, uvicorn
-, xsdata, httpx }:
+, xsdata, httpx, urllib3, python-snappy, metricsqlite }:
 
 buildPythonPackage {
   pname = "open-ess";
@@ -11,6 +11,7 @@ buildPythonPackage {
 
   nativeBuildInputs = [ setuptools setuptools-scm ];
   propagatedBuildInputs = [
+    metricsqlite
     entsoe-apy
     fastapi
     jinja2
@@ -21,6 +22,9 @@ buildPythonPackage {
     pyomo
     pyyaml
     uvicorn
+    # Victoriametrics client
+    urllib3
+    python-snappy
   ];
 
   meta = with lib; {

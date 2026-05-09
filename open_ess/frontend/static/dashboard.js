@@ -15,6 +15,7 @@
 
     function renderPowerFlowDiagram(container, layout) {
         var batteryCount = layout.battery_systems.length;
+        var solarCount = layout.solar_inverters.length;
 
         var html = '<div class="power-flow-grid">' +
             '<svg class="power-flow-lines" id="power-flow-svg"></svg>' +
@@ -29,12 +30,12 @@
                 '</div>' +
                 '<div class="block-label">Grid</div>' +
                 '<div class="block-values" id="grid-values">' +
-                    layout.phases.map(function(p) { return '<div class="phase-value" id="grid-L' + p + '">L' + p + ': -- W</div>'; }).join('') +
+                    layout.grid_phases.map(function(p) { return '<div class="phase-value" id="grid-' + p + '">' + p + ': -- W</div>'; }).join('') +
                 '</div>' +
                 '<div class="block-total" id="grid-total">-- W</div>' +
             '</div>';
 
-        if (layout.has_solar) {
+        if (solarCount >= 1) {
             html += '<div class="power-block solar-block" id="block-solar">' +
                 '<div class="block-icon">' +
                     '<svg viewBox="0 0 24 24" fill="currentColor">' +
@@ -54,7 +55,7 @@
             '</div>' +
             '<div class="block-label">Consumption</div>' +
             '<div class="block-values" id="consumption-values">' +
-                layout.phases.map(function(p) { return '<div class="phase-value" id="consumption-L' + p + '">L' + p + ': -- W</div>'; }).join('') +
+                layout.grid_phases.map(function(p) { return '<div class="phase-value" id="consumption-' + p + '">' + p + ': -- W</div>'; }).join('') +
             '</div>' +
             '<div class="block-total" id="consumption-total">-- W</div>' +
         '</div>';
@@ -71,6 +72,7 @@
                 '</div>' +
                 '<div class="block-label">' + battery.name + '</div>' +
                 '<div class="block-values">' +
+                    '<div class="phase-value" id="' + battery.id + '-soc">SOC: --%</div>' +
                     '<div class="phase-value" id="' + battery.id + '-charger-power">Charger:</div>' +
                     '<div class="phase-value" id="' + battery.id + '-inverter-power">Inverter:</div>' +
                     '<div class="phase-value" id="' + battery.id + '-battery-power">Battery:</div>' +
@@ -123,7 +125,7 @@
             paths += '<path class="flow-line" id="line-consumption" d="M ' + hubCenterX + ' ' + hubCenterY + ' L ' + endX + ' ' + endY + '" />';
         }
 
-        if (layout.has_solar) {
+        if (layout.solar_inverters.length >= 1) {
             var solarBlock = document.getElementById('block-solar');
             if (solarBlock) {
                 var solarRect = solarBlock.getBoundingClientRect();
@@ -149,12 +151,12 @@
 
     function updatePowerFlowData(layout, data) {
         var gridTotal = 0;
-        for (var i = 0; i < layout.phases.length; i++) {
-            var phase = layout.phases[i];
-            var value = data.grid['L' + phase] || 0;
+        for (var i = 0; i < layout.grid_phases.length; i++) {
+            var phase = layout.grid_phases[i];
+            var value = data.grid[phase] || 0;
             gridTotal += value;
-            var el = document.getElementById('grid-L' + phase);
-            if (el) el.textContent = 'L' + phase + ': ' + formatPower(value);
+            var el = document.getElementById('grid-' + phase);
+            if (el) el.textContent = phase + ': ' + formatPower(value);
         }
         var gridTotalEl = document.getElementById('grid-total');
         if (gridTotalEl) {
@@ -163,28 +165,32 @@
         }
 
         var consTotal = 0;
-        for (var j = 0; j < layout.phases.length; j++) {
-            var p = layout.phases[j];
-            var v = data.consumption['L' + p] || 0;
+        for (var j = 0; j < layout.grid_phases.length; j++) {
+            var p = layout.grid_phases[j];
+            var v = data.consumption[p] || 0;
             consTotal += v;
-            var cel = document.getElementById('consumption-L' + p);
-            if (cel) cel.textContent = 'L' + p + ': ' + formatPower(v);
+            var cel = document.getElementById('consumption-' + p);
+            if (cel) cel.textContent = p + ': ' + formatPower(v);
         }
         var consTotalEl = document.getElementById('consumption-total');
         if (consTotalEl) consTotalEl.textContent = formatPower(consTotal);
 
-        if (layout.has_solar && data.solar !== null) {
+        if (layout.solar_inverters.length >= 1 && data.solar !== null) {
             var solarEl = document.getElementById('solar-total');
             if (solarEl) solarEl.textContent = formatPower(data.solar);
         }
 
         for (var k = 0; k < layout.battery_systems.length; k++) {
             var battery = layout.battery_systems[k];
-            var battData = data.batteries[battery.id];
+            var battData = data.batteries[battery.id] || {};
             var chargerPwr = battData.charger || 0;
             var inverterPwr = battData.inverter || 0;
             var batteryPwr = battData.battery || 0;
             var lossesPwr = battData.losses || 0;
+            var soc = battData.soc;
+
+            var socEl = document.getElementById(battery.id + '-soc');
+            if (socEl) socEl.textContent = 'SOC: ' + (soc != null ? Math.round(soc) + '%' : '--%');
 
             var chargerEl = document.getElementById(battery.id + '-charger-power');
             if (chargerEl) chargerEl.textContent = 'Charger: ' + formatPower(chargerPwr);
@@ -222,7 +228,7 @@
             consLine.classList.toggle('flow-active', Math.abs(consTotal) > 50);
         }
 
-        if (layout.has_solar && data.solar !== null) {
+        if (layout.solar_inverters.length >= 1 && data.solar !== null) {
             var solarLine = document.getElementById('line-solar');
             if (solarLine) {
                 solarLine.classList.toggle('flow-generating', data.solar > 50);

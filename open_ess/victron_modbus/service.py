@@ -2,8 +2,8 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from open_ess.database import Database
 from open_ess.service import Service
+from open_ess.timeseries import TimeseriesBackend
 
 from .client import VictronClient
 
@@ -14,12 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 class VictronService(Service):
-    """Collects measurements from Victron GX every second."""
-
-    def __init__(self, db: Database, config: "BatterySystemConfig"):
+    def __init__(
+        self,
+        config: "BatterySystemConfig",
+        mql_client: TimeseriesBackend | None = None,
+    ):
         super().__init__("VictronService")
-        self._config = config
-        self._client = VictronClient(db, config)
+        self._client = VictronClient(config, mql_client)
 
     @property
     def client(self) -> VictronClient:
@@ -32,7 +33,7 @@ class VictronService(Service):
 
     def tick(self) -> None:
         self._client.write_setpoints()
-        self._client.collect_and_store_measurements()
+        self._client.scrape_metrics()
 
     def wait_until_next(self) -> None:
         # Sleep until the start of the next second

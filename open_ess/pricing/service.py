@@ -1,7 +1,7 @@
 import logging
 
-from open_ess.database import Database, DatabaseConnection
 from open_ess.service import Service
+from open_ess.timeseries import TimeseriesBackend
 
 from .client import EntsoeClient
 from .config import PriceConfig
@@ -10,20 +10,15 @@ logger = logging.getLogger(__name__)
 
 
 class EntsoeService(Service):
-    """Fetches day-ahead prices from ENTSO-E at regular intervals."""
-
-    def __init__(self, db: Database, config: PriceConfig):
+    def __init__(self, mql_client: TimeseriesBackend, config: PriceConfig):
         super().__init__("EntsoeService")
-        self._db = db
+        self._mql_client = mql_client
         self._config = config
         self._check_interval = 3600
         self._client: EntsoeClient | None = None
-        self._db_conn: DatabaseConnection | None = None
 
     def on_start(self) -> None:
-        self._db_conn = self._db.connect()
-        self._client = EntsoeClient(self._config, self._db_conn)
-        self._fetch_prices()
+        self._client = EntsoeClient(self._config, self._mql_client)
 
     def tick(self) -> None:
         self._fetch_prices()
@@ -32,7 +27,7 @@ class EntsoeService(Service):
         if self._client is None:
             return None
         try:
-            self._client.fetch_missing_prices()
+            self._client.fetch_missing_prices(self._config.area)
         except Exception as e:
             logger.error(f"Failed to fetch ENTSO-E prices: {e}")
 
