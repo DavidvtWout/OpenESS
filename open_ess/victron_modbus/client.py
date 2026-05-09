@@ -59,7 +59,8 @@ class VictronClient:
         if not self._config.monitor_only:
             self.write(self.system_id, System.ESS_MODE, 3)
 
-        self._current_soc = self.read(self.system_id, System.BATTERY_SOC)
+        soc = self.read(self.system_id, System.BATTERY_SOC)
+        self._current_soc = soc if isinstance(soc, (int, float)) else None
 
         return True
 
@@ -146,7 +147,8 @@ class VictronClient:
         samples: list[Sample] = []
 
         def add(metric: str, value: float | None, labels: dict[str, str]) -> None:
-            labels["device"] = self.serial
+            if self.serial is not None:
+                labels["device"] = self.serial
             if value is not None:
                 samples.append(Sample(metric, value, timestamp, labels))
 

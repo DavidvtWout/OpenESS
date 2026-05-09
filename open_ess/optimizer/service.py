@@ -52,13 +52,18 @@ class OptimizerService(Service):
         ) + timedelta(minutes=self._price_config.aggregate_minutes)
         self.wait_seconds((next_run - now).total_seconds())
 
-    def _upsert_schedule(self, schedule: list[tuple[datetime, datetime, int, float]]):
+    def _upsert_schedule(self, schedule: list[tuple[datetime, datetime, int, float]]) -> None:
         """
         Schedules are stored in a bit of an insane way in the timeseries backend...
         The timestamp of each inserted sample is increased by a tiny bit, proportional to how far in
         the future the sample is. This way, a first_over_time() query will return the most recently
         generated sample for a given timestamp.
         """
+
+        device_id = self._battery_system.id
+        if device_id is None:
+            logger.warning("Cannot upsert schedule: battery system has no device ID")
+            return
 
         samples: list[Sample] = []
 
@@ -71,7 +76,7 @@ class OptimizerService(Service):
                     metric="openess_scheduled_power_watts",
                     timestamp=ts_start + delta,
                     value=power,
-                    labels={"device": self._battery_system.id},
+                    labels={"device": device_id},
                 )
             )
             samples.append(
@@ -79,7 +84,7 @@ class OptimizerService(Service):
                     metric="openess_scheduled_soc_ratio",
                     timestamp=ts_end + delta,
                     value=soc / 100,
-                    labels={"device": self._battery_system.id},
+                    labels={"device": device_id},
                 )
             )
 

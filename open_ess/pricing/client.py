@@ -89,9 +89,11 @@ class EntsoeClient:
         now = datetime.now(UTC)
         end_of_tomorrow = (now + timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        result: VectorResult = self._mql_client.query(
+        query_result = self._mql_client.query(
             f'timestamp(openess_prices{{area="{area}", price="market"}}[8w])', time=end_of_tomorrow
         )
+        assert isinstance(query_result, VectorResult)
+        result = query_result
         if len(result.series) == 0:
             fetch_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             fetch_start -= timedelta(weeks=8)
@@ -108,8 +110,8 @@ class EntsoeClient:
         if prices:
             self._upsert_prices(area, prices)
 
-    def _upsert_prices(self, area: str, prices: list[tuple[datetime, datetime, float]]):
-        def make_sample(_ts: datetime, _price_type: str, _price: float):
+    def _upsert_prices(self, area: str, prices: list[tuple[datetime, datetime, float]]) -> None:
+        def make_sample(_ts: datetime, _price_type: str, _price: float) -> Sample:
             return Sample(
                 metric="openess_prices",
                 labels={

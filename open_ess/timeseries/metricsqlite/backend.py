@@ -1,6 +1,7 @@
 import logging
 from datetime import UTC, datetime
 
+import fastapi
 from metricsqlite import MetricsQLiteClient
 from metricsqlite.engine import InstantVector, MatrixResult, RangeVectorResult, ScalarResult
 from metricsqlite.fastapi import create_router
@@ -106,8 +107,9 @@ class MetricSQLiteBackend(TimeseriesBackend):
             series.append(RangeSeries(metric=labels, values=values))
         return RangeQueryResult(series=series)
 
-    def create_fastapi_router(self):
-        return create_router(self._client)
+    def create_fastapi_router(self) -> fastapi.APIRouter:
+        router: fastapi.APIRouter = create_router(self._client)
+        return router
 
     def close(self) -> None:
         """Close the database connection."""

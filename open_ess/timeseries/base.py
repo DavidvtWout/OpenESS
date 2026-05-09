@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from open_ess.battery_system import BatterySystem
+    pass
 
 
 @dataclass
@@ -129,7 +129,7 @@ class TimeseriesBackend(ABC):
         area: str,
         start: datetime,
         end: datetime,
-        hourly=False,
+        hourly: bool = False,
         price: Literal["market", "buy", "sell"] = "market",
     ) -> list[tuple[datetime, float]]:
         """Prices are returned in currency per Kwh (usually €/kWh)."""
@@ -153,6 +153,3 @@ class TimeseriesBackend(ABC):
         if not result.series:
             return []
         return list(result.series[0].values)
-
-    def get_schedule(self, battery_system: "BatterySystem"):
-        return []
