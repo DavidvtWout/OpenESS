@@ -221,13 +221,11 @@ class VictronClient:
         )
         add(POWER_METRIC, vebus_battery_power, {"from": "system", "to": "battery", "unit": "vebus"})
         add(VOLTAGE_METRIC, vebus_dc_voltage, {"node": "battery", "unit": "vebus"})
-
-        # VEBus SOC
         vebus_soc = _get_float(vebus_values, VEBus.SOC)
         if vebus_soc is not None:
             add(SOC_METRIC, vebus_soc / 100, {"node": "battery", "unit": "vebus"})
 
-        # VEBus energy flows
+        # VEBus energy
         add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_AC_OUT), {"from": "ac_in", "to": "ac_out"})
         add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_AC_IN1_TO_BATTERY), {"from": "ac_in", "to": "system"})
         add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_AC_IN1), {"from": "ac_out", "to": "ac_in"})
@@ -235,7 +233,7 @@ class VictronClient:
         add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_BATTERY_TO_AC_OUT), {"from": "system", "to": "ac_out"})
         add(ENERGY_METRIC, _get_float(vebus_values, VEBus.ENERGY_AC_OUT_TO_BATTERY), {"from": "ac_out", "to": "system"})
 
-        # BMS (direct battery measurements)
+        # BMS
         bms_soc = None
         if self.battery_id is not None:
             bms_values = self.read_many(

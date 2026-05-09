@@ -86,11 +86,6 @@
  */
 
 /**
- * @typedef {Object} EnergyResponse
- * @property {Object.<string, TimeSeries>} [series]
- */
-
-/**
  * @typedef {Object} EnergyViewConfig
  * @property {string} [id]
  * @property {string} [name]
@@ -120,11 +115,6 @@
  */
 
 /**
- * @typedef {Object} PowerResponse
- * @property {Object.<string, TimeSeries>} [series]
- */
-
-/**
  * @typedef {Object} PriceQueriesResponse
  * @property {string} [market_query]
  * @property {string} [buy_query]
@@ -151,16 +141,16 @@
  */
 
 /**
- * @typedef {Object} SystemLayoutData
- * @property {number[]} [phases]
- * @property {boolean} [has_solar]
- * @property {BatterySystemInfo[]} [battery_systems]
+ * @typedef {Object} SolarInverterInfo
+ * @property {string} [id]
+ * @property {string} [name]
  */
 
 /**
- * @typedef {Object} TimeSeries
- * @property {string[]} [timestamps]
- * @property {number[]} [values]
+ * @typedef {Object} SystemLayoutData
+ * @property {string[]} [grid_phases]
+ * @property {BatterySystemInfo[]} [battery_systems]
+ * @property {SolarInverterInfo[]} [solar_inverters]
  */
 
 // ===================

@@ -7,9 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from open_ess.frontend.dependencies import BatterySystemsDep, MqlClientDep, PriceConfigDep
-from open_ess.timeseries import TimeseriesBackend
-
-from .util import TimeSeries
+from open_ess.timeseries import TimeseriesBackend, VectorResult
 
 if TYPE_CHECKING:
     pass
@@ -18,12 +16,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["api"])
 
 
-class PowerResponse(BaseModel):
-    series: dict[str, TimeSeries]
-
-
-class EnergyResponse(BaseModel):
-    series: dict[str, TimeSeries]
+# --------- #
+#  /health  #
+# --------- #
 
 
 class HealthResponse(BaseModel):
@@ -54,38 +49,36 @@ class BatterySystemInfo(BaseModel):
     name: str
 
 
-class SystemLayoutData(BaseModel):
-    phases: list[int]
-    has_solar: bool
+class SolarInverterInfo(BaseModel):
+    id: str
+    name: str
+
+
+class SystemLayoutResponse(BaseModel):
+    grid_phases: list[str]
     battery_systems: list[BatterySystemInfo]
+    solar_inverters: list[SolarInverterInfo]
 
 
-@router.get("/system-layout", response_model=SystemLayoutData)
+@router.get("/system-layout", response_model=SystemLayoutResponse)
 async def get_system_layout(
     mql_client: MqlClientDep,
     battery_systems: BatterySystemsDep,
-) -> SystemLayoutData:
-    # Discover phases from grid power metrics
-    phases: list[int] = []
+) -> SystemLayoutResponse:
+    phases = ["L1", "L2", "L3"]
     if mql_client:
-        result = mql_client.query('openess_power_watts{from="grid"}')
-        phase_set: set[int] = set()
-        if hasattr(result, "series"):
-            for series in result.series:
-                phase_label = series.metric.get("phase", "")
-                if phase_label.startswith("L"):
-                    phase_set.add(int(phase_label[1:]))
-        phases = sorted(phase_set) if phase_set else [1, 2, 3]
-    else:
-        phases = [1, 2, 3]
+        result: VectorResult = mql_client.query('openess_power_watts{from="grid"}')
+        phase_labels: set[str] = set()
+        for series in result.series:
+            phase_label = series.metric.get("phase", "")
+            phase_labels.add(phase_label)
+        if phase_labels:
+            phases = sorted(phase_labels)
 
-    # TODO: detect solar from metrics
-    has_solar = False
-
-    return SystemLayoutData(
-        phases=phases,
-        has_solar=has_solar,
+    return SystemLayoutResponse(
+        grid_phases=phases,
         battery_systems=[BatterySystemInfo(id=b.id, name=b.name or b.id) for b in battery_systems],
+        solar_inverters=[],  # TODO
     )
 
 
