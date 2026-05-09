@@ -14,8 +14,9 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from types import NoneType, UnionType
-from typing import Any, TypedDict, get_args, get_origin
+from typing import Annotated, Any, TypedDict, get_args, get_origin
 
+from fastapi.params import Depends
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
@@ -27,6 +28,17 @@ class _ParamInfo(TypedDict):
 
 
 logger = logging.getLogger(__name__)
+
+
+def is_dependency_injection(annotation: Any) -> bool:
+    """Check if an annotation is a FastAPI dependency (Annotated[X, Depends(...)])."""
+    if get_origin(annotation) is Annotated:
+        args = get_args(annotation)
+        # args[0] is the base type, args[1:] are the metadata
+        for metadata in args[1:]:
+            if isinstance(metadata, Depends):
+                return True
+    return False
 
 
 def python_type_to_jsdoc(python_type: Any, models: dict[str, type]) -> str:
@@ -166,11 +178,11 @@ def generate_api_function(route: APIRoute, models_dict: dict[str, type]) -> tupl
     sig = inspect.signature(endpoint)
 
     for param_name, param in sig.parameters.items():
-        # Skip dependency injection parameters
-        if param_name in ("db", "battery_configs", "price_config", "battery_systems"):
-            continue
-
         annotation = param.annotation
+
+        # Skip dependency injection parameters (Annotated[X, Depends(...)])
+        if is_dependency_injection(annotation):
+            continue
         if annotation is inspect.Parameter.empty:
             continue
 
